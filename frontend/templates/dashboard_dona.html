@@ -1,0 +1,332 @@
+{{define "dashboard_page"}}
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.EstabelecimentoNome}} · Painel Gerencial</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { 900: '#0f1117', 800: '#161b26', 700: '#1e2533', 600: '#2a3344' },
+            accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' },
+            profit: { 400: '#4ade80', 500: '#22c55e' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+    body { font-family: 'DM Sans', system-ui, sans-serif; }
+    .metric-glow { box-shadow: 0 0 40px -12px rgba(139, 92, 246, 0.25); }
+    .profit-glow { box-shadow: 0 0 40px -12px rgba(34, 197, 94, 0.3); }
+    .htmx-request .btn-label { opacity: 0.5; }
+    .htmx-request .btn-spinner { display: inline-block; }
+    .btn-spinner { display: none; }
+  </style>
+</head>
+<body class="h-full bg-surface-900 text-slate-100 antialiased">
+  <div class="min-h-full">
+    <!-- Header -->
+    <header class="border-b border-surface-600/80 bg-surface-800/80 backdrop-blur-md sticky top-0 z-30">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p class="text-xs uppercase tracking-widest text-accent-400 font-semibold mb-1">AgendaGlow · Visão Gerencial</p>
+          <h1 class="text-2xl sm:text-3xl font-bold text-white">{{.EstabelecimentoNome}}</h1>
+          <p class="text-slate-400 text-sm mt-1">Período: <span class="text-slate-200">{{.PeriodoLabel}}</span></p>
+        </div>
+        <div id="flash-area" class="hidden sm:block"></div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <!-- Métricas financeiras -->
+      <section aria-label="Métricas financeiras">
+        {{template "metricas_cards" .}}
+      </section>
+
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+        <!-- Desempenho da equipe -->
+        <section class="xl:col-span-2" aria-label="Desempenho da equipe">
+          <div class="rounded-2xl border border-surface-600 bg-surface-800/60 overflow-hidden">
+            <div class="px-6 py-5 border-b border-surface-600 flex items-center justify-between">
+              <div>
+                <h2 class="text-lg font-semibold text-white">Co-participação da Equipe</h2>
+                <p class="text-sm text-slate-400 mt-0.5">Serviços realizados e comissões a pagar no mês</p>
+              </div>
+              <span class="text-xs bg-surface-700 text-slate-300 px-3 py-1 rounded-full">{{len .Equipe}} profissionais</span>
+            </div>
+            <div id="equipe-table-wrapper" class="overflow-x-auto">
+              {{template "equipe_table" .}}
+            </div>
+          </div>
+        </section>
+
+        <!-- Lançamento rápido -->
+        <aside aria-label="Fluxo de caixa rápido">
+          <div class="rounded-2xl border border-surface-600 bg-surface-800/60 p-6 sticky top-28">
+            <h2 class="text-lg font-semibold text-white mb-1">Lançamento Rápido</h2>
+            <p class="text-sm text-slate-400 mb-6">Registre despesas e receitas extras sem sair do painel.</p>
+
+            <form
+              hx-post="/dashboard/gerencial/lancamento?start_date={{.StartDate}}&end_date={{.EndDate}}"
+              hx-swap="none"
+              class="space-y-4"
+            >
+              <input type="hidden" name="start_date" value="{{.StartDate}}">
+              <input type="hidden" name="end_date" value="{{.EndDate}}">
+
+              <div>
+                <label for="descricao" class="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Descrição</label>
+                <input
+                  id="descricao"
+                  name="descricao"
+                  type="text"
+                  required
+                  placeholder="Ex: Conta de Água"
+                  class="w-full rounded-xl bg-surface-700 border border-surface-600 text-white placeholder-slate-500 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent-500/50 focus:border-accent-500"
+                >
+              </div>
+
+              <div>
+                <label for="valor" class="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Valor (R$)</label>
+                <input
+                  id="valor"
+                  name="valor"
+                  type="text"
+                  inputmode="decimal"
+                  required
+                  placeholder="120.00"
+                  class="w-full rounded-xl bg-surface-700 border border-surface-600 text-white placeholder-slate-500 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent-500/50 focus:border-accent-500"
+                >
+              </div>
+
+              <div>
+                <label for="tipo" class="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Tipo</label>
+                <select
+                  id="tipo"
+                  name="tipo"
+                  class="w-full rounded-xl bg-surface-700 border border-surface-600 text-white px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent-500/50 focus:border-accent-500"
+                >
+                  <option value="CUSTO_FIXO">Custo Fixo (despesa)</option>
+                  <option value="ENTRADA">Entrada (receita extra)</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                class="w-full rounded-xl bg-accent-600 hover:bg-accent-500 text-white font-semibold py-3 px-4 transition-colors flex items-center justify-center gap-2"
+              >
+                <span class="btn-spinner animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></span>
+                <span class="btn-label">Salvar Lançamento</span>
+              </button>
+            </form>
+
+            <div class="mt-6 pt-6 border-t border-surface-600">
+              <p class="text-xs text-slate-500 leading-relaxed">
+                Os custos fixos entram no cálculo do lucro líquido. Comissões são geradas automaticamente ao concluir atendimentos.
+              </p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center text-xs text-slate-600">
+      AgendaGlow · Controle financeiro do seu salão
+    </footer>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "metricas_cards"}}
+<div id="metricas-cards" hx-swap-oob="true" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+  <!-- Faturamento Bruto -->
+  <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Faturamento Bruto</p>
+        <p class="text-2xl sm:text-3xl font-bold text-white mt-2">{{money .Relatorio.TotalEntradas}}</p>
+        <p class="text-xs text-slate-500 mt-1">Total de entradas no mês</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-lg">💰</div>
+    </div>
+    <div class="mt-4 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+      <div class="h-full rounded-full bg-blue-500/70" style="width: 100%"></div>
+    </div>
+  </article>
+
+  <!-- Comissões Pendentes -->
+  <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Comissões Acumuladas</p>
+        <p class="text-2xl sm:text-3xl font-bold text-amber-400 mt-2">{{money .Relatorio.TotalComissoesPendentes}}</p>
+        <p class="text-xs text-slate-500 mt-1">Pendentes para as profissionais</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400 text-lg">🤝</div>
+    </div>
+    <div class="mt-4 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+      <div class="h-full rounded-full bg-amber-500/70" style="width: {{pctOf .Relatorio.TotalComissoesPendentes .Relatorio.TotalEntradas}}%"></div>
+    </div>
+  </article>
+
+  <!-- Custos Fixos -->
+  <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Custos Fixos</p>
+        <p class="text-2xl sm:text-3xl font-bold text-rose-400 mt-2">{{money .Relatorio.TotalCustosFixos}}</p>
+        <p class="text-xs text-slate-500 mt-1">Aluguel, contas e despesas</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400 text-lg">📋</div>
+    </div>
+    <div class="mt-4 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+      <div class="h-full rounded-full bg-rose-500/70" style="width: {{pctOf .Relatorio.TotalCustosFixos .Relatorio.TotalEntradas}}%"></div>
+    </div>
+  </article>
+
+  <!-- Lucro Líquido -->
+  <article class="rounded-2xl border border-profit-500/30 bg-gradient-to-br from-surface-800 to-emerald-950/30 p-5 profit-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-profit-400/80 font-medium">Lucro Líquido Real</p>
+        <p class="text-2xl sm:text-3xl font-bold text-profit-400 mt-2">{{money .Relatorio.LucroLiquidoEstimado}}</p>
+        <p class="text-xs text-slate-500 mt-1">Faturamento − todos os custos</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-profit-500/10 flex items-center justify-center text-profit-400 text-lg">📈</div>
+    </div>
+    <div class="mt-4 flex items-center gap-2">
+      <span class="inline-flex items-center text-xs font-medium text-profit-400 bg-profit-500/10 px-2 py-1 rounded-lg">
+        {{if ge .Relatorio.LucroLiquidoEstimado 0.0}}↑ Positivo{{else}}↓ Atenção{{end}}
+      </span>
+    </div>
+  </article>
+</div>
+{{end}}
+
+{{define "equipe_table"}}
+<table class="w-full text-sm">
+  <thead>
+    <tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-surface-600">
+      <th class="px-6 py-4 font-medium">Profissional</th>
+      <th class="px-6 py-4 font-medium text-center">Serviços</th>
+      <th class="px-6 py-4 font-medium text-right">Comissão a Receber</th>
+      <th class="px-6 py-4 font-medium text-right">Ação</th>
+    </tr>
+  </thead>
+  <tbody id="equipe-table-body" class="divide-y divide-surface-600/60">
+    {{range .Equipe}}
+      {{template "equipe_row" .}}
+    {{else}}
+    <tr>
+      <td colspan="4" class="px-6 py-10 text-center text-slate-500">Nenhuma profissional cadastrada ainda.</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{define "equipe_table_oob"}}
+<tbody id="equipe-table-body" hx-swap-oob="true" class="divide-y divide-surface-600/60">
+  {{range .Equipe}}
+    {{template "equipe_row" .}}
+  {{else}}
+  <tr>
+    <td colspan="4" class="px-6 py-10 text-center text-slate-500">Nenhuma profissional cadastrada ainda.</td>
+  </tr>
+  {{end}}
+</tbody>
+{{end}}
+
+{{define "equipe_row"}}
+<tr id="equipe-row-{{.ID}}" class="hover:bg-surface-700/30 transition-colors">
+  <td class="px-6 py-4">
+    <div class="flex items-center gap-3">
+      <div class="h-9 w-9 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-semibold text-sm">
+        {{initial .Nome}}
+      </div>
+      <div>
+        <p class="font-medium text-white">{{.Nome}}</p>
+        <p class="text-xs text-slate-500">{{.Especialidade}}</p>
+      </div>
+    </div>
+  </td>
+  <td class="px-6 py-4 text-center">
+    <span class="inline-flex items-center justify-center min-w-[2rem] h-8 rounded-lg bg-surface-700 text-slate-200 font-semibold text-sm">
+      {{.ServicosMes}}
+    </span>
+  </td>
+  <td class="px-6 py-4 text-right">
+    <span class="font-semibold {{if gt .ComissaoPendente 0.0}}text-amber-400{{else}}text-slate-500{{end}}">
+      {{money .ComissaoPendente}}
+    </span>
+  </td>
+  <td class="px-6 py-4 text-right">
+    {{if gt .ComissaoPendente 0.0}}
+    <button
+      hx-post="/dashboard/gerencial/professionals/{{.ID}}/pay?start_date={{$.StartDate}}&end_date={{$.EndDate}}"
+      hx-swap="none"
+      class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 transition-colors"
+    >
+      <span class="btn-spinner animate-spin h-3 w-3 border-2 border-white/30 border-t-white rounded-full"></span>
+      <span class="btn-label">💵 Dar Baixa / Pagar</span>
+    </button>
+    {{else}}
+    <span class="text-xs text-slate-600 italic">Em dia</span>
+    {{end}}
+  </td>
+</tr>
+{{end}}
+
+{{define "equipe_row_oob"}}
+<tr id="equipe-row-{{.Profissional.ID}}" hx-swap-oob="true" class="hover:bg-surface-700/30 transition-colors">
+  <td class="px-6 py-4">
+    <div class="flex items-center gap-3">
+      <div class="h-9 w-9 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-semibold text-sm">
+        {{initial .Profissional.Nome}}
+      </div>
+      <div>
+        <p class="font-medium text-white">{{.Profissional.Nome}}</p>
+        <p class="text-xs text-slate-500">{{.Profissional.Especialidade}}</p>
+      </div>
+    </div>
+  </td>
+  <td class="px-6 py-4 text-center">
+    <span class="inline-flex items-center justify-center min-w-[2rem] h-8 rounded-lg bg-surface-700 text-slate-200 font-semibold text-sm">
+      {{.Profissional.ServicosMes}}
+    </span>
+  </td>
+  <td class="px-6 py-4 text-right">
+    <span class="font-semibold {{if gt .Profissional.ComissaoPendente 0.0}}text-amber-400{{else}}text-slate-500{{end}}">
+      {{money .Profissional.ComissaoPendente}}
+    </span>
+  </td>
+  <td class="px-6 py-4 text-right">
+    {{if gt .Profissional.ComissaoPendente 0.0}}
+    <button
+      hx-post="/dashboard/gerencial/professionals/{{.Profissional.ID}}/pay?start_date={{.StartDate}}&end_date={{.EndDate}}"
+      hx-swap="none"
+      class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 transition-colors"
+    >
+      <span class="btn-label">💵 Dar Baixa / Pagar</span>
+    </button>
+    {{else}}
+    <span class="text-xs text-emerald-400 font-medium">✓ Pago</span>
+    {{end}}
+  </td>
+</tr>
+{{end}}
+
+{{define "flash_success_oob"}}
+<div id="flash-area" hx-swap-oob="true" class="rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm px-4 py-2 animate-pulse">
+  ✓ Atualizado com sucesso
+</div>
+{{end}}

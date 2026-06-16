@@ -1,0 +1,182 @@
+{{define "profissional_page"}}
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0c0e14">
+  <title>Minha Agenda · {{.ProfissionalNome}}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            ink: { 950: '#0c0e14', 900: '#12151e', 800: '#1a1f2b', 700: '#242b3a' },
+            glow: { 400: '#c4b5fd', 500: '#a78bfa' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .safe-bottom { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
+    .timeline-dot::before {
+      content: '';
+      position: absolute;
+      left: 1.125rem;
+      top: 2.75rem;
+      bottom: -1rem;
+      width: 2px;
+      background: linear-gradient(to bottom, rgba(167,139,250,0.35), transparent);
+    }
+    .timeline-item:last-child .timeline-dot::before { display: none; }
+    .htmx-request .btn-spinner { display: inline-block; }
+    .btn-spinner { display: none; }
+  </style>
+</head>
+<body class="h-full bg-ink-950 text-slate-100 antialiased">
+  <div class="min-h-full max-w-lg mx-auto flex flex-col">
+    <!-- Header fixo mobile -->
+    <header class="sticky top-0 z-30 bg-ink-950/90 backdrop-blur-xl border-b border-ink-700/80 px-4 pt-5 pb-4">
+      <div class="flex items-center gap-3">
+        <div class="h-11 w-11 rounded-2xl bg-glow-500/20 text-glow-400 flex items-center justify-center font-bold text-lg shrink-0">
+          {{initial .ProfissionalNome}}
+        </div>
+        <div class="min-w-0">
+          <p class="text-[11px] uppercase tracking-widest text-glow-400/80 font-semibold">AgendaGlow · Minha Agenda</p>
+          <h1 class="text-lg font-bold text-white truncate">Olá, {{.ProfissionalNome}}</h1>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1 px-4 py-5 space-y-5 safe-bottom">
+      {{template "resumo_semana" .}}
+
+      {{template "timeline_section" .}}
+    </main>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "resumo_semana"}}
+<section id="resumo-semana" hx-swap-oob="true" aria-label="Extrato da semana">
+  <div class="rounded-3xl bg-gradient-to-br from-glow-500/20 via-ink-800 to-ink-900 border border-glow-500/25 p-5 shadow-lg shadow-glow-500/5">
+    <p class="text-xs uppercase tracking-widest text-glow-400/90 font-semibold mb-1">Semana · {{.ResumoSemana.PeriodoLabel}}</p>
+    <p class="text-sm text-slate-400 mb-3">Minhas Comissões Acumuladas</p>
+    <p class="text-4xl font-extrabold text-white tracking-tight">{{money .ResumoSemana.ComissaoPendente}}</p>
+    <div class="mt-4 flex items-center gap-3">
+      <div class="flex-1 rounded-2xl bg-ink-950/50 border border-ink-700 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 font-medium">Serviços Realizados</p>
+        <p class="text-2xl font-bold text-emerald-400 mt-0.5">{{.ResumoSemana.ServicosRealizados}}</p>
+      </div>
+      <div class="flex-1 rounded-2xl bg-ink-950/50 border border-ink-700 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 font-medium">Status</p>
+        <p class="text-sm font-semibold text-slate-300 mt-1.5">Comissões pendentes de pagamento pela administração</p>
+      </div>
+    </div>
+  </div>
+</section>
+{{end}}
+
+{{define "timeline_section"}}
+<section id="timeline-section" aria-label="Agenda do dia">
+  <!-- Seletor de data compacto -->
+  <div class="flex items-center justify-between gap-2 mb-4">
+    <a
+      href="/dashboard/profissional?data={{.DataAnterior}}"
+      hx-get="/dashboard/profissional/timeline?data={{.DataAnterior}}"
+      hx-target="#timeline-section"
+      hx-swap="outerHTML"
+      class="flex items-center justify-center h-12 w-12 rounded-2xl bg-ink-800 border border-ink-700 text-slate-300 active:scale-95 transition-transform"
+      aria-label="Dia anterior"
+    >‹</a>
+
+    <div class="flex-1 text-center px-2">
+      <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Agenda do dia</p>
+      <p class="text-base font-bold text-white mt-0.5 leading-tight">{{.DataLabel}}</p>
+      <input type="date" value="{{.DataSelecionada}}"
+        class="mt-2 w-full max-w-[11rem] mx-auto block rounded-xl bg-ink-800 border border-ink-700 text-slate-200 text-sm px-3 py-2"
+        onchange="window.location.href='/dashboard/profissional?data='+this.value"
+      >
+    </div>
+
+    <a
+      href="/dashboard/profissional?data={{.DataProxima}}"
+      hx-get="/dashboard/profissional/timeline?data={{.DataProxima}}"
+      hx-target="#timeline-section"
+      hx-swap="outerHTML"
+      class="flex items-center justify-center h-12 w-12 rounded-2xl bg-ink-800 border border-ink-700 text-slate-300 active:scale-95 transition-transform"
+      aria-label="Próximo dia"
+    >›</a>
+  </div>
+
+  <!-- Timeline vertical -->
+  <div class="space-y-3">
+    {{range .Agenda}}
+      {{template "agenda_card" .}}
+    {{else}}
+    <div class="rounded-3xl border border-dashed border-ink-700 bg-ink-900/50 px-6 py-14 text-center">
+      <p class="text-4xl mb-3">☀️</p>
+      <p class="text-base font-semibold text-slate-300">Nenhum agendamento neste dia</p>
+      <p class="text-sm text-slate-500 mt-1">Aproveite para descansar ou revisar sua semana.</p>
+    </div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{define "agenda_card"}}
+<article id="agenda-card-{{.ID}}" class="timeline-item relative pl-10">
+  <div class="timeline-dot absolute left-0 top-0">
+    <div class="h-9 w-9 rounded-full bg-ink-800 border-2 border-glow-500/50 flex items-center justify-center text-xs font-bold text-glow-400">
+      {{.HorarioInicio}}
+    </div>
+  </div>
+
+  <div class="rounded-3xl bg-ink-900 border border-ink-700 p-4 shadow-sm">
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div class="min-w-0">
+        <p class="text-lg font-bold text-white leading-snug truncate">{{.ClienteNome}}</p>
+        <p class="text-sm text-slate-400 mt-0.5">{{.ServicoNome}}</p>
+      </div>
+      <span class="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold uppercase tracking-wide border {{statusBadge .Status}}">
+        {{statusLabel .Status}}
+      </span>
+    </div>
+
+    {{if .Adicionais}}
+    <div class="flex flex-wrap gap-1.5 mb-3">
+      {{range .Adicionais}}
+      <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-ink-800 text-xs font-medium text-slate-300 border border-ink-700">+ {{.}}</span>
+      {{end}}
+    </div>
+    {{end}}
+
+    <div class="flex items-center justify-between gap-3 pt-1">
+      <p class="text-xs text-slate-500">{{.HorarioInicio}} — {{.HorarioFim}}</p>
+
+      {{if eq .Status "CONFIRMADO"}}
+      <button
+        hx-post="/dashboard/profissional/appointments/{{.ID}}/complete?data={{$.DataSelecionada}}"
+        hx-swap="none"
+        class="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-sm font-semibold px-4 py-3 min-h-[44px] transition-all"
+      >
+        <span class="btn-spinner h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+        <span>Atendimento Concluído</span>
+      </button>
+      {{end}}
+    </div>
+  </div>
+</article>
+{{end}}
+
+{{define "agenda_card_delete"}}
+<div id="agenda-card-{{.}}" hx-swap-oob="delete"></div>
+{{end}}

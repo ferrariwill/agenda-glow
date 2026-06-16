@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+.env.local
+*.md
+**/*_test.go
+cmd/hashgen
+_hashgen.go
+agendaglow
+**/.cursor

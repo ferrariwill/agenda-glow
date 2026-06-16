@@ -1,0 +1,119 @@
+{{define "config_servicos_page"}}
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  {{template "admin_head" .}}
+  <title>Procedimentos · {{.EstabelecimentoNome}}</title>
+</head>
+<body class="min-h-full bg-surface-950 text-slate-100 antialiased">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+    {{template "admin_header" .}}
+    {{template "admin_nav" .}}
+
+    <!-- Formulário serviço base -->
+    <section class="rounded-2xl border border-surface-600 bg-surface-900 p-6 mb-8">
+      <h2 class="text-lg font-semibold text-white mb-1">Novo Procedimento Base</h2>
+      <p class="text-sm text-slate-400 mb-5">Ex: Unha, Cabelo, Sobrancelha — preço e duração padrão.</p>
+      <form
+        hx-post="/admin/servicos"
+        hx-target="#servicos-list"
+        hx-swap="afterbegin"
+        hx-on::after-request="if(event.detail.successful) this.reset()"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Nome</label>
+          <input name="nome" required placeholder="Ex: Manicure"
+            class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 focus:border-accent-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Preço Base (R$)</label>
+          <input name="preco_base" required inputmode="decimal" placeholder="45.00"
+            class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Duração (min)</label>
+          <input name="duracao_base_minutos" required type="number" min="1" placeholder="60"
+            class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none">
+        </div>
+        <div class="sm:col-span-2 lg:col-span-4">
+          <button type="submit"
+            class="inline-flex items-center gap-2 rounded-xl bg-accent-600 hover:bg-accent-500 text-white font-semibold px-6 py-3 transition-colors">
+            <span class="btn-spinner h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            Cadastrar Serviço
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Lista de serviços -->
+    <section>
+      <h2 class="text-lg font-semibold text-white mb-4">Catálogo de Serviços</h2>
+      <div id="servicos-list" class="space-y-4">
+        {{range .Servicos}}
+          {{template "servico_card" .}}
+        {{else}}
+        <p id="servicos-empty" class="text-slate-500 text-center py-12 border border-dashed border-surface-600 rounded-2xl">
+          Nenhum serviço cadastrado. Comece pelo formulário acima.
+        </p>
+        {{end}}
+      </div>
+    </section>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "servico_card"}}
+<article class="rounded-2xl border border-surface-600 bg-surface-900 overflow-hidden">
+  <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-surface-700/80">
+    <div>
+      <h3 class="text-lg font-bold text-white">{{.Nome}}</h3>
+      <p class="text-sm text-slate-400 mt-0.5">
+        {{money .PrecoBase}} · {{.DuracaoBaseMinutos}} min
+        {{if not .Ativo}}<span class="text-rose-400">· Inativo</span>{{end}}
+      </p>
+    </div>
+    <details class="group">
+      <summary class="cursor-pointer list-none inline-flex items-center gap-2 rounded-xl bg-surface-800 hover:bg-surface-700 border border-surface-600 text-sm font-semibold text-accent-400 px-4 py-2 transition-colors">
+        + Adicionar Variação
+      </summary>
+      <div class="mt-4 p-4 rounded-xl bg-surface-800/60 border border-surface-700">
+        <p class="text-xs text-slate-500 mb-3">Ex: Alongamento em Gel, Nail Art, Cabelo Longo</p>
+        <form
+          hx-post="/admin/servicos/{{.ID}}/adicionais"
+          hx-target="#adicionais-{{.ID}}"
+          hx-swap="beforeend"
+          hx-on::after-request="if(event.detail.successful) this.reset()"
+          class="grid grid-cols-1 sm:grid-cols-3 gap-3"
+        >
+          <input name="nome" required placeholder="Nome do adicional"
+            class="rounded-lg bg-surface-900 border border-surface-600 px-3 py-2 text-sm text-white placeholder-slate-500 focus:ring-1 focus:ring-accent-500 outline-none">
+          <input name="preco_adicional" required inputmode="decimal" placeholder="Preço (+R$)"
+            class="rounded-lg bg-surface-900 border border-surface-600 px-3 py-2 text-sm text-white placeholder-slate-500 focus:ring-1 focus:ring-accent-500 outline-none">
+          <input name="duracao_adicional_minutos" required type="number" min="0" placeholder="Min extras"
+            class="rounded-lg bg-surface-900 border border-surface-600 px-3 py-2 text-sm text-white placeholder-slate-500 focus:ring-1 focus:ring-accent-500 outline-none">
+          <button type="submit" class="sm:col-span-3 rounded-lg bg-accent-600/90 hover:bg-accent-500 text-white text-sm font-semibold py-2 transition-colors">
+            Salvar Adicional
+          </button>
+        </form>
+      </div>
+    </details>
+  </div>
+
+  <div id="adicionais-{{.ID}}" class="px-5 py-3 space-y-2">
+    {{range .Adicionais}}
+      {{template "adicional_item" .}}
+    {{else}}
+    <p class="text-xs text-slate-600 py-2 italic">Nenhuma variação cadastrada.</p>
+    {{end}}
+  </div>
+</article>
+{{end}}
+
+{{define "adicional_item"}}
+<div class="flex items-center justify-between gap-3 rounded-xl bg-surface-800/80 border border-surface-700 px-4 py-2.5">
+  <span class="text-sm font-medium text-slate-200">+ {{.Nome}}</span>
+  <span class="text-xs text-slate-400 shrink-0">{{money .PrecoAdicional}} · +{{.DuracaoAdicionalMinutos}} min</span>
+</div>
+{{end}}

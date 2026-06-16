@@ -1,0 +1,155 @@
+{{define "caixa_fluxo_page"}}
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  {{template "admin_head" .}}
+  <title>Caixa · {{.EstabelecimentoNome}}</title>
+</head>
+<body class="min-h-full bg-surface-950 text-slate-100 antialiased">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+    {{template "admin_header" .}}
+    {{template "admin_nav" .}}
+
+    {{template "caixa_resumo" .Caixa}}
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Formulário lançamento -->
+      <section class="lg:col-span-1">
+        <div class="rounded-2xl border border-surface-600 bg-surface-900 p-6 sticky top-6">
+          <h2 class="text-lg font-semibold text-white mb-1">Novo Lançamento</h2>
+          <p class="text-sm text-slate-400 mb-5">Movimentações manuais fora da agenda automática.</p>
+          <form
+            hx-post="/admin/caixa/lancamento"
+            hx-swap="none"
+            hx-on::after-request="if(event.detail.successful) this.reset()"
+            class="space-y-4"
+          >
+            <div>
+              <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Descrição</label>
+              <input name="descricao" required placeholder="Ex: Conta de Água"
+                class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Valor (R$)</label>
+              <input name="valor" required inputmode="decimal" placeholder="120.00"
+                class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Tipo</label>
+              <select name="tipo"
+                class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+                <option value="CUSTO_FIXO">Custo Fixo (aluguel, água, luz)</option>
+                <option value="CUSTO_VARIAVEL">Custo Variável (insumos, esmaltes)</option>
+                <option value="ENTRADA">Entrada (receita extra)</option>
+              </select>
+            </div>
+            <button type="submit"
+              class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-600 hover:bg-accent-500 text-white font-semibold py-3 transition-colors">
+              <span class="btn-spinner h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              Registrar Lançamento
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Extrato -->
+      <section class="lg:col-span-2">
+        <div class="rounded-2xl border border-surface-600 bg-surface-900 overflow-hidden">
+          <div class="px-5 py-4 border-b border-surface-700 flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-white">Extrato do Mês</h2>
+              <p class="text-sm text-slate-400">{{.Caixa.PeriodoLabel}}</p>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-surface-700">
+                  <th class="px-5 py-3 font-medium">Data</th>
+                  <th class="px-5 py-3 font-medium">Descrição</th>
+                  <th class="px-5 py-3 font-medium">Tipo</th>
+                  <th class="px-5 py-3 font-medium text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody id="lancamentos-tbody" class="divide-y divide-surface-700/60">
+                {{range .Caixa.Lancamentos}}
+                  {{template "lancamento_row" .}}
+                {{else}}
+                <tr id="lancamentos-empty">
+                  <td colspan="4" class="px-5 py-10 text-center text-slate-500">Nenhum lançamento neste mês.</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "caixa_resumo"}}
+<div id="caixa-resumo" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+  <div class="rounded-xl bg-surface-900 border border-surface-600 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Entradas</p>
+    <p class="text-lg font-bold text-emerald-400 mt-1">{{money .Relatorio.TotalEntradas}}</p>
+  </div>
+  <div class="rounded-xl bg-surface-900 border border-surface-600 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Custos Fixos</p>
+    <p class="text-lg font-bold text-rose-400 mt-1">{{money .Relatorio.TotalCustosFixos}}</p>
+  </div>
+  <div class="rounded-xl bg-surface-900 border border-surface-600 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Comissões Pend.</p>
+    <p class="text-lg font-bold text-amber-400 mt-1">{{money .Relatorio.TotalComissoesPendentes}}</p>
+  </div>
+  <div class="rounded-xl bg-surface-900 border border-emerald-500/30 bg-gradient-to-br from-surface-900 to-emerald-950/20 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Lucro Líquido</p>
+    <p class="text-lg font-bold text-emerald-400 mt-1">{{money .Relatorio.LucroLiquidoEstimado}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "caixa_resumo_oob"}}
+<div id="caixa-resumo" hx-swap-oob="true" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+  <div class="rounded-xl bg-surface-900 border border-surface-600 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Entradas</p>
+    <p class="text-lg font-bold text-emerald-400 mt-1">{{money .Relatorio.TotalEntradas}}</p>
+  </div>
+  <div class="rounded-xl bg-surface-900 border border-surface-600 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Custos Fixos</p>
+    <p class="text-lg font-bold text-rose-400 mt-1">{{money .Relatorio.TotalCustosFixos}}</p>
+  </div>
+  <div class="rounded-xl bg-surface-900 border border-surface-600 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Comissões Pend.</p>
+    <p class="text-lg font-bold text-amber-400 mt-1">{{money .Relatorio.TotalComissoesPendentes}}</p>
+  </div>
+  <div class="rounded-xl bg-surface-900 border border-emerald-500/30 p-4">
+    <p class="text-[10px] uppercase tracking-wider text-slate-500">Lucro Líquido</p>
+    <p class="text-lg font-bold text-emerald-400 mt-1">{{money .Relatorio.LucroLiquidoEstimado}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "lancamento_row"}}
+<tr id="lancamento-{{.ID}}" class="hover:bg-surface-800/40">
+  <td class="px-5 py-3 text-slate-400 whitespace-nowrap">{{formatDateTime .DataTransacao}}</td>
+  <td class="px-5 py-3 text-white font-medium">{{.Descricao}}</td>
+  <td class="px-5 py-3">
+    <span class="inline-flex px-2 py-0.5 rounded-lg text-xs font-semibold border {{tipoBadge .Tipo}}">{{tipoLabel .Tipo}}</span>
+  </td>
+  <td class="px-5 py-3 text-right whitespace-nowrap {{valorClass .Tipo}}">{{money .Valor}}</td>
+</tr>
+{{end}}
+
+{{define "lancamento_row_oob"}}
+<tr id="lancamento-{{.ID}}" hx-swap-oob="afterbegin:#lancamentos-tbody">
+  <td class="px-5 py-3 text-slate-400 whitespace-nowrap">{{formatDateTime .DataTransacao}}</td>
+  <td class="px-5 py-3 text-white font-medium">{{.Descricao}}</td>
+  <td class="px-5 py-3">
+    <span class="inline-flex px-2 py-0.5 rounded-lg text-xs font-semibold border {{tipoBadge .Tipo}}">{{tipoLabel .Tipo}}</span>
+  </td>
+  <td class="px-5 py-3 text-right whitespace-nowrap {{valorClass .Tipo}}">{{money .Valor}}</td>
+</tr>
+{{end}}

@@ -1,0 +1,94 @@
+{{define "superadmin_planos_page"}}
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  {{template "superadmin_head" .}}
+  <title>Super Admin · Planos SaaS</title>
+</head>
+<body class="min-h-full bg-void-950 text-slate-100 antialiased grid-bg">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+    {{template "superadmin_header" .}}
+    {{template "superadmin_nav" .}}
+
+    <section class="rounded-2xl border border-neon-500/20 bg-void-900/80 backdrop-blur p-6 mb-8 shadow-neon-sm">
+      <h2 class="text-lg font-semibold text-white mb-1">Novo Plano Corporativo</h2>
+      <p class="text-sm text-slate-400 mb-5">Defina preço mensal e limite de profissionais por salão.</p>
+      <form
+        hx-post="/superadmin/planos"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful) this.reset()"
+        class="grid grid-cols-1 sm:grid-cols-3 gap-4"
+      >
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest text-slate-500 mb-1.5">Nome do Plano</label>
+          <input name="nome" required placeholder="Ex: Plano Equipe"
+            class="w-full rounded-xl bg-void-800 border border-void-700 px-4 py-2.5 text-white placeholder-slate-600 focus:border-neon-500/50 outline-none">
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest text-slate-500 mb-1.5">Preço Mensal (R$)</label>
+          <input name="preco_mensal" required inputmode="decimal" placeholder="99.90"
+            class="w-full rounded-xl bg-void-800 border border-void-700 px-4 py-2.5 text-white placeholder-slate-600 focus:border-neon-500/50 outline-none">
+        </div>
+        <div>
+          <label class="block text-[10px] uppercase tracking-widest text-slate-500 mb-1.5">Limite de Profissionais</label>
+          <input name="limite_profissionais" required type="number" min="1" placeholder="5"
+            class="w-full rounded-xl bg-void-800 border border-void-700 px-4 py-2.5 text-white placeholder-slate-600 focus:border-neon-500/50 outline-none">
+        </div>
+        <div class="sm:col-span-3">
+          <button type="submit"
+            class="inline-flex items-center gap-2 rounded-xl bg-neon-600 hover:bg-neon-500 text-white font-semibold px-6 py-3 shadow-neon-sm transition-all">
+            <span class="btn-spinner h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            Criar Plano
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section>
+      <h2 class="text-lg font-semibold text-white mb-4">Planos Ativos</h2>
+      <div id="planos-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {{range .Plans}}
+          {{if .Ativo}}{{template "plano_card" .}}{{end}}
+        {{else}}
+        <p class="text-slate-500 col-span-2 text-center py-12 border border-dashed border-void-700 rounded-2xl">Nenhum plano cadastrado.</p>
+        {{end}}
+      </div>
+    </section>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "plano_card"}}
+<article id="plano-{{.ID}}" class="rounded-2xl border border-neon-500/25 bg-gradient-to-br from-void-900 to-void-800 p-6 shadow-neon-sm hover:border-neon-500/40 transition-colors">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <h3 class="text-xl font-bold text-white">{{.Nome}}</h3>
+      <p class="text-2xl font-extrabold text-neon-400 mt-2">{{moneyMonthly .PrecoMensal}}</p>
+    </div>
+    <span class="shrink-0 h-10 w-10 rounded-xl bg-neon-500/15 border border-neon-500/30 flex items-center justify-center text-neon-400 font-bold text-sm">
+      {{.LimiteProfissionais}}
+    </span>
+  </div>
+  <p class="text-sm text-slate-400 mt-4 pt-4 border-t border-void-700">
+    Limite: <strong class="text-slate-200">{{.LimiteProfissionais}}</strong> profissional{{if ne .LimiteProfissionais 1}}is{{end}} por salão
+  </p>
+</article>
+{{end}}
+
+{{define "plano_card_oob"}}
+<article id="plano-{{.ID}}" hx-swap-oob="afterbegin:#planos-grid" class="rounded-2xl border border-neon-500/25 bg-gradient-to-br from-void-900 to-void-800 p-6 shadow-neon-sm">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <h3 class="text-xl font-bold text-white">{{.Nome}}</h3>
+      <p class="text-2xl font-extrabold text-neon-400 mt-2">{{moneyMonthly .PrecoMensal}}</p>
+    </div>
+    <span class="shrink-0 h-10 w-10 rounded-xl bg-neon-500/15 border border-neon-500/30 flex items-center justify-center text-neon-400 font-bold text-sm">
+      {{.LimiteProfissionais}}
+    </span>
+  </div>
+  <p class="text-sm text-slate-400 mt-4 pt-4 border-t border-void-700">
+    Limite: <strong class="text-slate-200">{{.LimiteProfissionais}}</strong> profissional{{if ne .LimiteProfissionais 1}}is{{end}} por salão
+  </p>
+</article>
+{{end}}

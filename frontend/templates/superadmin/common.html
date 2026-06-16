@@ -1,0 +1,55 @@
+{{define "superadmin_head"}}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          void: { 950: '#06050a', 900: '#0c0a12', 800: '#13101c', 700: '#1c1728' },
+          neon: { 400: '#c084fc', 500: '#a855f7', 600: '#9333ea' }
+        },
+        boxShadow: {
+          neon: '0 0 24px rgba(168, 85, 247, 0.25)',
+          'neon-sm': '0 0 12px rgba(168, 85, 247, 0.15)'
+        }
+      }
+    }
+  }
+</script>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+  body { font-family: 'Space Grotesk', system-ui, sans-serif; }
+  .htmx-request .btn-spinner { display: inline-block; }
+  .btn-spinner { display: none; }
+  .grid-bg {
+    background-image: radial-gradient(rgba(168,85,247,0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+</style>
+{{end}}
+
+{{define "superadmin_nav"}}
+<nav class="flex flex-wrap items-center gap-3 mb-8">
+  <a href="/superadmin/dashboard"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-all {{if eq .NavActive "dashboard"}}bg-neon-600 text-white shadow-neon-sm{{else}}bg-void-800 text-slate-400 hover:text-neon-400 border border-void-700{{end}}">
+    Salões
+  </a>
+  <a href="/superadmin/planos"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-all {{if eq .NavActive "planos"}}bg-neon-600 text-white shadow-neon-sm{{else}}bg-void-800 text-slate-400 hover:text-neon-400 border border-void-700{{end}}">
+    Planos SaaS
+  </a>
+  <span class="ml-auto text-xs text-neon-400/70 font-mono uppercase tracking-widest">Super Admin · Privado</span>
+</nav>
+{{end}}
+
+{{define "superadmin_header"}}
+<header class="mb-8">
+  <p class="text-xs uppercase tracking-[0.2em] text-neon-400 font-semibold mb-2">AgendaGlow · Command Center</p>
+  <h1 class="text-3xl font-bold text-white tracking-tight">Painel Super Admin</h1>
+  <p class="text-slate-500 text-sm mt-1">Gestão exclusiva da plataforma multi-tenant</p>
+</header>
+{{end}}

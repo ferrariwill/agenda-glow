@@ -1,0 +1,6 @@
+.env
+.env.local
+*.exe
+agendaglow
+_hashgen.go
+cmd/hashgen/

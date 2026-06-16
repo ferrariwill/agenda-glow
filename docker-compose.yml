@@ -1,0 +1,90 @@
+# =============================================================================
+# AgendaGlow — Docker Compose
+# =============================================================================
+# Rede isolada 'agenda-glow-network' para não interferir em outros stacks.
+#
+# MAPEAMENTO DE PORTAS NO HOST (escolhido para coexistir com WhatsApp Gateway):
+#   ┌─────────────────────┬──────────────┬──────────────────────────────────┐
+#   │ Serviço             │ Host         │ Conflito evitado                 │
+#   ├─────────────────────┼──────────────┼──────────────────────────────────┤
+#   │ agenda-glow-app     │ 8081         │ Gateway API (8080)               │
+#   │ postgres-glow       │ 5435         │ Postgres local (5432), GW (5433) │
+#   │ agenda-glow-front*  │ 8082         │ reservado p/ front-end futuro    │
+#   └─────────────────────┴──────────────┴──────────────────────────────────┘
+# * serviço comentado — descomente quando houver container de front-end.
+# =============================================================================
+
+name: agendaglow
+
+networks:
+  agenda-glow-network:
+    driver: bridge
+    name: agenda-glow-network
+
+volumes:
+  postgres_glow_data:
+    name: agenda_glow_postgres_data
+
+services:
+  postgres-glow:
+    image: postgres:16-alpine
+    container_name: postgres-glow
+    restart: unless-stopped
+    networks:
+      - agenda-glow-network
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-glow_secure_pwd_2026}
+      POSTGRES_DB: ${DB_NAME:-agenda_glow_prod}
+    ports:
+      # Postgres interno 5432 → host 5435 (NÃO 5432 nem 5433 do Gateway)
+      - "5435:5432"
+    volumes:
+      - postgres_glow_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-agenda_glow_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  agenda-glow-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agenda-glow-app
+    restart: unless-stopped
+    depends_on:
+      postgres-glow:
+        condition: service_healthy
+    networks:
+      - agenda-glow-network
+    env_file:
+      - .env
+    environment:
+      PORT: "8081"
+      DB_HOST: postgres-glow
+      DB_INTERNAL_PORT: "5432"
+      # Dentro da rede Docker o Postgres escuta em 5432; 5435 é só no host.
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-glow_secure_pwd_2026}@postgres-glow:5432/${DB_NAME:-agenda_glow_prod}?sslmode=disable
+      APP_BASE_URL: http://localhost:8081
+      APP_PUBLIC_URL: http://localhost:8081
+      # Gateway roda no host na 8080 — host.docker.internal alcança a máquina.
+      WHATSAPP_GATEWAY_URL: http://host.docker.internal:8080
+    ports:
+      # API AgendaGlow exclusiva — Gateway permanece na 8080
+      - "8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # --- Front-end separado (futuro) — porta 8082 reservada ---
+  # agenda-glow-frontend:
+  #   image: nginx:alpine
+  #   container_name: agenda-glow-frontend
+  #   restart: unless-stopped
+  #   networks:
+  #     - agenda-glow-network
+  #   ports:
+  #     - "8082:8082"
+  #   volumes:
+  #     - ./frontend/static:/usr/share/nginx/html:ro
