@@ -1,0 +1,58 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "AgendaGlow: API (Backend)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/backend/cmd/api",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PORT": "8081",
+        "DB_HOST": "localhost",
+        "DB_PORT": "5435",
+        "DATABASE_URL": "postgresql://postgres:glow_secure_pwd_2026@localhost:5435/agenda_glow_prod?sslmode=disable"
+      }
+    },
+    {
+      "name": "AgendaGlow: Front-end (Dev Server)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/frontend-dev",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "FRONTEND_PORT": "8082",
+        "FRONTEND_ROOT": "${workspaceFolder}/frontend/templates"
+      }
+    },
+    {
+      "name": "AgendaGlow: Migrations (Up)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/migrate",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "DB_HOST": "localhost",
+        "DB_PORT": "5435",
+        "DATABASE_URL": "postgresql://postgres:glow_secure_pwd_2026@localhost:5435/agenda_glow_prod?sslmode=disable",
+        "MIGRATIONS_DIR": "${workspaceFolder}/migrations",
+        "MIGRATE_DIRECTION": "up"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "AgendaGlow: API + Front-end",
+      "configurations": [
+        "AgendaGlow: API (Backend)",
+        "AgendaGlow: Front-end (Dev Server)"
+      ],
+      "stopAll": true
+    }
+  ]
+}
