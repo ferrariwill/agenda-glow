@@ -156,7 +156,7 @@ func (h *DashboardDonaHandler) buildDashboard(ctx context.Context, establishment
 func (h *DashboardDonaHandler) renderHTMXRefresh(w http.ResponseWriter, data *service.DashboardGerencial, professionalID string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if err := h.tmpl.ExecuteTemplate(w, "metricas_cards", data); err != nil {
+	if err := h.tmpl.ExecuteTemplate(w, "metricas_cards_oob", data); err != nil {
 		http.Error(w, "Erro ao renderizar métricas", http.StatusInternalServerError)
 		return
 	}
@@ -164,7 +164,7 @@ func (h *DashboardDonaHandler) renderHTMXRefresh(w http.ResponseWriter, data *se
 	if professionalID != "" {
 		for _, prof := range data.Equipe {
 			if prof.ID == professionalID {
-				if err := h.tmpl.ExecuteTemplate(w, "equipe_row_oob", profRowData{
+				if err := h.tmpl.ExecuteTemplate(w, "equipe_row_oob", frontend.EquipeRowView{
 					StartDate:    data.StartDate,
 					EndDate:      data.EndDate,
 					Profissional: prof,
@@ -179,12 +179,6 @@ func (h *DashboardDonaHandler) renderHTMXRefresh(w http.ResponseWriter, data *se
 	if err := h.tmpl.ExecuteTemplate(w, "flash_success_oob", nil); err != nil {
 		return
 	}
-}
-
-type profRowData struct {
-	StartDate    string
-	EndDate      string
-	Profissional service.DesempenhoProfissional
 }
 
 func parseDashboardPeriod(r *http.Request) (time.Time, time.Time, error) {

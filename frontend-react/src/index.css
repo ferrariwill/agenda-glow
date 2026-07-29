@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-aura-primary: #b78472;
+  --color-aura-primary-dark: #9a6b5a;
+  --color-aura-surface: #faf9f8;
+  --color-aura-anthracite: #2d2a28;
+  --color-aura-muted: #6b6560;
+  --color-aura-border: #e8e4e1;
+  --color-aura-warning: #f5e6c8;
+  --color-aura-warning-border: #d4a853;
+  --font-display: 'Playfair Display', serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+body {
+  @apply bg-aura-surface text-aura-anthracite font-sans antialiased;
+}

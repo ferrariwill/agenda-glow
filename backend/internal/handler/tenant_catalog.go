@@ -37,9 +37,9 @@ type createAdditionalRequest struct {
 }
 
 type createProfessionalRequest struct {
-	Nome          string  `json:"nome"`
-	Especialidade string  `json:"especialidade"`
-	Comissao      float64 `json:"comissao_porcentagem"`
+	Nome            string  `json:"nome"`
+	EspecialidadeID string  `json:"especialidade_id"`
+	Comissao        float64 `json:"comissao_porcentagem"`
 }
 
 type idResponse struct {
@@ -167,7 +167,7 @@ func (h *TenantCatalogHandler) CreateProfessional(w http.ResponseWriter, r *http
 		r.Context(),
 		establishmentID,
 		req.Nome,
-		req.Especialidade,
+		req.EspecialidadeID,
 		req.Comissao,
 	)
 	if err != nil {
@@ -176,6 +176,10 @@ func (h *TenantCatalogHandler) CreateProfessional(w http.ResponseWriter, r *http
 				Error:   "limit_reached",
 				Message: "Seu plano atingiu o limite de profissionais parceiras permitidas. Faça um upgrade no painel.",
 			})
+			return
+		}
+		if errors.Is(err, service.ErrEspecialidadeNaoEncontrada) || errors.Is(err, service.ErrEspecialidadeInativa) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_specialty")
 			return
 		}
 		if errors.Is(err, service.ErrPlanoSaasNaoEncontrado) {

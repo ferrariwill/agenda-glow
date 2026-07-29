@@ -57,11 +57,26 @@ func LoadAdminConfigTemplates() (*template.Template, error) {
 			return t.Format("02/01/2006 15:04")
 		},
 		"eq": func(a, b string) bool { return a == b },
+		"dict": func(values ...interface{}) (map[string]interface{}, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("dict: número ímpar de argumentos")
+			}
+			m := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: chave deve ser string")
+				}
+				m[key] = values[i+1]
+			}
+			return m, nil
+		},
 	}
 
 	tmpl, err := template.New("admin").Funcs(funcMap).ParseFS(templatesFS,
 		"templates/admin_common.html",
 		"templates/config_servicos.html",
+		"templates/config_especialidades.html",
 		"templates/config_equipe.html",
 		"templates/caixa_fluxo.html",
 	)

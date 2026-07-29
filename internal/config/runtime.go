@@ -10,20 +10,22 @@ import (
 
 const (
 	// Portas reservadas do AgendaGlow (isoladas do WhatsApp Gateway e Postgres local).
-	DefaultAPIPort      = "8081"
-	DefaultFrontendPort = "8082"
-	DefaultDBHostPort   = "5435"
+	DefaultAPIPort        = "8081"
+	DefaultFrontendPort   = "5173"
+	DefaultDBHostPort     = "5435"
 	DefaultDBInternalPort = "5432"
 
 	// Portas ocupadas por outros sistemas — nunca usar no AgendaGlow.
-	GatewayAPIPort     = "8080"
-	GatewayDBPort      = "5433"
-	LocalPostgresPort  = "5432"
+	GatewayAPIPort    = "8080"
+	GatewayUIPort     = "8082" // WhatsApp Gateway (UI/serviço auxiliar no host do usuário)
+	GatewayDBPort     = "5433"
+	LocalPostgresPort = "5432"
 )
 
 var forbiddenAPIPorts = map[string]string{
-	GatewayAPIPort:    "WhatsApp Gateway API",
-	DefaultFrontendPort: "front-end AgendaGlow (reservado para container futuro)",
+	GatewayAPIPort:      "WhatsApp Gateway API",
+	GatewayUIPort:       "WhatsApp Gateway (UI/serviço na 8082)",
+	DefaultFrontendPort: "front-end AgendaGlow (Vite)",
 }
 
 var forbiddenDBHostPorts = map[string]string{

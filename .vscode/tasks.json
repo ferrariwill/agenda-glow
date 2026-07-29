@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "agendaglow:postgres",
+      "type": "shell",
+      "command": "docker compose up postgres-glow -d --wait",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "agendaglow:migrate",
+      "type": "shell",
+      "command": "go run ./cmd/migrate",
+      "dependsOn": ["agendaglow:postgres"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "DATABASE_URL": "postgresql://postgres:glow_secure_pwd_2026@localhost:5435/agenda_glow_prod?sslmode=disable",
+          "MIGRATIONS_DIR": "${workspaceFolder}/migrations",
+          "MIGRATE_DIRECTION": "up"
+        }
+      },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "agendaglow:prepare-db",
+      "dependsOn": ["agendaglow:migrate"],
+      "problemMatcher": []
+    }
+  ]
+}

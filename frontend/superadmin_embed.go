@@ -48,11 +48,20 @@ func LoadSuperAdminTemplates() (*template.Template, error) {
 			}
 		},
 		"eq": func(a, b string) bool { return a == b },
+		"eqID": func(id string, ref *string) bool {
+			return ref != nil && id == *ref
+		},
 		"derefStr": func(s *string) string {
 			if s == nil {
 				return "—"
 			}
 			return *s
+		},
+		"strPtr": func(s string) *string {
+			if s == "" {
+				return nil
+			}
+			return &s
 		},
 	}
 

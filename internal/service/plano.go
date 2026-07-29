@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	ErrPlanoSaasNaoEncontrado     = errors.New("plano SaaS não encontrado")
-	ErrPlanoSaasInativo           = errors.New("plano SaaS inativo")
-	ErrMesesContratacaoInvalidos  = errors.New("meses de contratação inválidos")
+	ErrPlanoSaasNaoEncontrado      = errors.New("plano SaaS não encontrado")
+	ErrPlanoSaasInativo            = errors.New("plano SaaS inativo")
+	ErrPlanoSaasNomeDuplicado      = errors.New("já existe plano SaaS com este nome")
+	ErrMesesContratacaoInvalidos   = errors.New("meses de contratação inválidos")
 	ErrLimiteProfissionaisInvalido = errors.New("limite de profissionais inválido")
 )
 
@@ -65,10 +66,54 @@ RETURNING id
 `
 	var id string
 	if err := s.db.GetContext(ctx, &id, insert, nome, price, professionalLimit); err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			return "", ErrPlanoSaasNomeDuplicado
+		}
 		return "", fmt.Errorf("criar plano SaaS: %w", err)
 	}
 
 	return id, nil
+}
+
+// UpdateSaasPlan altera nome, preço, limite e status ativo de um plano corporativo.
+func (s *PlanoSaasService) UpdateSaasPlan(
+	ctx context.Context,
+	planID, name string,
+	price float64,
+	professionalLimit int,
+	active bool,
+) error {
+	nome := strings.TrimSpace(name)
+	if nome == "" {
+		return fmt.Errorf("nome do plano é obrigatório")
+	}
+	if price < 0 {
+		return fmt.Errorf("preço mensal inválido")
+	}
+	if professionalLimit <= 0 {
+		return ErrLimiteProfissionaisInvalido
+	}
+
+	const update = `
+UPDATE planos_saas
+SET nome = $2, preco_mensal = $3, limite_profissionais = $4, ativo = $5
+WHERE id = $1
+`
+	result, err := s.db.ExecContext(ctx, update, planID, nome, price, professionalLimit, active)
+	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			return ErrPlanoSaasNomeDuplicado
+		}
+		return fmt.Errorf("atualizar plano SaaS: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrPlanoSaasNaoEncontrado
+	}
+	return nil
 }
 
 // ListSaasPlans retorna todos os planos corporativos cadastrados.

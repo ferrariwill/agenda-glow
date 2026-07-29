@@ -63,6 +63,7 @@ func (s *AgendaService) CriarAgendamento(
 	adicionaisIDs []string,
 	inicio time.Time,
 	origem OrigemAgendamento,
+	aceitaAdiantar bool,
 ) (ResultadoAgendamento, error) {
 	var resultado ResultadoAgendamento
 
@@ -143,6 +144,8 @@ func (s *AgendaService) CriarAgendamento(
 		status,
 		viaClube,
 		origem,
+		minutosInvadidos,
+		aceitaAdiantar,
 	)
 	if err != nil {
 		return resultado, err
@@ -255,6 +258,8 @@ func (s *AgendaService) inserirAgendamento(
 	status string,
 	viaClube bool,
 	origem OrigemAgendamento,
+	minutosInvadidos int,
+	aceitaAdiantar bool,
 ) (string, error) {
 	const insert = `
 INSERT INTO agendamentos (
@@ -266,8 +271,10 @@ INSERT INTO agendamentos (
     data_hora_fim,
     status,
     via_clube_assinatura,
-    origem_agendamento
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    origem_agendamento,
+    minutos_invadidos,
+    aceita_adiantar
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING id
 `
 	var agendamentoID string
@@ -284,6 +291,8 @@ RETURNING id
 		status,
 		viaClube,
 		string(origem),
+		minutosInvadidos,
+		aceitaAdiantar,
 	); err != nil {
 		return "", fmt.Errorf("criar agendamento: %w", err)
 	}

@@ -22,11 +22,13 @@ func NewProfissionalService(db *sqlx.DB) *ProfissionalService {
 }
 
 type Profissional struct {
-	ID                   string  `db:"id" json:"id"`
-	Nome                 string  `db:"nome" json:"nome"`
-	Especialidade        string  `db:"especialidade" json:"especialidade"`
-	ComissaoPorcentagem  float64 `db:"comissao_porcentagem" json:"comissao_porcentagem"`
-	Ativo                bool    `db:"ativo" json:"ativo"`
+	ID                  string  `db:"id" json:"id"`
+	Nome                string  `db:"nome" json:"nome"`
+	EspecialidadeID     string  `db:"especialidade_id" json:"especialidade_id"`
+	Especialidade       string  `db:"especialidade_nome" json:"especialidade"`
+	ComissaoPorcentagem float64 `db:"comissao_porcentagem" json:"comissao_porcentagem"`
+	Ativo               bool    `db:"ativo" json:"ativo"`
+	PendenteAprovacao   bool    `db:"pendente_aprovacao" json:"pendente_aprovacao"`
 }
 
 type planoLimite struct {
@@ -36,12 +38,12 @@ type planoLimite struct {
 // CreateProfessional cadastra profissional respeitando o limite do plano SaaS contratado.
 func (s *ProfissionalService) CreateProfessional(
 	ctx context.Context,
-	establishmentID, nome, especialidade string,
+	establishmentID, nome, especialidadeID string,
 	comissao float64,
 ) (string, error) {
 	nome = strings.TrimSpace(nome)
-	especialidade = strings.TrimSpace(especialidade)
-	if nome == "" || especialidade == "" {
+	especialidadeID = strings.TrimSpace(especialidadeID)
+	if nome == "" || especialidadeID == "" {
 		return "", fmt.Errorf("nome e especialidade são obrigatórios")
 	}
 	if comissao < 0 || comissao > 100 {
@@ -71,7 +73,7 @@ func (s *ProfissionalService) CreateProfessional(
 	const contarAtivos = `
 SELECT COUNT(*)::INTEGER
 FROM profissionais
-WHERE estabelecimento_id = $1 AND ativo = TRUE
+WHERE estabelecimento_id = $1 AND ativo = TRUE AND pendente_aprovacao = FALSE
 `
 	var totalAtivos int
 	if err := tx.GetContext(ctx, &totalAtivos, contarAtivos, establishmentID); err != nil {
@@ -82,13 +84,17 @@ WHERE estabelecimento_id = $1 AND ativo = TRUE
 		return "", ErrPlanLimitExceeded
 	}
 
+	if err := s.validarEspecialidadeAtiva(ctx, tx, establishmentID, especialidadeID); err != nil {
+		return "", err
+	}
+
 	const insert = `
-INSERT INTO profissionais (estabelecimento_id, nome, especialidade, comissao_porcentagem, ativo)
+INSERT INTO profissionais (estabelecimento_id, nome, especialidade_id, comissao_porcentagem, ativo)
 VALUES ($1, $2, $3, $4, TRUE)
 RETURNING id
 `
 	var id string
-	if err := tx.GetContext(ctx, &id, insert, establishmentID, nome, especialidade, comissao); err != nil {
+	if err := tx.GetContext(ctx, &id, insert, establishmentID, nome, especialidadeID, comissao); err != nil {
 		return "", fmt.Errorf("cadastrar profissional: %w", err)
 	}
 
@@ -97,6 +103,95 @@ RETURNING id
 	}
 
 	return id, nil
+}
+
+// UpdateProfessional altera nome, especialidade, comissão e status da profissional.
+func (s *ProfissionalService) UpdateProfessional(
+	ctx context.Context,
+	establishmentID, professionalID string,
+	nome, especialidadeID string,
+	comissao float64,
+	ativo bool,
+) error {
+	nome = strings.TrimSpace(nome)
+	especialidadeID = strings.TrimSpace(especialidadeID)
+	if nome == "" || especialidadeID == "" {
+		return fmt.Errorf("nome e especialidade são obrigatórios")
+	}
+	if comissao < 0 || comissao > 100 {
+		return fmt.Errorf("comissão deve estar entre 0 e 100")
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	const lockProf = `
+SELECT id, ativo FROM profissionais
+WHERE id = $1 AND estabelecimento_id = $2
+FOR UPDATE
+`
+	var atual struct {
+		ID    string `db:"id"`
+		Ativo bool   `db:"ativo"`
+	}
+	if err := tx.GetContext(ctx, &atual, lockProf, professionalID, establishmentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrProfissionalNaoEncontrado
+		}
+		return fmt.Errorf("bloquear profissional: %w", err)
+	}
+
+	if ativo && !atual.Ativo {
+		const lockEstabelecimento = `SELECT id FROM estabelecimentos WHERE id = $1 FOR UPDATE`
+		var estabID string
+		if err := tx.GetContext(ctx, &estabID, lockEstabelecimento, establishmentID); err != nil {
+			return fmt.Errorf("bloquear estabelecimento: %w", err)
+		}
+
+		limite, err := s.buscarLimitePlano(ctx, tx, establishmentID)
+		if err != nil {
+			return err
+		}
+
+		const contarAtivos = `
+SELECT COUNT(*)::INTEGER FROM profissionais
+WHERE estabelecimento_id = $1 AND ativo = TRUE AND pendente_aprovacao = FALSE
+`
+		var totalAtivos int
+		if err := tx.GetContext(ctx, &totalAtivos, contarAtivos, establishmentID); err != nil {
+			return fmt.Errorf("contar profissionais ativos: %w", err)
+		}
+		if totalAtivos >= limite.LimiteProfissionais {
+			return ErrPlanLimitExceeded
+		}
+	}
+
+	if ativo {
+		if err := s.validarEspecialidadeAtiva(ctx, tx, establishmentID, especialidadeID); err != nil {
+			return err
+		}
+	} else if err := s.validarEspecialidadeDoEstabelecimento(ctx, tx, establishmentID, especialidadeID); err != nil {
+		return err
+	}
+
+	const update = `
+UPDATE profissionais
+SET nome = $3, especialidade_id = $4, comissao_porcentagem = $5, ativo = $6,
+    pendente_aprovacao = CASE WHEN $6 = TRUE THEN FALSE ELSE pendente_aprovacao END
+WHERE id = $1 AND estabelecimento_id = $2
+`
+	if _, err := tx.ExecContext(ctx, update, professionalID, establishmentID, nome, especialidadeID, comissao, ativo); err != nil {
+		return fmt.Errorf("atualizar profissional: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("confirmar atualização: %w", err)
+	}
+
+	return nil
 }
 
 func (s *ProfissionalService) buscarLimitePlano(ctx context.Context, tx *sqlx.Tx, establishmentID string) (*planoLimite, error) {
@@ -120,10 +215,12 @@ FOR UPDATE OF ae
 // ListProfessionals retorna profissionais ativos e inativos do estabelecimento.
 func (s *ProfissionalService) ListProfessionals(ctx context.Context, establishmentID string) ([]Profissional, error) {
 	const query = `
-SELECT id, nome, especialidade, comissao_porcentagem, ativo
-FROM profissionais
-WHERE estabelecimento_id = $1
-ORDER BY nome ASC
+SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
+       p.comissao_porcentagem, p.ativo, p.pendente_aprovacao
+FROM profissionais p
+INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
+WHERE p.estabelecimento_id = $1
+ORDER BY p.nome ASC
 `
 	var lista []Profissional
 	if err := s.db.SelectContext(ctx, &lista, query, establishmentID); err != nil {
@@ -133,6 +230,33 @@ ORDER BY nome ASC
 		lista = []Profissional{}
 	}
 	return lista, nil
+}
+
+func (s *ProfissionalService) validarEspecialidadeAtiva(ctx context.Context, tx *sqlx.Tx, establishmentID, especialidadeID string) error {
+	const query = `
+SELECT id FROM especialidades
+WHERE id = $1 AND estabelecimento_id = $2 AND ativo = TRUE
+`
+	var id string
+	if err := tx.GetContext(ctx, &id, query, especialidadeID, establishmentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrEspecialidadeNaoEncontrada
+		}
+		return fmt.Errorf("validar especialidade: %w", err)
+	}
+	return nil
+}
+
+func (s *ProfissionalService) validarEspecialidadeDoEstabelecimento(ctx context.Context, tx *sqlx.Tx, establishmentID, especialidadeID string) error {
+	const query = `SELECT id FROM especialidades WHERE id = $1 AND estabelecimento_id = $2`
+	var id string
+	if err := tx.GetContext(ctx, &id, query, especialidadeID, establishmentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrEspecialidadeNaoEncontrada
+		}
+		return fmt.Errorf("validar especialidade: %w", err)
+	}
+	return nil
 }
 
 // ExpedienteInput representa a escala de um dia da semana (0=Domingo … 6=Sábado).

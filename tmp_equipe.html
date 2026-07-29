@@ -1,0 +1,203 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          surface: { 950: '#0a0c10', 900: '#111318', 800: '#181c24', 700: '#222833', 600: '#2d3544' },
+          accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' }
+        }
+      }
+    }
+  }
+</script>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script>
+  document.body.addEventListener('htmx:configRequest', function(evt) {
+    evt.detail.credentials = 'same-origin';
+  });
+  document.body.addEventListener('htmx:responseError', function(evt) {
+    var flash = document.getElementById('admin-flash') || document.getElementById('equipe-flash');
+    if (flash) {
+      flash.className = 'mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300';
+      flash.textContent = evt.detail.xhr.responseText || ('Erro HTTP ' + evt.detail.xhr.status);
+    }
+  });
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
+  body { font-family: 'DM Sans', system-ui, sans-serif; }
+  .htmx-request .btn-spinner { display: inline-block; }
+  .btn-spinner { display: none; }
+</style>
+
+  <title>Equipe · Estúdio Glow Salto</title>
+</head>
+<body class="min-h-full bg-surface-950 text-slate-100 antialiased">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+    
+<header class="mb-8">
+  <p class="text-xs uppercase tracking-widest text-accent-400 font-semibold mb-1">AgendaGlow · Configuração</p>
+  <h1 class="text-2xl sm:text-3xl font-bold text-white">Estúdio Glow Salto</h1>
+</header>
+
+    
+<nav class="flex flex-wrap gap-2 mb-8">
+  <a href="/admin/servicos"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors bg-surface-800 text-slate-400 hover:text-white border border-surface-600">
+    Procedimentos
+  </a>
+  <a href="/admin/especialidades"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors bg-surface-800 text-slate-400 hover:text-white border border-surface-600">
+    Especialidades
+  </a>
+  <a href="/admin/equipe"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors bg-accent-600 text-white">
+    Equipe
+  </a>
+  <a href="/admin/caixa"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors bg-surface-800 text-slate-400 hover:text-white border border-surface-600">
+    Caixa
+  </a>
+  <a href="/dashboard/gerencial"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors ml-auto bg-surface-800 text-slate-400 hover:text-white border border-surface-600">
+    Painel Gerencial
+  </a>
+</nav>
+
+
+    <div id="equipe-flash" class="mb-6"></div>
+
+    
+<div id="limite-alert">
+  
+</div>
+
+
+    
+
+    <section class="rounded-2xl border border-surface-600 bg-surface-900 p-6 mb-8">
+      <h2 class="text-lg font-semibold text-white mb-1">Nova Profissional Parceira</h2>
+      <p class="text-sm text-slate-400 mb-5">Selecione a especialidade cadastrada e defina comissão/repasse.</p>
+      <form
+        hx-post="/admin/equipe"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful) this.reset()"
+        class="grid grid-cols-1 sm:grid-cols-2 gap-4"
+      >
+        <div>
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Nome</label>
+          <input name="nome" required placeholder="Ex: Ana Silva"
+            
+            class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Especialidade</label>
+          
+
+
+<select name="especialidade_id" required
+  class="w-full rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-slate-300 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50"
+  >
+  <option value="">Selecione…</option>
+  
+  <option value="8bc2c8cc-9745-4750-8f07-41d714a9c1e3" >Manicure</option>
+  
+</select>
+
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Comissão / Repasse (%)</label>
+          <input name="comissao_porcentagem" required type="number" min="0" max="100" step="0.5" placeholder="40"
+            
+            class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50">
+        </div>
+        <div class="flex items-end">
+          <button type="submit"
+            
+            class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent-600 hover:bg-accent-500 disabled:bg-surface-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 transition-colors">
+            <span class="btn-spinner h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            Cadastrar Profissional
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="rounded-2xl border border-surface-600 bg-surface-900 overflow-hidden">
+      <div class="px-5 py-4 border-b border-surface-700">
+        <h2 class="text-lg font-semibold text-white">Equipe</h2>
+        <p class="text-sm text-slate-400">0 ativas · 1 no plano</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-surface-700">
+              <th class="px-5 py-3 font-medium">Nome</th>
+              <th class="px-5 py-3 font-medium">Especialidade</th>
+              <th class="px-5 py-3 font-medium text-right">Comissão %</th>
+              <th class="px-5 py-3 font-medium text-center">Ativa</th>
+              <th class="px-5 py-3 font-medium text-right">Ação</th>
+            </tr>
+          </thead>
+          <tbody id="equipe-tbody" class="divide-y divide-surface-700/60">
+            
+              
+<tr id="equipe-row-a1000003-0003-4003-8003-000000000003" class="hover:bg-surface-800/40 align-top opacity-60">
+  <td class="px-5 py-3">
+    <div class="flex items-center gap-2">
+      <div class="h-8 w-8 shrink-0 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold text-xs">
+        C
+      </div>
+      <input name="nome" required value="Claudia Editada"
+        class="flex-1 min-w-[120px] rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    </div>
+  </td>
+  <td class="px-5 py-3">
+    
+
+
+<select name="especialidade_id" required
+  class="w-full rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-slate-300 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50"
+  >
+  <option value="">Selecione…</option>
+  
+  <option value="8bc2c8cc-9745-4750-8f07-41d714a9c1e3" selected>Manicure</option>
+  
+</select>
+
+  </td>
+  <td class="px-5 py-3 text-right">
+    <input name="comissao_porcentagem" required type="number" min="0" max="100" step="0.5" value="45.0"
+      class="w-20 ml-auto rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-emerald-400 font-semibold text-right focus:ring-2 focus:ring-accent-500/40 outline-none">
+  </td>
+  <td class="px-5 py-3 text-center">
+    <input type="checkbox" name="ativo" value="on" 
+      class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+  </td>
+  <td class="px-5 py-3 text-right">
+    <button type="button"
+      hx-post="/admin/equipe/a1000003-0003-4003-8003-000000000003"
+      hx-include="#equipe-row-a1000003-0003-4003-8003-000000000003"
+      hx-swap="none"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 whitespace-nowrap">
+      Salvar
+    </button>
+  </td>
+</tr>
+
+            
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -15,11 +15,11 @@ var (
 )
 
 type DesempenhoProfissional struct {
-	ID               string  `json:"id"`
-	Nome             string  `json:"nome"`
-	Especialidade    string  `json:"especialidade"`
-	ServicosMes      int     `json:"servicos_mes"`
-	ComissaoPendente float64 `json:"comissao_pendente"`
+	ID               string  `db:"id" json:"id"`
+	Nome             string  `db:"nome" json:"nome"`
+	Especialidade    string  `db:"especialidade" json:"especialidade"`
+	ServicosMes      int     `db:"servicos_mes" json:"servicos_mes"`
+	ComissaoPendente float64 `db:"comissao_pendente" json:"comissao_pendente"`
 }
 
 type DashboardGerencial struct {
@@ -69,7 +69,7 @@ func (s *FinanceiroService) GetTeamPerformanceReport(
 SELECT
     p.id,
     p.nome,
-    p.especialidade,
+    e.nome AS especialidade,
     COALESCE((
         SELECT COUNT(*)::INTEGER
         FROM agendamentos a
@@ -90,6 +90,7 @@ SELECT
           AND fc.data_transacao < $3
     ), 0) AS comissao_pendente
 FROM profissionais p
+INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
 WHERE p.estabelecimento_id = $1
 ORDER BY p.nome ASC
 `

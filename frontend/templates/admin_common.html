@@ -16,6 +16,18 @@
   }
 </script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script>
+  document.body.addEventListener('htmx:configRequest', function(evt) {
+    evt.detail.credentials = 'same-origin';
+  });
+  document.body.addEventListener('htmx:responseError', function(evt) {
+    var flash = document.getElementById('admin-flash') || document.getElementById('equipe-flash');
+    if (flash) {
+      flash.className = 'mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300';
+      flash.textContent = evt.detail.xhr.responseText || ('Erro HTTP ' + evt.detail.xhr.status);
+    }
+  });
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
   body { font-family: 'DM Sans', system-ui, sans-serif; }
@@ -30,6 +42,10 @@
      class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors {{if eq .NavActive "servicos"}}bg-accent-600 text-white{{else}}bg-surface-800 text-slate-400 hover:text-white border border-surface-600{{end}}">
     Procedimentos
   </a>
+  <a href="/admin/especialidades"
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors {{if eq .NavActive "especialidades"}}bg-accent-600 text-white{{else}}bg-surface-800 text-slate-400 hover:text-white border border-surface-600{{end}}">
+    Especialidades
+  </a>
   <a href="/admin/equipe"
      class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors {{if eq .NavActive "equipe"}}bg-accent-600 text-white{{else}}bg-surface-800 text-slate-400 hover:text-white border border-surface-600{{end}}">
     Equipe
@@ -39,8 +55,8 @@
     Caixa
   </a>
   <a href="/dashboard/gerencial"
-     class="px-4 py-2 rounded-xl text-sm font-semibold bg-surface-800 text-slate-400 hover:text-white border border-surface-600 transition-colors ml-auto">
-    Painel Gerencial →
+     class="px-4 py-2 rounded-xl text-sm font-semibold transition-colors ml-auto {{if eq .NavActive "gerencial"}}bg-accent-600 text-white{{else}}bg-surface-800 text-slate-400 hover:text-white border border-surface-600{{end}}">
+    Painel Gerencial
   </a>
 </nav>
 {{end}}

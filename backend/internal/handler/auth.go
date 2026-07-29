@@ -27,6 +27,12 @@ type loginRequest struct {
 type loginResponse struct {
 	Token string `json:"token"`
 	Role  string `json:"role"`
+	User  struct {
+		ID                string  `json:"id"`
+		Email             string  `json:"email"`
+		EstabelecimentoID *string `json:"estabelecimento_id,omitempty"`
+		ProfissionalID    *string `json:"profissional_id,omitempty"`
+	} `json:"user"`
 }
 
 // Login POST /api/v1/auth/login
@@ -54,6 +60,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{
 		Token: result.Token,
 		Role:  result.User.Role,
+		User: struct {
+			ID                string  `json:"id"`
+			Email             string  `json:"email"`
+			EstabelecimentoID *string `json:"estabelecimento_id,omitempty"`
+			ProfissionalID    *string `json:"profissional_id,omitempty"`
+		}{
+			ID:                result.User.ID,
+			Email:             result.User.Email,
+			EstabelecimentoID: result.User.EstabelecimentoID,
+			ProfissionalID:    result.User.ProfissionalID,
+		},
 	})
 }
 

@@ -11,11 +11,13 @@ import (
 	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"
+	"github.com/lib/pq"
 )
 
 var (
 	ErrCredenciaisInvalidas = errors.New("credenciais inválidas")
 	ErrUsuarioInativo       = errors.New("usuário inativo")
+	ErrEmailJaCadastrado    = errors.New("e-mail já cadastrado")
 )
 
 type AuthService struct {
@@ -103,6 +105,9 @@ RETURNING id
 `
 	var id string
 	if err := s.db.GetContext(ctx, &id, insert, email, string(hash), role, estabelecimentoID, profissionalID); err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			return "", ErrEmailJaCadastrado
+		}
 		return "", fmt.Errorf("criar usuário: %w", err)
 	}
 	return id, nil

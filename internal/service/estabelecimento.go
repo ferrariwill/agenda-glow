@@ -244,10 +244,11 @@ WHERE id = $1 AND ativo = TRUE
 	}
 
 	const queryProfissionais = `
-SELECT id, nome, especialidade
-FROM profissionais
-WHERE estabelecimento_id = $1 AND ativo = TRUE
-ORDER BY nome
+SELECT p.id, p.nome, e.nome AS especialidade
+FROM profissionais p
+INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
+WHERE p.estabelecimento_id = $1 AND p.ativo = TRUE
+ORDER BY p.nome
 `
 	var profissionais []ProfissionalCatalogo
 	if err := s.db.SelectContext(ctx, &profissionais, queryProfissionais, estabelecimentoID); err != nil {

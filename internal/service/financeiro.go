@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -13,6 +14,7 @@ var (
 	ErrAgendamentoNaoEncontrado = errors.New("agendamento não encontrado")
 	ErrAgendamentoJaConcluido   = errors.New("agendamento já foi concluído")
 	ErrAgendamentoCancelado     = errors.New("agendamento cancelado não pode ser concluído")
+	ErrAgendamentoJaCobrado     = errors.New("este procedimento já foi cobrado")
 	ErrAssinaturaSemCreditos    = errors.New("assinatura sem visitas restantes")
 )
 
@@ -265,4 +267,186 @@ RETURNING pa.nome AS plano_nome, pa.valor_repasse_profissional
 	}
 
 	return &credito, nil
+}
+
+// CobrancaInput espelha registrarCobrancaAgendamento do protótipo React.
+type CobrancaInput struct {
+	Metodo   string
+	Valor    *float64
+	Concluir bool
+}
+
+// CobrarAtendimento registra cobrança (método/valor) e opcionalmente conclui o atendimento.
+func (s *FinanceiroService) CobrarAtendimento(
+	ctx context.Context,
+	establishmentID, agendamentoID string,
+	in CobrancaInput,
+) error {
+	if !in.Concluir {
+		return s.registrarCobrancaSemConcluir(ctx, establishmentID, agendamentoID, in)
+	}
+	return s.cobrarEConcluir(ctx, establishmentID, agendamentoID, in)
+}
+
+type atendimentoCobranca struct {
+	atendimentoFinanceiro
+	CobradoEm *time.Time `db:"cobrado_em"`
+	ClienteNome string   `db:"cliente_nome"`
+}
+
+func (s *FinanceiroService) buscarAtendimentoDoEstabelecimento(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	establishmentID, agendamentoID string,
+) (*atendimentoCobranca, error) {
+	const query = `
+SELECT
+    a.id,
+    a.estabelecimento_id,
+    c.telefone AS cliente_telefone,
+    c.nome AS cliente_nome,
+    a.profissional_id,
+    p.nome AS profissional_nome,
+    s.nome AS servico_nome,
+    s.preco_base + COALESCE(adds.total_adicional, 0) AS valor_total,
+    p.comissao_porcentagem,
+    a.status,
+    a.via_clube_assinatura,
+    a.cobrado_em
+FROM agendamentos a
+INNER JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
+INNER JOIN profissionais p ON p.id = a.profissional_id AND p.estabelecimento_id = a.estabelecimento_id
+INNER JOIN servicos s ON s.id = a.servico_id AND s.estabelecimento_id = a.estabelecimento_id
+LEFT JOIN (
+    SELECT aa.agendamento_id, SUM(sa.preco_adicional) AS total_adicional
+    FROM agendamento_adicionais aa
+    INNER JOIN servico_adicionais sa ON sa.id = aa.adicional_id
+    GROUP BY aa.agendamento_id
+) adds ON adds.agendamento_id = a.id
+WHERE a.id = $1 AND a.estabelecimento_id = $2
+FOR UPDATE OF a
+`
+	var row atendimentoCobranca
+	if err := tx.GetContext(ctx, &row, query, agendamentoID, establishmentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrAgendamentoNaoEncontrado
+		}
+		return nil, fmt.Errorf("buscar atendimento: %w", err)
+	}
+	return &row, nil
+}
+
+func (s *FinanceiroService) registrarCobrancaSemConcluir(
+	ctx context.Context,
+	establishmentID, agendamentoID string,
+	in CobrancaInput,
+) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	atendimento, err := s.buscarAtendimentoDoEstabelecimento(ctx, tx, establishmentID, agendamentoID)
+	if err != nil {
+		return err
+	}
+	if atendimento.CobradoEm != nil {
+		return ErrAgendamentoJaCobrado
+	}
+
+	valor := atendimento.ValorTotal
+	if in.Valor != nil && *in.Valor > 0 {
+		valor = roundMoney(*in.Valor)
+	}
+	if valor <= 0 {
+		return fmt.Errorf("valor inválido para cobrança")
+	}
+
+	hoje := time.Now().Format("2006-01-02")
+	const insertEntrada = `
+INSERT INTO fluxo_caixa (estabelecimento_id, tipo, descricao, valor, profissional_id)
+VALUES ($1, 'ENTRADA', $2, $3, NULL)
+`
+	desc := fmt.Sprintf("Cobrança — %s (%s)", atendimento.ServicoNome, atendimento.ClienteNome)
+	if _, err := tx.ExecContext(ctx, insertEntrada, establishmentID, desc, valor); err != nil {
+		return fmt.Errorf("registrar entrada: %w", err)
+	}
+
+	const upd = `
+UPDATE agendamentos
+SET valor_cobrado = $3, metodo_pagamento = NULLIF($4,''), cobrado_em = $5::DATE
+WHERE id = $1 AND estabelecimento_id = $2
+`
+	if _, err := tx.ExecContext(ctx, upd, agendamentoID, establishmentID, valor, in.Metodo, hoje); err != nil {
+		return fmt.Errorf("marcar cobrança: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (s *FinanceiroService) cobrarEConcluir(
+	ctx context.Context,
+	establishmentID, agendamentoID string,
+	in CobrancaInput,
+) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	atendimento, err := s.buscarAtendimentoDoEstabelecimento(ctx, tx, establishmentID, agendamentoID)
+	if err != nil {
+		return err
+	}
+	if atendimento.CobradoEm != nil {
+		return ErrAgendamentoJaCobrado
+	}
+	switch atendimento.Status {
+	case "CONCLUIDO":
+		return ErrAgendamentoJaConcluido
+	case "CANCELADO":
+		return ErrAgendamentoCancelado
+	}
+
+	valor := atendimento.ValorTotal
+	if in.Valor != nil && *in.Valor > 0 {
+		valor = roundMoney(*in.Valor)
+	}
+
+	var credito *creditoAssinaturaConsumido
+	if atendimento.ViaClubeAssinatura {
+		credito, err = s.consumirCreditoAssinatura(ctx, tx, atendimento.EstabelecimentoID, atendimento.ClienteTelefone)
+		if err != nil {
+			return err
+		}
+	}
+
+	hoje := time.Now().Format("2006-01-02")
+	const upd = `
+UPDATE agendamentos
+SET status = 'CONCLUIDO', valor_cobrado = $3, metodo_pagamento = NULLIF($4,''), cobrado_em = $5::DATE
+WHERE id = $1 AND estabelecimento_id = $2
+`
+	if _, err := tx.ExecContext(ctx, upd, agendamentoID, establishmentID, valor, in.Metodo, hoje); err != nil {
+		return fmt.Errorf("concluir agendamento: %w", err)
+	}
+
+	if atendimento.ViaClubeAssinatura {
+		if credito != nil && credito.ValorRepasseProfissional > 0 {
+			if err := s.registrarRepasseClube(ctx, tx, &atendimento.atendimentoFinanceiro, credito); err != nil {
+				return err
+			}
+		}
+	} else {
+		comissao := calcularComissao(valor, atendimento.ComissaoPorcentagem)
+		fin := atendimento.atendimentoFinanceiro
+		fin.ValorTotal = valor
+		if err := s.registrarLancamentosAvulsos(ctx, tx, &fin, comissao); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }

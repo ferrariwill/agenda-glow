@@ -20,6 +20,18 @@
   }
 </script>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script>
+  document.body.addEventListener('htmx:configRequest', function(evt) {
+    evt.detail.credentials = 'same-origin';
+  });
+  document.body.addEventListener('htmx:responseError', function(evt) {
+    var flash = document.getElementById('superadmin-flash');
+    if (flash) {
+      flash.className = 'mb-6 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300';
+      flash.textContent = 'Erro na ação (HTTP ' + evt.detail.xhr.status + '). Verifique login e dados.';
+    }
+  });
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
   body { font-family: 'Space Grotesk', system-ui, sans-serif; }

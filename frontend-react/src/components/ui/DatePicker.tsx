@@ -1,0 +1,169 @@
+import { useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  MONTH_NAMES_PT,
+  WEEKDAYS_SHORT_PT,
+  formatDateBR,
+  getCalendarGrid,
+  parseISOParts,
+  todayISO,
+} from '../../utils/format'
+
+interface DatePickerProps {
+  value: string
+  onChange: (iso: string) => void
+  minDate?: string
+  maxDate?: string
+  className?: string
+}
+
+export function DatePicker({ value, onChange, minDate, maxDate, className = '' }: DatePickerProps) {
+  const parts = value ? parseISOParts(value) : parseISOParts(todayISO())
+  const [viewYear, setViewYear] = useState(parts.year)
+  const [viewMonth, setViewMonth] = useState(parts.month)
+
+  useEffect(() => {
+    if (!value) return
+    const p = parseISOParts(value)
+    setViewYear(p.year)
+    setViewMonth(p.month)
+  }, [value])
+
+  const shiftMonth = (delta: number) => {
+    const d = new Date(viewYear, viewMonth - 1 + delta, 1)
+    setViewYear(d.getFullYear())
+    setViewMonth(d.getMonth() + 1)
+  }
+
+  const isDisabled = (iso: string) => {
+    if (minDate && iso < minDate) return true
+    if (maxDate && iso > maxDate) return true
+    return false
+  }
+
+  const grid = getCalendarGrid(viewYear, viewMonth)
+
+  return (
+    <div
+      className={[
+        'w-[280px] rounded-xl border border-aura-border bg-white p-3 shadow-lg',
+        className,
+      ].join(' ')}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => shiftMonth(-1)}
+          className="rounded-lg p-1.5 text-aura-muted hover:bg-aura-surface hover:text-aura-anthracite"
+          aria-label="Mês anterior"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <p className="text-sm font-semibold text-aura-anthracite">
+          {MONTH_NAMES_PT[viewMonth - 1]} {viewYear}
+        </p>
+        <button
+          type="button"
+          onClick={() => shiftMonth(1)}
+          className="rounded-lg p-1.5 text-aura-muted hover:bg-aura-surface hover:text-aura-anthracite"
+          aria-label="Próximo mês"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-aura-muted">
+        {WEEKDAYS_SHORT_PT.map((wd) => (
+          <span key={wd} className="py-1">
+            {wd}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5">
+        {grid.map((cell, i) => {
+          if (!cell.inMonth || !cell.iso) {
+            return <span key={`e-${i}`} className="h-9" />
+          }
+          const selected = cell.iso === value
+          const disabled = isDisabled(cell.iso)
+          return (
+            <button
+              key={cell.iso}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(cell.iso!)}
+              className={[
+                'flex h-9 w-full items-center justify-center rounded-lg text-sm transition-colors',
+                selected
+                  ? 'bg-aura-primary font-semibold text-white'
+                  : cell.isToday
+                    ? 'font-semibold text-aura-primary ring-1 ring-aura-primary/40'
+                    : 'text-aura-anthracite hover:bg-aura-primary/10',
+                disabled ? 'cursor-not-allowed opacity-30' : '',
+              ].join(' ')}
+            >
+              {cell.day}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between border-t border-aura-border pt-2">
+        <button
+          type="button"
+          onClick={() => onChange(todayISO())}
+          className="text-xs font-medium text-aura-primary hover:underline"
+        >
+          Hoje
+        </button>
+        <span className="text-xs text-aura-muted">{formatDateBR(value)}</span>
+      </div>
+    </div>
+  )
+}
+
+interface DatePickerPopoverProps extends DatePickerProps {
+  open: boolean
+  onClose: () => void
+  anchorRef: React.RefObject<HTMLElement | null>
+}
+
+export function DatePickerPopover({
+  open,
+  onClose,
+  anchorRef,
+  value,
+  onChange,
+  minDate,
+  maxDate,
+}: DatePickerPopoverProps) {
+  const popRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (popRef.current?.contains(t) || anchorRef.current?.contains(t)) return
+      onClose()
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open, onClose, anchorRef])
+
+  if (!open) return null
+
+  return (
+    <div ref={popRef} className="absolute left-0 top-full z-50 mt-1">
+      <DatePicker
+        value={value}
+        minDate={minDate}
+        maxDate={maxDate}
+        onChange={(iso) => {
+          onChange(iso)
+          onClose()
+        }}
+      />
+    </div>
+  )
+}

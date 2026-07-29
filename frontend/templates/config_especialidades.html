@@ -1,0 +1,112 @@
+{{define "config_especialidades_page"}}
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  {{template "admin_head" .}}
+  <title>Especialidades · {{.EstabelecimentoNome}}</title>
+</head>
+<body class="min-h-full bg-surface-950 text-slate-100 antialiased">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+    {{template "admin_header" .}}
+    {{template "admin_nav" .}}
+
+    <div id="admin-flash" class="mb-6"></div>
+
+    <section class="rounded-2xl border border-surface-600 bg-surface-900 p-6 mb-8">
+      <h2 class="text-lg font-semibold text-white mb-1">Nova Especialidade</h2>
+      <p class="text-sm text-slate-400 mb-5">Cadastre cargos/funções usados na equipe (ex: Manicure, Cabeleireira, Esteticista).</p>
+      <form
+        hx-post="/admin/especialidades"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful) this.reset()"
+        class="flex flex-col sm:flex-row gap-3"
+      >
+        <input name="nome" required placeholder="Ex: Manicure"
+          class="flex-1 rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none">
+        <button type="submit"
+          class="inline-flex items-center justify-center gap-2 rounded-xl bg-accent-600 hover:bg-accent-500 text-white font-semibold px-6 py-2.5 transition-colors">
+          <span class="btn-spinner h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+          Cadastrar
+        </button>
+      </form>
+    </section>
+
+    <section class="rounded-2xl border border-surface-600 bg-surface-900 overflow-hidden">
+      <div class="px-5 py-4 border-b border-surface-700">
+        <h2 class="text-lg font-semibold text-white">Especialidades Cadastradas</h2>
+        <p class="text-sm text-slate-400">Selecionadas ao cadastrar ou editar profissionais em <a href="/admin/equipe" class="text-accent-400 hover:underline">Equipe</a>.</p>
+      </div>
+      <div id="especialidades-list" class="divide-y divide-surface-700/60">
+        {{range .Especialidades}}
+          {{template "especialidade_row" .}}
+        {{else}}
+        <p id="especialidades-empty" class="px-5 py-10 text-center text-slate-500">Nenhuma especialidade cadastrada.</p>
+        {{end}}
+      </div>
+    </section>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "especialidade_row"}}
+<div id="esp-row-{{.ID}}" class="px-5 py-4 hover:bg-surface-800/40 {{if not .Ativo}}opacity-60{{end}}">
+  <form hx-post="/admin/especialidades/{{.ID}}" hx-swap="none" class="flex flex-col sm:flex-row sm:items-center gap-3">
+    <input name="nome" required value="{{.Nome}}"
+      class="flex-1 rounded-lg bg-surface-800 border border-surface-600 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    <label class="inline-flex items-center gap-2 text-xs text-slate-400 shrink-0 cursor-pointer">
+      <input type="checkbox" name="ativo" value="on" {{if .Ativo}}checked{{end}}
+        class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+      Ativa
+    </label>
+    <button type="submit"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 shrink-0">
+      Salvar
+    </button>
+  </form>
+</div>
+{{end}}
+
+{{define "especialidade_row_oob"}}
+<div id="esp-row-{{.ID}}" hx-swap-oob="true" class="px-5 py-4 hover:bg-surface-800/40 {{if not .Ativo}}opacity-60{{end}}">
+  <form hx-post="/admin/especialidades/{{.ID}}" hx-swap="none" class="flex flex-col sm:flex-row sm:items-center gap-3">
+    <input name="nome" required value="{{.Nome}}"
+      class="flex-1 rounded-lg bg-surface-800 border border-surface-600 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    <label class="inline-flex items-center gap-2 text-xs text-slate-400 shrink-0 cursor-pointer">
+      <input type="checkbox" name="ativo" value="on" {{if .Ativo}}checked{{end}}
+        class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+      Ativa
+    </label>
+    <button type="submit"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 shrink-0">
+      Salvar
+    </button>
+  </form>
+</div>
+{{end}}
+
+{{define "especialidade_row_new_oob"}}
+<div id="esp-row-{{.ID}}" hx-swap-oob="beforeend:#especialidades-list" class="px-5 py-4 hover:bg-surface-800/40">
+  <form hx-post="/admin/especialidades/{{.ID}}" hx-swap="none" class="flex flex-col sm:flex-row sm:items-center gap-3">
+    <input name="nome" required value="{{.Nome}}"
+      class="flex-1 rounded-lg bg-surface-800 border border-surface-600 px-3 py-2 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    <label class="inline-flex items-center gap-2 text-xs text-slate-400 shrink-0 cursor-pointer">
+      <input type="checkbox" name="ativo" value="on" checked
+        class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+      Ativa
+    </label>
+    <button type="submit"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 shrink-0">
+      Salvar
+    </button>
+  </form>
+</div>
+<div id="especialidades-empty" hx-swap-oob="delete"></div>
+{{end}}
+
+{{define "admin_flash_oob"}}
+<div id="admin-flash" hx-swap-oob="true"
+     class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+  {{.}}
+</div>
+{{end}}

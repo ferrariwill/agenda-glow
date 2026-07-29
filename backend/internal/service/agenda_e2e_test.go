@@ -131,6 +131,7 @@ func TestAgendaGlowJornadaCompleta(t *testing.T) {
 	planoSvc := service.NewPlanoSaasService(db)
 	estabSvc := service.NewEstabelecimentoService(db)
 	profSvc := service.NewProfissionalService(db)
+	espSvc := service.NewEspecialidadeService(db)
 	procSvc := service.NewProcedimentoService(db)
 	finSvc := service.NewFinanceiroService(db)
 
@@ -192,7 +193,12 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 	// -------------------------------------------------------------------------
 	t.Log("ETAPA 2: profissional, serviço base e adicional")
 
-	profID, err := profSvc.CreateProfessional(ctx, estID, "Cláudia - Manicure", "Manicure", 40)
+	espID, err := espSvc.CreateEspecialidade(ctx, estID, "Manicure")
+	if err != nil {
+		t.Fatalf("cadastrar especialidade: %v", err)
+	}
+
+	profID, err := profSvc.CreateProfessional(ctx, estID, "Cláudia - Manicure", espID, 40)
 	if err != nil {
 		t.Fatalf("cadastrar profissional: %v", err)
 	}
@@ -223,6 +229,7 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 		[]string{adicionalID},
 		as14h(),
 		service.OrigemExterno,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("criar primeiro agendamento: %v", err)
@@ -246,7 +253,7 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 
 	// Início às 15:00 cai dentro do 1º atendimento (14:00–15:45) → colisão total.
 	_, err = agendaSvc.CriarAgendamento(
-		ctx, estID, "Beatriz", "5515999000002", profID, servicoID, nil, as15h(), service.OrigemExterno,
+		ctx, estID, "Beatriz", "5515999000002", profID, servicoID, nil, as15h(), service.OrigemExterno, false,
 	)
 	if err == nil {
 		t.Fatal("esperava erro de colisão total ao agendar às 15:00 sobre intervalo 14:00–15:45")
@@ -257,7 +264,7 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 
 	// Próxima cliente às 16:00 — ancora a sobreposição parcial de término.
 	resAnchor, err := agendaSvc.CriarAgendamento(
-		ctx, estID, "Carla", "5515999000003", profID, servicoID, nil, as16h(), service.OrigemExterno,
+		ctx, estID, "Carla", "5515999000003", profID, servicoID, nil, as16h(), service.OrigemExterno, false,
 	)
 	if err != nil {
 		t.Fatalf("criar agendamento ancora 16:00: %v", err)
@@ -268,7 +275,7 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 
 	// Encaixe às 15:45 (45 min) invade 30 min do horário das 16:00 → EM_APROVACAO.
 	res2, err := agendaSvc.CriarAgendamento(
-		ctx, estID, "Beatriz", "5515999000002", profID, servicoID, nil, as1545(), service.OrigemExterno,
+		ctx, estID, "Beatriz", "5515999000002", profID, servicoID, nil, as1545(), service.OrigemExterno, false,
 	)
 	if err != nil {
 		t.Fatalf("criar encaixe parcial: %v", err)

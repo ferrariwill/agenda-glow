@@ -64,6 +64,8 @@ func (h *AdminPlansHandler) Create(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, service.ErrLimiteProfissionaisInvalido):
 			writeJSONError(w, http.StatusBadRequest, "invalid_professional_limit")
+		case errors.Is(err, service.ErrPlanoSaasNomeDuplicado):
+			writeJSONError(w, http.StatusConflict, "duplicate_plan_name")
 		default:
 			writeJSONError(w, http.StatusInternalServerError, "internal_error")
 		}
@@ -116,4 +118,39 @@ func (h *AdminPlansHandler) AssignPlan(w http.ResponseWriter, r *http.Request) {
 		Meses:             req.Meses,
 		Status:            "ATIVO",
 	})
+}
+
+type updatePlanRequest struct {
+	Nome                string  `json:"nome"`
+	PrecoMensal         float64 `json:"preco_mensal"`
+	LimiteProfissionais int     `json:"limite_profissionais"`
+	Ativo               bool    `json:"ativo"`
+}
+
+// Update serve PUT /api/v1/admin/plans/{id}
+func (h *AdminPlansHandler) Update(w http.ResponseWriter, r *http.Request) {
+	planID := r.PathValue("id")
+	if planID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+	var req updatePlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	if err := h.planos.UpdateSaasPlan(r.Context(), planID, req.Nome, req.PrecoMensal, req.LimiteProfissionais, req.Ativo); err != nil {
+		switch {
+		case errors.Is(err, service.ErrPlanoSaasNaoEncontrado):
+			writeJSONError(w, http.StatusNotFound, "not_found")
+		case errors.Is(err, service.ErrPlanoSaasNomeDuplicado):
+			writeJSONError(w, http.StatusConflict, "duplicate_plan_name")
+		case errors.Is(err, service.ErrLimiteProfissionaisInvalido):
+			writeJSONError(w, http.StatusBadRequest, "invalid_professional_limit")
+		default:
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

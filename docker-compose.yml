@@ -7,9 +7,9 @@
 #   ┌─────────────────────┬──────────────┬──────────────────────────────────┐
 #   │ Serviço             │ Host         │ Conflito evitado                 │
 #   ├─────────────────────┼──────────────┼──────────────────────────────────┤
-#   │ agenda-glow-app     │ 8081         │ Gateway API (8080)               │
+#   │ agenda-glow-app     │ 8081         │ Gateway API (8080/8082)          │
 #   │ postgres-glow       │ 5435         │ Postgres local (5432), GW (5433) │
-#   │ agenda-glow-front*  │ 8082         │ reservado p/ front-end futuro    │
+#   │ agenda-glow-front*  │ 5173         │ Vite (8082 fica com o Gateway)   │
 #   └─────────────────────┴──────────────┴──────────────────────────────────┘
 # * serviço comentado — descomente quando houver container de front-end.
 # =============================================================================
@@ -77,7 +77,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # --- Front-end separado (futuro) — porta 8082 reservada ---
+  # --- Front-end separado — porta 5173 (8082 é do WhatsApp Gateway) ---
   # agenda-glow-frontend:
   #   image: nginx:alpine
   #   container_name: agenda-glow-frontend
@@ -85,6 +85,6 @@ services:
   #   networks:
   #     - agenda-glow-network
   #   ports:
-  #     - "8082:8082"
+  #     - "5173:80"
   #   volumes:
   #     - ./frontend/static:/usr/share/nginx/html:ro

@@ -2,38 +2,15 @@
 <!DOCTYPE html>
 <html lang="pt-BR" class="h-full">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {{template "admin_head" .}}
   <title>{{.EstabelecimentoNome}} · Painel Gerencial</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            surface: { 900: '#0f1117', 800: '#161b26', 700: '#1e2533', 600: '#2a3344' },
-            accent: { 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed' },
-            profit: { 400: '#4ade80', 500: '#22c55e' }
-          }
-        }
-      }
-    }
-  </script>
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
-    body { font-family: 'DM Sans', system-ui, sans-serif; }
     .metric-glow { box-shadow: 0 0 40px -12px rgba(139, 92, 246, 0.25); }
     .profit-glow { box-shadow: 0 0 40px -12px rgba(34, 197, 94, 0.3); }
-    .htmx-request .btn-label { opacity: 0.5; }
-    .htmx-request .btn-spinner { display: inline-block; }
-    .btn-spinner { display: none; }
   </style>
 </head>
 <body class="h-full bg-surface-900 text-slate-100 antialiased">
   <div class="min-h-full">
-    <!-- Header -->
     <header class="border-b border-surface-600/80 bg-surface-800/80 backdrop-blur-md sticky top-0 z-30">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -46,6 +23,7 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {{template "admin_nav" (dict "NavActive" "gerencial" "EstabelecimentoNome" .EstabelecimentoNome)}}
       <!-- Métricas financeiras -->
       <section aria-label="Métricas financeiras">
         {{template "metricas_cards" .}}
@@ -147,6 +125,72 @@
 {{end}}
 
 {{define "metricas_cards"}}
+<div id="metricas-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+  <!-- Faturamento Bruto -->
+  <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Faturamento Bruto</p>
+        <p class="text-2xl sm:text-3xl font-bold text-white mt-2">{{money .Relatorio.TotalEntradas}}</p>
+        <p class="text-xs text-slate-500 mt-1">Total de entradas no mês</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 text-lg">💰</div>
+    </div>
+    <div class="mt-4 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+      <div class="h-full rounded-full bg-blue-500/70" style="width: 100%"></div>
+    </div>
+  </article>
+
+  <!-- Comissões Pendentes -->
+  <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Comissões Acumuladas</p>
+        <p class="text-2xl sm:text-3xl font-bold text-amber-400 mt-2">{{money .Relatorio.TotalComissoesPendentes}}</p>
+        <p class="text-xs text-slate-500 mt-1">Pendentes para as profissionais</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400 text-lg">🤝</div>
+    </div>
+    <div class="mt-4 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+      <div class="h-full rounded-full bg-amber-500/70" style="width: {{pctOf .Relatorio.TotalComissoesPendentes .Relatorio.TotalEntradas}}%"></div>
+    </div>
+  </article>
+
+  <!-- Custos Fixos -->
+  <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-slate-500 font-medium">Custos Fixos</p>
+        <p class="text-2xl sm:text-3xl font-bold text-rose-400 mt-2">{{money .Relatorio.TotalCustosFixos}}</p>
+        <p class="text-xs text-slate-500 mt-1">Aluguel, contas e despesas</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400 text-lg">📋</div>
+    </div>
+    <div class="mt-4 h-1.5 rounded-full bg-surface-700 overflow-hidden">
+      <div class="h-full rounded-full bg-rose-500/70" style="width: {{pctOf .Relatorio.TotalCustosFixos .Relatorio.TotalEntradas}}%"></div>
+    </div>
+  </article>
+
+  <!-- Lucro Líquido -->
+  <article class="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-surface-800 to-emerald-950/30 p-5 profit-glow">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-widest text-emerald-400/80 font-medium">Lucro Líquido Real</p>
+        <p class="text-2xl sm:text-3xl font-bold text-emerald-400 mt-2">{{money .Relatorio.LucroLiquidoEstimado}}</p>
+        <p class="text-xs text-slate-500 mt-1">Faturamento − todos os custos</p>
+      </div>
+      <div class="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-lg">📈</div>
+    </div>
+    <div class="mt-4 flex items-center gap-2">
+      <span class="inline-flex items-center text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg">
+        {{if ge .Relatorio.LucroLiquidoEstimado 0.0}}↑ Positivo{{else}}↓ Atenção{{end}}
+      </span>
+    </div>
+  </article>
+</div>
+{{end}}
+
+{{define "metricas_cards_oob"}}
 <div id="metricas-cards" hx-swap-oob="true" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
   <!-- Faturamento Bruto -->
   <article class="rounded-2xl border border-surface-600 bg-surface-800 p-5 metric-glow">
@@ -194,17 +238,17 @@
   </article>
 
   <!-- Lucro Líquido -->
-  <article class="rounded-2xl border border-profit-500/30 bg-gradient-to-br from-surface-800 to-emerald-950/30 p-5 profit-glow">
+  <article class="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-surface-800 to-emerald-950/30 p-5 profit-glow">
     <div class="flex items-start justify-between">
       <div>
-        <p class="text-xs uppercase tracking-widest text-profit-400/80 font-medium">Lucro Líquido Real</p>
-        <p class="text-2xl sm:text-3xl font-bold text-profit-400 mt-2">{{money .Relatorio.LucroLiquidoEstimado}}</p>
+        <p class="text-xs uppercase tracking-widest text-emerald-400/80 font-medium">Lucro Líquido Real</p>
+        <p class="text-2xl sm:text-3xl font-bold text-emerald-400 mt-2">{{money .Relatorio.LucroLiquidoEstimado}}</p>
         <p class="text-xs text-slate-500 mt-1">Faturamento − todos os custos</p>
       </div>
-      <div class="h-10 w-10 rounded-xl bg-profit-500/10 flex items-center justify-center text-profit-400 text-lg">📈</div>
+      <div class="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-lg">📈</div>
     </div>
     <div class="mt-4 flex items-center gap-2">
-      <span class="inline-flex items-center text-xs font-medium text-profit-400 bg-profit-500/10 px-2 py-1 rounded-lg">
+      <span class="inline-flex items-center text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg">
         {{if ge .Relatorio.LucroLiquidoEstimado 0.0}}↑ Positivo{{else}}↓ Atenção{{end}}
       </span>
     </div>
@@ -224,7 +268,7 @@
   </thead>
   <tbody id="equipe-table-body" class="divide-y divide-surface-600/60">
     {{range .Equipe}}
-      {{template "equipe_row" .}}
+      {{template "equipe_row" (equipeRow $.StartDate $.EndDate .)}}
     {{else}}
     <tr>
       <td colspan="4" class="px-6 py-10 text-center text-slate-500">Nenhuma profissional cadastrada ainda.</td>
@@ -237,7 +281,7 @@
 {{define "equipe_table_oob"}}
 <tbody id="equipe-table-body" hx-swap-oob="true" class="divide-y divide-surface-600/60">
   {{range .Equipe}}
-    {{template "equipe_row" .}}
+    {{template "equipe_row" (equipeRow $.StartDate $.EndDate .)}}
   {{else}}
   <tr>
     <td colspan="4" class="px-6 py-10 text-center text-slate-500">Nenhuma profissional cadastrada ainda.</td>
@@ -247,32 +291,32 @@
 {{end}}
 
 {{define "equipe_row"}}
-<tr id="equipe-row-{{.ID}}" class="hover:bg-surface-700/30 transition-colors">
+<tr id="equipe-row-{{.Profissional.ID}}" class="hover:bg-surface-700/30 transition-colors">
   <td class="px-6 py-4">
     <div class="flex items-center gap-3">
       <div class="h-9 w-9 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-semibold text-sm">
-        {{initial .Nome}}
+        {{initial .Profissional.Nome}}
       </div>
       <div>
-        <p class="font-medium text-white">{{.Nome}}</p>
-        <p class="text-xs text-slate-500">{{.Especialidade}}</p>
+        <p class="font-medium text-white">{{.Profissional.Nome}}</p>
+        <p class="text-xs text-slate-500">{{.Profissional.Especialidade}}</p>
       </div>
     </div>
   </td>
   <td class="px-6 py-4 text-center">
     <span class="inline-flex items-center justify-center min-w-[2rem] h-8 rounded-lg bg-surface-700 text-slate-200 font-semibold text-sm">
-      {{.ServicosMes}}
+      {{.Profissional.ServicosMes}}
     </span>
   </td>
   <td class="px-6 py-4 text-right">
-    <span class="font-semibold {{if gt .ComissaoPendente 0.0}}text-amber-400{{else}}text-slate-500{{end}}">
-      {{money .ComissaoPendente}}
+    <span class="font-semibold {{if gt .Profissional.ComissaoPendente 0.0}}text-amber-400{{else}}text-slate-500{{end}}">
+      {{money .Profissional.ComissaoPendente}}
     </span>
   </td>
   <td class="px-6 py-4 text-right">
-    {{if gt .ComissaoPendente 0.0}}
+    {{if gt .Profissional.ComissaoPendente 0.0}}
     <button
-      hx-post="/dashboard/gerencial/professionals/{{.ID}}/pay?start_date={{$.StartDate}}&end_date={{$.EndDate}}"
+      hx-post="/dashboard/gerencial/professionals/{{.Profissional.ID}}/pay?start_date={{.StartDate}}&end_date={{.EndDate}}"
       hx-swap="none"
       class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 transition-colors"
     >

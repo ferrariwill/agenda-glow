@@ -1,0 +1,44 @@
+
+<tr id="equipe-row-a1000003-0003-4003-8003-000000000003" hx-swap-oob="true" class="hover:bg-surface-800/40 align-top opacity-60">
+  <td class="px-5 py-3">
+    <div class="flex items-center gap-2">
+      <div class="h-8 w-8 shrink-0 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold text-xs">
+        C
+      </div>
+      <input name="nome" required value="Claudia Editada"
+        class="flex-1 min-w-[120px] rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    </div>
+  </td>
+  <td class="px-5 py-3">
+    <input name="especialidade" required value="Manicure"
+      class="w-full rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-slate-300 focus:ring-2 focus:ring-accent-500/40 outline-none">
+  </td>
+  <td class="px-5 py-3 text-right">
+    <input name="comissao_porcentagem" required type="number" min="0" max="100" step="0.5" value="45.0"
+      class="w-20 ml-auto rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-emerald-400 font-semibold text-right focus:ring-2 focus:ring-accent-500/40 outline-none">
+  </td>
+  <td class="px-5 py-3 text-center">
+    <input type="checkbox" name="ativo" value="on" 
+      class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+  </td>
+  <td class="px-5 py-3 text-right">
+    <button type="button"
+      hx-post="/admin/equipe/a1000003-0003-4003-8003-000000000003"
+      hx-include="#equipe-row-a1000003-0003-4003-8003-000000000003"
+      hx-swap="none"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 whitespace-nowrap">
+      Salvar
+    </button>
+  </td>
+</tr>
+
+<div id="limite-alert" hx-swap-oob="true">
+  
+  <div></div>
+  
+</div>
+
+<div id="equipe-flash" hx-swap-oob="true"
+     class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+  Profissional atualizada com sucesso.
+</div>

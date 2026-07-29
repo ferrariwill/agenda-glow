@@ -10,10 +10,17 @@
     {{template "superadmin_header" .}}
     {{template "superadmin_nav" .}}
 
+    <div id="superadmin-flash" class="mb-6"></div>
+
     <!-- Cadastro -->
     <section class="rounded-2xl border border-neon-500/20 bg-void-900/80 backdrop-blur p-6 mb-8 shadow-neon-sm">
       <h2 class="text-lg font-semibold text-white mb-1">Novo Estabelecimento</h2>
       <p class="text-sm text-slate-400 mb-5">Cadastre salão, slug da bio do Instagram e plano SaaS inicial (12 meses).</p>
+      {{if not .Plans}}
+      <p class="text-sm text-amber-300 mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+        Cadastre um plano SaaS em <a href="/superadmin/planos" class="underline font-semibold">Planos SaaS</a> antes de criar salões.
+      </p>
+      {{end}}
       <form
         hx-post="/superadmin/establishments"
         hx-swap="none"
@@ -55,27 +62,25 @@
     <section class="rounded-2xl border border-void-700 bg-void-900/60 overflow-hidden">
       <div class="px-5 py-4 border-b border-void-700 flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Estabelecimentos Cadastrados</h2>
-        <span class="text-xs text-slate-500">{{len .Establishments}} salões</span>
+        <span class="text-xs text-slate-500">{{len .Rows}} salões</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-[10px] uppercase tracking-widest text-slate-500 border-b border-void-700">
-              <th class="px-4 py-3 font-medium">ID</th>
-              <th class="px-4 py-3 font-medium">Nome</th>
-              <th class="px-4 py-3 font-medium">Slug / Link Bio</th>
-              <th class="px-4 py-3 font-medium">Cadastro</th>
+              <th class="px-4 py-3 font-medium">Salão</th>
+              <th class="px-4 py-3 font-medium">Link Bio</th>
               <th class="px-4 py-3 font-medium">Plano</th>
-              <th class="px-4 py-3 font-medium">Assinatura</th>
+              <th class="px-4 py-3 font-medium">Status</th>
               <th class="px-4 py-3 font-medium">Vencimento</th>
-              <th class="px-4 py-3 font-medium text-right">Ações</th>
+              <th class="px-4 py-3 font-medium min-w-[320px]">Ações</th>
             </tr>
           </thead>
           <tbody id="establishments-tbody" class="divide-y divide-void-700/60">
-            {{range .Establishments}}
+            {{range .Rows}}
               {{template "establishment_row" .}}
             {{else}}
-            <tr><td colspan="8" class="px-4 py-12 text-center text-slate-500">Nenhum estabelecimento cadastrado.</td></tr>
+            <tr><td colspan="6" class="px-4 py-12 text-center text-slate-500">Nenhum estabelecimento cadastrado.</td></tr>
             {{end}}
           </tbody>
         </table>
@@ -87,49 +92,17 @@
 {{end}}
 
 {{define "establishment_row"}}
-<tr id="est-row-{{.ID}}" class="hover:bg-void-800/40 transition-colors">
-  <td class="px-4 py-3 font-mono text-xs text-slate-500" title="{{.ID}}">{{shortID .ID}}</td>
-  <td class="px-4 py-3 font-semibold text-white">{{.NomeComercial}}</td>
+<tr id="est-row-{{.Est.ID}}" class="hover:bg-void-800/40 transition-colors align-top">
   <td class="px-4 py-3">
-    <p class="font-mono text-xs text-neon-400">{{.Slug}}</p>
-    <a href="{{publicURL $.PublicBaseURL .Slug}}" target="_blank" rel="noopener"
-       class="text-[11px] text-slate-500 hover:text-neon-400 transition-colors">{{publicURL $.PublicBaseURL .Slug}}</a>
+    <p class="font-semibold text-white">{{.Est.NomeComercial}}</p>
+    <p class="font-mono text-[10px] text-slate-600 mt-0.5" title="{{.Est.ID}}">{{shortID .Est.ID}}</p>
+    <p class="text-[11px] text-slate-500 mt-1">Desde {{formatDate .Est.DataCadastro}}</p>
   </td>
-  <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDate .DataCadastro}}</td>
-  <td class="px-4 py-3 text-slate-300">{{derefStr .PlanoNome}}</td>
-  <td class="px-4 py-3">
-    <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border {{statusBadge .StatusAssinatura}}">
-      {{.StatusAssinatura}}
-    </span>
-  </td>
-  <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDatePtr .DataVencimento}}</td>
-  <td class="px-4 py-3">
-    <div class="flex flex-wrap justify-end gap-1.5">
-      {{if or (eq .StatusAssinatura "SUSPENSO") (not .Ativo)}}
-      <button hx-post="/superadmin/establishments/{{.ID}}/activate" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-600/30">Ativar</button>
-      {{else}}
-      <button hx-post="/superadmin/establishments/{{.ID}}/suspend" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30">Suspender</button>
-      {{end}}
-      <button hx-post="/superadmin/establishments/{{.ID}}/renew" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-neon-600/20 text-neon-300 border border-neon-500/30 hover:bg-neon-600/30"
-        title="Renovar +12 meses">+12m</button>
-    </div>
-  </td>
-</tr>
-{{end}}
-
-{{define "establishment_row_oob"}}
-<tr id="est-row-{{.Est.ID}}" hx-swap-oob="true" class="hover:bg-void-800/40 transition-colors">
-  <td class="px-4 py-3 font-mono text-xs text-slate-500" title="{{.Est.ID}}">{{shortID .Est.ID}}</td>
-  <td class="px-4 py-3 font-semibold text-white">{{.Est.NomeComercial}}</td>
   <td class="px-4 py-3">
     <p class="font-mono text-xs text-neon-400">{{.Est.Slug}}</p>
     <a href="{{publicURL .PublicBaseURL .Est.Slug}}" target="_blank" rel="noopener"
-       class="text-[11px] text-slate-500 hover:text-neon-400">{{publicURL .PublicBaseURL .Est.Slug}}</a>
+       class="text-[11px] text-slate-500 hover:text-neon-400 transition-colors">Abrir página de agendamento ↗</a>
   </td>
-  <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDate .Est.DataCadastro}}</td>
   <td class="px-4 py-3 text-slate-300">{{derefStr .Est.PlanoNome}}</td>
   <td class="px-4 py-3">
     <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border {{statusBadge .Est.StatusAssinatura}}">
@@ -138,31 +111,94 @@
   </td>
   <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDatePtr .Est.DataVencimento}}</td>
   <td class="px-4 py-3">
-    <div class="flex flex-wrap justify-end gap-1.5">
-      {{if or (eq .Est.StatusAssinatura "SUSPENSO") (not .Est.Ativo)}}
-      <button hx-post="/superadmin/establishments/{{.Est.ID}}/activate" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30">Ativar</button>
-      {{else}}
-      <button hx-post="/superadmin/establishments/{{.Est.ID}}/suspend" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30">Suspender</button>
-      {{end}}
-      <button hx-post="/superadmin/establishments/{{.Est.ID}}/renew" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-neon-600/20 text-neon-300 border border-neon-500/30">+12m</button>
-    </div>
+    {{template "establishment_actions" .}}
   </td>
+</tr>
+{{end}}
+
+{{define "establishment_actions"}}
+<div class="space-y-2 min-w-[300px]">
+  <!-- Atribuir / trocar plano -->
+  <form hx-post="/superadmin/establishments/{{.Est.ID}}/assign-plan" hx-swap="none" class="flex flex-wrap gap-1.5 items-center">
+    <select name="plano_id" required
+      class="flex-1 min-w-[120px] text-xs rounded-lg bg-void-800 border border-void-700 px-2 py-1.5 text-white">
+      <option value="">Plano…</option>
+      {{range .Plans}}{{if .Ativo}}
+      <option value="{{.ID}}" {{if eqID .ID $.Est.PlanoID}}selected{{end}}>{{.Nome}}</option>
+      {{end}}{{end}}
+    </select>
+    <select name="meses" class="text-xs rounded-lg bg-void-800 border border-void-700 px-2 py-1.5 text-white">
+      <option value="12">12m</option>
+      <option value="6">6m</option>
+      <option value="1">1m</option>
+    </select>
+    <button type="submit"
+      class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-neon-600/25 text-neon-300 border border-neon-500/30 hover:bg-neon-600/40">
+      {{if .Est.PlanoID}}Trocar{{else}}Atribuir{{end}}
+    </button>
+  </form>
+
+  <!-- Criar usuária DONA -->
+  <form hx-post="/superadmin/establishments/{{.Est.ID}}/create-dona" hx-swap="none" class="flex gap-1.5 items-center">
+    <input name="email" type="email" placeholder="e-mail da dona (opcional)"
+      class="flex-1 text-xs rounded-lg bg-void-800 border border-void-700 px-2 py-1.5 text-white placeholder-slate-600">
+    <button type="submit"
+      class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/30 hover:bg-sky-600/30 whitespace-nowrap">
+      + Dona
+    </button>
+  </form>
+
+  <!-- Status e renovação -->
+  <div class="flex flex-wrap gap-1.5">
+    {{if or (eq .Est.StatusAssinatura "SUSPENSO") (not .Est.Ativo)}}
+    <button hx-post="/superadmin/establishments/{{.Est.ID}}/activate" hx-swap="none"
+      class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-600/30">Ativar</button>
+    {{else}}
+    <button hx-post="/superadmin/establishments/{{.Est.ID}}/suspend" hx-swap="none"
+      class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30">Suspender</button>
+    {{end}}
+    <button hx-post="/superadmin/establishments/{{.Est.ID}}/renew" hx-swap="none"
+      class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-violet-600/20 text-violet-300 border border-violet-500/30 hover:bg-violet-600/30"
+      title="Renovar +12 meses">Renovar +12m</button>
+  </div>
+</div>
+{{end}}
+
+{{define "establishment_row_oob"}}
+<tr id="est-row-{{.Est.ID}}" hx-swap-oob="true" class="hover:bg-void-800/40 transition-colors align-top">
+  <td class="px-4 py-3">
+    <p class="font-semibold text-white">{{.Est.NomeComercial}}</p>
+    <p class="font-mono text-[10px] text-slate-600 mt-0.5">{{shortID .Est.ID}}</p>
+    <p class="text-[11px] text-slate-500 mt-1">Desde {{formatDate .Est.DataCadastro}}</p>
+  </td>
+  <td class="px-4 py-3">
+    <p class="font-mono text-xs text-neon-400">{{.Est.Slug}}</p>
+    <a href="{{publicURL .PublicBaseURL .Est.Slug}}" target="_blank" rel="noopener"
+       class="text-[11px] text-slate-500 hover:text-neon-400">Abrir página de agendamento ↗</a>
+  </td>
+  <td class="px-4 py-3 text-slate-300">{{derefStr .Est.PlanoNome}}</td>
+  <td class="px-4 py-3">
+    <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border {{statusBadge .Est.StatusAssinatura}}">
+      {{.Est.StatusAssinatura}}
+    </span>
+  </td>
+  <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDatePtr .Est.DataVencimento}}</td>
+  <td class="px-4 py-3">{{template "establishment_actions" .}}</td>
 </tr>
 {{end}}
 
 {{define "establishment_row_new_oob"}}
-<tr id="est-row-{{.Est.ID}}" hx-swap-oob="afterbegin:#establishments-tbody" class="hover:bg-void-800/40 transition-colors">
-  <td class="px-4 py-3 font-mono text-xs text-slate-500" title="{{.Est.ID}}">{{shortID .Est.ID}}</td>
-  <td class="px-4 py-3 font-semibold text-white">{{.Est.NomeComercial}}</td>
+<tr id="est-row-{{.Est.ID}}" hx-swap-oob="afterbegin:#establishments-tbody" class="hover:bg-void-800/40 transition-colors align-top">
+  <td class="px-4 py-3">
+    <p class="font-semibold text-white">{{.Est.NomeComercial}}</p>
+    <p class="font-mono text-[10px] text-slate-600 mt-0.5">{{shortID .Est.ID}}</p>
+    <p class="text-[11px] text-slate-500 mt-1">Desde {{formatDate .Est.DataCadastro}}</p>
+  </td>
   <td class="px-4 py-3">
     <p class="font-mono text-xs text-neon-400">{{.Est.Slug}}</p>
     <a href="{{publicURL .PublicBaseURL .Est.Slug}}" target="_blank" rel="noopener"
-       class="text-[11px] text-slate-500 hover:text-neon-400">{{publicURL .PublicBaseURL .Est.Slug}}</a>
+       class="text-[11px] text-slate-500 hover:text-neon-400">Abrir página de agendamento ↗</a>
   </td>
-  <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDate .Est.DataCadastro}}</td>
   <td class="px-4 py-3 text-slate-300">{{derefStr .Est.PlanoNome}}</td>
   <td class="px-4 py-3">
     <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border {{statusBadge .Est.StatusAssinatura}}">
@@ -170,18 +206,13 @@
     </span>
   </td>
   <td class="px-4 py-3 text-slate-400 whitespace-nowrap">{{formatDatePtr .Est.DataVencimento}}</td>
-  <td class="px-4 py-3">
-    <div class="flex flex-wrap justify-end gap-1.5">
-      {{if or (eq .Est.StatusAssinatura "SUSPENSO") (not .Est.Ativo)}}
-      <button hx-post="/superadmin/establishments/{{.Est.ID}}/activate" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30">Ativar</button>
-      {{else}}
-      <button hx-post="/superadmin/establishments/{{.Est.ID}}/suspend" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30">Suspender</button>
-      {{end}}
-      <button hx-post="/superadmin/establishments/{{.Est.ID}}/renew" hx-swap="none"
-        class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-neon-600/20 text-neon-300 border border-neon-500/30">+12m</button>
-    </div>
-  </td>
+  <td class="px-4 py-3">{{template "establishment_actions" .}}</td>
 </tr>
+{{end}}
+
+{{define "superadmin_flash_oob"}}
+<div id="superadmin-flash" hx-swap-oob="true"
+     class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+  {{.}}
+</div>
 {{end}}

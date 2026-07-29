@@ -5,10 +5,19 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
+
+	"github.com/agendaglow/agendaglow/internal/service"
 )
 
 //go:embed templates/*
 var templatesFS embed.FS
+
+// EquipeRowView dados de uma linha da tabela de profissionais no painel gerencial.
+type EquipeRowView struct {
+	StartDate    string
+	EndDate      string
+	Profissional service.DesempenhoProfissional
+}
 
 // LoadDashboardTemplates carrega o painel gerencial e partials HTMX embutidos.
 func LoadDashboardTemplates() (*template.Template, error) {
@@ -33,9 +42,33 @@ func LoadDashboardTemplates() (*template.Template, error) {
 			}
 			return "?"
 		},
+		"equipeRow": func(start, end string, prof service.DesempenhoProfissional) EquipeRowView {
+			return EquipeRowView{
+				StartDate:    start,
+				EndDate:      end,
+				Profissional: prof,
+			}
+		},
+		"dict": func(values ...interface{}) (map[string]interface{}, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("dict: número ímpar de argumentos")
+			}
+			m := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: chave deve ser string")
+				}
+				m[key] = values[i+1]
+			}
+			return m, nil
+		},
 	}
 
-	tmpl, err := template.New("dashboard_dona.html").Funcs(funcMap).ParseFS(templatesFS, "templates/dashboard_dona.html")
+	tmpl, err := template.New("dashboard_dona.html").Funcs(funcMap).ParseFS(templatesFS,
+		"templates/dashboard_dona.html",
+		"templates/admin_common.html",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("parse dashboard template: %w", err)
 	}

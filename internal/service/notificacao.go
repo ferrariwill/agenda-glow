@@ -14,46 +14,89 @@ import (
 )
 
 const (
+	whatsappSistemaOrigem      = "beleza"
 	whatsappTemplateLembrete   = "lembrete_agenda"
-	whatsappSendTemplatePath   = "/v1/messages/send-template"
+	whatsappSendNotificationPath = "/send-notification"
 	defaultWhatsAppHTTPTimeout = 15 * time.Second
+	defaultWhatsAppLanguage    = "pt_BR"
 )
 
-type whatsAppTemplateRequest struct {
-	PhoneNumber      string   `json:"phone_number"`
-	ExternalClientID string   `json:"external_client_id"`
-	TemplateName     string   `json:"template_name"`
-	AppointmentID    string   `json:"appointment_id"`
-	Variables        []string `json:"variables"`
+// whatsAppSendNotificationRequest é o contrato Beleza → Gateway.
+type whatsAppSendNotificationRequest struct {
+	SistemaOrigem  string   `json:"sistema_origem"`
+	TenantID       string   `json:"tenant_id"`
+	PhoneNumber    string   `json:"phone_number"`
+	TemplateName   string   `json:"template_name"`
+	LanguageCode   string   `json:"language_code"`
+	SimpleTemplate bool     `json:"simple_template"`
+	AppointmentID  string   `json:"appointment_id,omitempty"`
+	Variables      []string `json:"variables"`
 }
 
-// DispararLembreteWhatsApp envia template de lembrete ao WhatsApp Gateway.
+// DispararLembreteWhatsApp envia template de lembrete via Gateway (POST /send-notification).
 func DispararLembreteWhatsApp(
 	ctx context.Context,
 	telefoneCliente, nomeCliente, nomeProfissional, servico, horario, agendamentoID, idSalaoCliente string,
 ) error {
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_URL")), "/")
-	apiKey := strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_KEY"))
-	if baseURL == "" || apiKey == "" {
-		return fmt.Errorf("whatsapp gateway não configurado (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_KEY)")
-	}
-
-	telefoneCliente = strings.TrimSpace(telefoneCliente)
-	if telefoneCliente == "" {
-		return fmt.Errorf("telefone do cliente vazio")
-	}
-
-	payload := whatsAppTemplateRequest{
-		PhoneNumber:      telefoneCliente,
-		ExternalClientID: strings.TrimSpace(idSalaoCliente),
-		TemplateName:     whatsappTemplateLembrete,
-		AppointmentID:    strings.TrimSpace(agendamentoID),
+	return EnviarNotificacaoWhatsApp(ctx, WhatsAppNotificationInput{
+		TenantID:      idSalaoCliente,
+		PhoneNumber:   telefoneCliente,
+		TemplateName:  whatsappTemplateLembrete,
+		AppointmentID: agendamentoID,
 		Variables: []string{
 			strings.TrimSpace(nomeCliente),
 			strings.TrimSpace(nomeProfissional),
 			strings.TrimSpace(servico),
 			strings.TrimSpace(horario),
 		},
+	})
+}
+
+// WhatsAppNotificationInput parâmetros para POST /send-notification no Gateway.
+type WhatsAppNotificationInput struct {
+	TenantID       string
+	PhoneNumber    string
+	TemplateName   string
+	LanguageCode   string
+	SimpleTemplate bool
+	AppointmentID  string
+	Variables      []string
+}
+
+// EnviarNotificacaoWhatsApp chama o Gateway WhatsApp (cliente Beleza → Gateway).
+func EnviarNotificacaoWhatsApp(ctx context.Context, in WhatsAppNotificationInput) error {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_URL")), "/")
+	apiKey := strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_KEY"))
+	if baseURL == "" || apiKey == "" {
+		return fmt.Errorf("whatsapp gateway não configurado (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_KEY)")
+	}
+
+	phone := strings.TrimSpace(in.PhoneNumber)
+	if phone == "" {
+		return fmt.Errorf("telefone do cliente vazio")
+	}
+	tenantID := strings.TrimSpace(in.TenantID)
+	if tenantID == "" {
+		return fmt.Errorf("tenant_id (salão) vazio")
+	}
+	template := strings.TrimSpace(in.TemplateName)
+	if template == "" {
+		return fmt.Errorf("template_name vazio")
+	}
+	lang := strings.TrimSpace(in.LanguageCode)
+	if lang == "" {
+		lang = defaultWhatsAppLanguage
+	}
+
+	payload := whatsAppSendNotificationRequest{
+		SistemaOrigem:  whatsappSistemaOrigem,
+		TenantID:       tenantID,
+		PhoneNumber:    phone,
+		TemplateName:   template,
+		LanguageCode:   lang,
+		SimpleTemplate: true,
+		AppointmentID:  strings.TrimSpace(in.AppointmentID),
+		Variables:      in.Variables,
 	}
 
 	body, err := json.Marshal(payload)
@@ -61,7 +104,7 @@ func DispararLembreteWhatsApp(
 		return fmt.Errorf("serializar payload whatsapp: %w", err)
 	}
 
-	endpoint := baseURL + whatsappSendTemplatePath
+	endpoint := baseURL + whatsappSendNotificationPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("montar requisição whatsapp: %w", err)

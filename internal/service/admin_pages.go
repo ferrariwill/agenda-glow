@@ -149,9 +149,11 @@ WHERE id = $1 AND estabelecimento_id = $2
 // BuscarProfissionalPorID retorna profissional recém-cadastrada para partial HTMX.
 func (s *ProfissionalService) BuscarProfissionalPorID(ctx context.Context, establishmentID, professionalID string) (*Profissional, error) {
 	const query = `
-SELECT id, nome, especialidade, comissao_porcentagem, ativo
-FROM profissionais
-WHERE id = $1 AND estabelecimento_id = $2
+SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
+       p.comissao_porcentagem, p.ativo
+FROM profissionais p
+INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
+WHERE p.id = $1 AND p.estabelecimento_id = $2
 `
 	var p Profissional
 	if err := s.db.GetContext(ctx, &p, query, professionalID, establishmentID); err != nil {

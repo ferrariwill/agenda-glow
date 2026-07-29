@@ -16,6 +16,7 @@ import (
 type AdminConfigHandler struct {
 	procedimentos    *service.ProcedimentoService
 	profissionais    *service.ProfissionalService
+	especialidades   *service.EspecialidadeService
 	financeiro       *service.FinanceiroService
 	estabelecimentos *service.EstabelecimentoService
 	tmpl             *template.Template
@@ -24,6 +25,7 @@ type AdminConfigHandler struct {
 func NewAdminConfigHandler(
 	procedimentos *service.ProcedimentoService,
 	profissionais *service.ProfissionalService,
+	especialidades *service.EspecialidadeService,
 	financeiro *service.FinanceiroService,
 	estabelecimentos *service.EstabelecimentoService,
 ) (*AdminConfigHandler, error) {
@@ -34,6 +36,7 @@ func NewAdminConfigHandler(
 	return &AdminConfigHandler{
 		procedimentos:    procedimentos,
 		profissionais:    profissionais,
+		especialidades:   especialidades,
 		financeiro:       financeiro,
 		estabelecimentos: estabelecimentos,
 		tmpl:             tmpl,
@@ -55,8 +58,19 @@ type servicosPageData struct {
 
 type equipePageData struct {
 	adminShellData
-	Profissionais []service.Profissional
-	Limite        service.StatusLimiteEquipe
+	Profissionais  []service.Profissional
+	Especialidades []service.Especialidade
+	Limite         service.StatusLimiteEquipe
+}
+
+type especialidadesPageData struct {
+	adminShellData
+	Especialidades []service.Especialidade
+}
+
+type equipeRowRenderData struct {
+	Profissional   service.Profissional
+	Especialidades []service.Especialidade
 }
 
 type caixaPageData struct {
@@ -170,6 +184,12 @@ func (h *AdminConfigHandler) Equipe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	especialidades, err := h.especialidades.ListEspecialidades(r.Context(), shell.establishmentID())
+	if err != nil {
+		http.Error(w, "Erro interno", http.StatusInternalServerError)
+		return
+	}
+
 	limite, err := h.profissionais.GetStatusLimiteEquipe(r.Context(), shell.establishmentID())
 	if err != nil {
 		http.Error(w, "Erro interno", http.StatusInternalServerError)
@@ -179,8 +199,104 @@ func (h *AdminConfigHandler) Equipe(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "config_equipe_page", equipePageData{
 		adminShellData: shell,
 		Profissionais:  lista,
+		Especialidades: especialidades,
 		Limite:         *limite,
 	})
+}
+
+// Especialidades GET /admin/especialidades
+func (h *AdminConfigHandler) Especialidades(w http.ResponseWriter, r *http.Request) {
+	shell, err := h.shellData(r.Context())
+	if err != nil {
+		http.Error(w, "Erro interno", http.StatusInternalServerError)
+		return
+	}
+	shell.NavActive = "especialidades"
+
+	lista, err := h.especialidades.ListEspecialidades(r.Context(), shell.establishmentID())
+	if err != nil {
+		http.Error(w, "Erro interno", http.StatusInternalServerError)
+		return
+	}
+
+	h.render(w, "config_especialidades_page", especialidadesPageData{
+		adminShellData: shell,
+		Especialidades: lista,
+	})
+}
+
+// CreateEspecialidade POST /admin/especialidades
+func (h *AdminConfigHandler) CreateEspecialidade(w http.ResponseWriter, r *http.Request) {
+	estID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Não autorizado", http.StatusUnauthorized)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulário inválido", http.StatusBadRequest)
+		return
+	}
+
+	id, err := h.especialidades.CreateEspecialidade(r.Context(), estID, r.FormValue("nome"))
+	if err != nil {
+		if errors.Is(err, service.ErrEspecialidadeNomeDuplicado) {
+			http.Error(w, "Já existe especialidade com este nome", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Erro ao cadastrar especialidade", http.StatusBadRequest)
+		return
+	}
+
+	esp, err := h.especialidades.BuscarPorID(r.Context(), estID, id)
+	if err != nil {
+		http.Error(w, "Erro interno", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = h.tmpl.ExecuteTemplate(w, "especialidade_row_new_oob", esp)
+	_ = h.tmpl.ExecuteTemplate(w, "admin_flash_oob", "Especialidade cadastrada.")
+}
+
+// UpdateEspecialidade POST /admin/especialidades/{id}
+func (h *AdminConfigHandler) UpdateEspecialidade(w http.ResponseWriter, r *http.Request) {
+	estID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Não autorizado", http.StatusUnauthorized)
+		return
+	}
+	espID := strings.TrimSpace(r.PathValue("id"))
+	if espID == "" {
+		http.Error(w, "ID inválido", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulário inválido", http.StatusBadRequest)
+		return
+	}
+	ativo := r.FormValue("ativo") == "on" || r.FormValue("ativo") == "true" || r.FormValue("ativo") == "1"
+
+	if err := h.especialidades.UpdateEspecialidade(r.Context(), estID, espID, r.FormValue("nome"), ativo); err != nil {
+		switch {
+		case errors.Is(err, service.ErrEspecialidadeNaoEncontrada):
+			http.Error(w, "Especialidade não encontrada", http.StatusNotFound)
+		case errors.Is(err, service.ErrEspecialidadeNomeDuplicado):
+			http.Error(w, "Já existe especialidade com este nome", http.StatusConflict)
+		default:
+			http.Error(w, "Erro ao atualizar especialidade", http.StatusBadRequest)
+		}
+		return
+	}
+
+	esp, err := h.especialidades.BuscarPorID(r.Context(), estID, espID)
+	if err != nil {
+		http.Error(w, "Erro interno", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = h.tmpl.ExecuteTemplate(w, "especialidade_row_oob", esp)
+	_ = h.tmpl.ExecuteTemplate(w, "admin_flash_oob", "Especialidade atualizada.")
 }
 
 // CreateProfissional POST /admin/equipe
@@ -204,12 +320,20 @@ func (h *AdminConfigHandler) CreateProfissional(w http.ResponseWriter, r *http.R
 	id, err := h.profissionais.CreateProfessional(
 		r.Context(), estID,
 		r.FormValue("nome"),
-		r.FormValue("especialidade"),
+		strings.TrimSpace(r.FormValue("especialidade_id")),
 		comissao,
 	)
 	if err != nil {
 		if errors.Is(err, service.ErrPlanLimitExceeded) {
 			http.Error(w, "Limite do plano atingido", http.StatusForbidden)
+			return
+		}
+		if errors.Is(err, service.ErrEspecialidadeNaoEncontrada) {
+			http.Error(w, "Selecione uma especialidade válida", http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, service.ErrEspecialidadeInativa) {
+			http.Error(w, "Especialidade inativa", http.StatusBadRequest)
 			return
 		}
 		http.Error(w, "Erro ao cadastrar profissional", http.StatusBadRequest)
@@ -223,12 +347,84 @@ func (h *AdminConfigHandler) CreateProfissional(w http.ResponseWriter, r *http.R
 	}
 
 	limite, _ := h.profissionais.GetStatusLimiteEquipe(r.Context(), estID)
+	especialidades, _ := h.especialidades.ListEspecialidades(r.Context(), estID)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = h.tmpl.ExecuteTemplate(w, "equipe_row", prof)
+	_ = h.tmpl.ExecuteTemplate(w, "equipe_row_new_oob", equipeRowRenderData{
+		Profissional:   *prof,
+		Especialidades: especialidades,
+	})
 	if limite != nil {
 		_ = h.tmpl.ExecuteTemplate(w, "limite_alert_oob", *limite)
 	}
+	_ = h.tmpl.ExecuteTemplate(w, "equipe_empty_remove_oob", nil)
+}
+
+// UpdateProfissional POST /admin/equipe/{id}
+func (h *AdminConfigHandler) UpdateProfissional(w http.ResponseWriter, r *http.Request) {
+	estID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Não autorizado", http.StatusUnauthorized)
+		return
+	}
+	profID := strings.TrimSpace(r.PathValue("id"))
+	if profID == "" {
+		http.Error(w, "Profissional inválida", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulário inválido", http.StatusBadRequest)
+		return
+	}
+
+	comissao, err := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(r.FormValue("comissao_porcentagem")), ",", "."), 64)
+	if err != nil {
+		http.Error(w, "Comissão inválida", http.StatusBadRequest)
+		return
+	}
+	ativo := r.FormValue("ativo") == "on" || r.FormValue("ativo") == "true" || r.FormValue("ativo") == "1"
+
+	err = h.profissionais.UpdateProfessional(
+		r.Context(), estID, profID,
+		r.FormValue("nome"),
+		strings.TrimSpace(r.FormValue("especialidade_id")),
+		comissao,
+		ativo,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrProfissionalNaoEncontrado):
+			http.Error(w, "Profissional não encontrada", http.StatusNotFound)
+		case errors.Is(err, service.ErrPlanLimitExceeded):
+			http.Error(w, "Limite do plano atingido — não é possível reativar", http.StatusForbidden)
+		case errors.Is(err, service.ErrEspecialidadeNaoEncontrada):
+			http.Error(w, "Selecione uma especialidade válida", http.StatusBadRequest)
+		case errors.Is(err, service.ErrEspecialidadeInativa):
+			http.Error(w, "Especialidade inativa", http.StatusBadRequest)
+		default:
+			http.Error(w, "Erro ao atualizar profissional", http.StatusBadRequest)
+		}
+		return
+	}
+
+	prof, err := h.profissionais.BuscarProfissionalPorID(r.Context(), estID, profID)
+	if err != nil {
+		http.Error(w, "Erro interno", http.StatusInternalServerError)
+		return
+	}
+
+	especialidades, _ := h.especialidades.ListEspecialidades(r.Context(), estID)
+	limite, _ := h.profissionais.GetStatusLimiteEquipe(r.Context(), estID)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = h.tmpl.ExecuteTemplate(w, "equipe_row_oob", equipeRowRenderData{
+		Profissional:   *prof,
+		Especialidades: especialidades,
+	})
+	if limite != nil {
+		_ = h.tmpl.ExecuteTemplate(w, "limite_alert_oob", *limite)
+	}
+	_ = h.tmpl.ExecuteTemplate(w, "equipe_flash_oob", "Profissional atualizada com sucesso.")
 }
 
 // Caixa GET /admin/caixa

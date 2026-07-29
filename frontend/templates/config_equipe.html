@@ -6,20 +6,30 @@
   <title>Equipe · {{.EstabelecimentoNome}}</title>
 </head>
 <body class="min-h-full bg-surface-950 text-slate-100 antialiased">
-  <div class="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
     {{template "admin_header" .}}
     {{template "admin_nav" .}}
 
+    <div id="equipe-flash" class="mb-6"></div>
+
     {{template "limite_alert" .Limite}}
 
-    <!-- Formulário -->
+    {{if not .Especialidades}}
+    <div class="rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-300 px-5 py-4 mb-6">
+      <p class="font-semibold">Cadastre especialidades primeiro</p>
+      <p class="text-sm mt-1 text-amber-200/80">
+        Antes de incluir profissionais, cadastre cargos em
+        <a href="/admin/especialidades" class="underline font-semibold">Especialidades</a>.
+      </p>
+    </div>
+    {{end}}
+
     <section class="rounded-2xl border border-surface-600 bg-surface-900 p-6 mb-8">
       <h2 class="text-lg font-semibold text-white mb-1">Nova Profissional Parceira</h2>
-      <p class="text-sm text-slate-400 mb-5">Defina nome, especialidade e percentual de comissão/repasse.</p>
+      <p class="text-sm text-slate-400 mb-5">Selecione a especialidade cadastrada e defina comissão/repasse.</p>
       <form
         hx-post="/admin/equipe"
-        hx-target="#equipe-tbody"
-        hx-swap="beforeend"
+        hx-swap="none"
         hx-on::after-request="if(event.detail.successful) this.reset()"
         class="grid grid-cols-1 sm:grid-cols-2 gap-4"
       >
@@ -30,10 +40,8 @@
             class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50">
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Especialidade / Cargo</label>
-          <input name="especialidade" required placeholder="Ex: Nail Designer"
-            {{if .Limite.LimiteAtingido}}disabled{{end}}
-            class="w-full rounded-xl bg-surface-800 border border-surface-600 px-4 py-2.5 text-white placeholder-slate-500 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50">
+          <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Especialidade</label>
+          {{template "especialidade_select" (dict "Selected" "" "Options" .Especialidades "Disabled" .Limite.LimiteAtingido)}}
         </div>
         <div>
           <label class="block text-xs font-medium text-slate-500 uppercase mb-1.5">Comissão / Repasse (%)</label>
@@ -52,28 +60,28 @@
       </form>
     </section>
 
-    <!-- Tabela equipe -->
     <section class="rounded-2xl border border-surface-600 bg-surface-900 overflow-hidden">
       <div class="px-5 py-4 border-b border-surface-700">
-        <h2 class="text-lg font-semibold text-white">Equipe Ativa</h2>
-        <p class="text-sm text-slate-400">{{.Limite.TotalAtivos}} de {{.Limite.LimiteProfissionais}} profissionais no plano</p>
+        <h2 class="text-lg font-semibold text-white">Equipe</h2>
+        <p class="text-sm text-slate-400">{{.Limite.TotalAtivos}} ativas · {{.Limite.LimiteProfissionais}} no plano</p>
       </div>
       <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm min-w-[640px]">
           <thead>
             <tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-surface-700">
-              <th class="px-5 py-3 font-medium">Profissional</th>
+              <th class="px-5 py-3 font-medium">Nome</th>
               <th class="px-5 py-3 font-medium">Especialidade</th>
-              <th class="px-5 py-3 font-medium text-right">Comissão</th>
-              <th class="px-5 py-3 font-medium text-center">Status</th>
+              <th class="px-5 py-3 font-medium text-right">Comissão %</th>
+              <th class="px-5 py-3 font-medium text-center">Ativa</th>
+              <th class="px-5 py-3 font-medium text-right">Ação</th>
             </tr>
           </thead>
           <tbody id="equipe-tbody" class="divide-y divide-surface-700/60">
             {{range .Profissionais}}
-              {{if .Ativo}}{{template "equipe_row" .}}{{end}}
+              {{template "equipe_row_item" (dict "Profissional" . "Especialidades" $.Especialidades)}}
             {{else}}
             <tr id="equipe-empty">
-              <td colspan="4" class="px-5 py-10 text-center text-slate-500">Nenhuma profissional cadastrada.</td>
+              <td colspan="5" class="px-5 py-10 text-center text-slate-500">Nenhuma profissional cadastrada.</td>
             </tr>
             {{end}}
           </tbody>
@@ -92,7 +100,7 @@
     <p class="font-semibold">⚠️ Limite do plano atingido</p>
     <p class="text-sm mt-1 text-rose-200/80">
       Você já possui {{.TotalAtivos}} profissionais ativas — o máximo do seu plano SaaS é {{.LimiteProfissionais}}.
-      Faça upgrade para cadastrar mais parceiras.
+      Desative alguém ou faça upgrade para cadastrar mais parceiras.
     </p>
   </div>
   {{end}}
@@ -106,7 +114,7 @@
     <p class="font-semibold">⚠️ Limite do plano atingido</p>
     <p class="text-sm mt-1 text-rose-200/80">
       Você já possui {{.TotalAtivos}} profissionais ativas — o máximo do seu plano SaaS é {{.LimiteProfissionais}}.
-      Faça upgrade para cadastrar mais parceiras.
+      Desative alguém ou faça upgrade para cadastrar mais parceiras.
     </p>
   </div>
   {{else}}
@@ -115,20 +123,128 @@
 </div>
 {{end}}
 
-{{define "equipe_row"}}
-<tr class="hover:bg-surface-800/40">
-  <td class="px-5 py-4">
-    <div class="flex items-center gap-3">
-      <div class="h-9 w-9 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold text-sm">
-        {{initial .Nome}}
+{{define "especialidade_select"}}
+{{$selected := .Selected}}
+{{$disabled := .Disabled}}
+<select name="especialidade_id" required
+  class="w-full rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-slate-300 focus:ring-2 focus:ring-accent-500/40 outline-none disabled:opacity-50"
+  {{if $disabled}}disabled{{end}}>
+  <option value="">Selecione…</option>
+  {{range .Options}}{{if or .Ativo (eq .ID $selected)}}
+  <option value="{{.ID}}" {{if eq .ID $selected}}selected{{end}}>{{.Nome}}{{if not .Ativo}} (inativa){{end}}</option>
+  {{end}}{{end}}
+</select>
+{{end}}
+
+{{define "equipe_row_item"}}
+<tr id="equipe-row-{{.Profissional.ID}}" class="hover:bg-surface-800/40 align-top {{if not .Profissional.Ativo}}opacity-60{{end}}">
+  <td class="px-5 py-3">
+    <div class="flex items-center gap-2">
+      <div class="h-8 w-8 shrink-0 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold text-xs">
+        {{initial .Profissional.Nome}}
       </div>
-      <span class="font-medium text-white">{{.Nome}}</span>
+      <input name="nome" required value="{{.Profissional.Nome}}"
+        class="flex-1 min-w-[120px] rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
     </div>
   </td>
-  <td class="px-5 py-4 text-slate-400">{{.Especialidade}}</td>
-  <td class="px-5 py-4 text-right font-semibold text-emerald-400">{{pct .ComissaoPorcentagem}}</td>
-  <td class="px-5 py-4 text-center">
-    <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Ativa</span>
+  <td class="px-5 py-3">
+    {{template "especialidade_select" (dict "Selected" .Profissional.EspecialidadeID "Options" .Especialidades "Disabled" false)}}
+  </td>
+  <td class="px-5 py-3 text-right">
+    <input name="comissao_porcentagem" required type="number" min="0" max="100" step="0.5" value="{{printf "%.1f" .Profissional.ComissaoPorcentagem}}"
+      class="w-20 ml-auto rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-emerald-400 font-semibold text-right focus:ring-2 focus:ring-accent-500/40 outline-none">
+  </td>
+  <td class="px-5 py-3 text-center">
+    <input type="checkbox" name="ativo" value="on" {{if .Profissional.Ativo}}checked{{end}}
+      class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+  </td>
+  <td class="px-5 py-3 text-right">
+    <button type="button"
+      hx-post="/admin/equipe/{{.Profissional.ID}}"
+      hx-include="#equipe-row-{{.Profissional.ID}}"
+      hx-swap="none"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 whitespace-nowrap">
+      Salvar
+    </button>
   </td>
 </tr>
+{{end}}
+
+{{define "equipe_row_oob"}}
+<tr id="equipe-row-{{.Profissional.ID}}" hx-swap-oob="true" class="hover:bg-surface-800/40 align-top {{if not .Profissional.Ativo}}opacity-60{{end}}">
+  <td class="px-5 py-3">
+    <div class="flex items-center gap-2">
+      <div class="h-8 w-8 shrink-0 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold text-xs">
+        {{initial .Profissional.Nome}}
+      </div>
+      <input name="nome" required value="{{.Profissional.Nome}}"
+        class="flex-1 min-w-[120px] rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    </div>
+  </td>
+  <td class="px-5 py-3">
+    {{template "especialidade_select" (dict "Selected" .Profissional.EspecialidadeID "Options" .Especialidades "Disabled" false)}}
+  </td>
+  <td class="px-5 py-3 text-right">
+    <input name="comissao_porcentagem" required type="number" min="0" max="100" step="0.5" value="{{printf "%.1f" .Profissional.ComissaoPorcentagem}}"
+      class="w-20 ml-auto rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-emerald-400 font-semibold text-right focus:ring-2 focus:ring-accent-500/40 outline-none">
+  </td>
+  <td class="px-5 py-3 text-center">
+    <input type="checkbox" name="ativo" value="on" {{if .Profissional.Ativo}}checked{{end}}
+      class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+  </td>
+  <td class="px-5 py-3 text-right">
+    <button type="button"
+      hx-post="/admin/equipe/{{.Profissional.ID}}"
+      hx-include="#equipe-row-{{.Profissional.ID}}"
+      hx-swap="none"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 whitespace-nowrap">
+      Salvar
+    </button>
+  </td>
+</tr>
+{{end}}
+
+{{define "equipe_row_new_oob"}}
+<tr id="equipe-row-{{.Profissional.ID}}" hx-swap-oob="beforeend:#equipe-tbody" class="hover:bg-surface-800/40 align-top">
+  <td class="px-5 py-3">
+    <div class="flex items-center gap-2">
+      <div class="h-8 w-8 shrink-0 rounded-full bg-accent-500/20 text-accent-400 flex items-center justify-center font-bold text-xs">
+        {{initial .Profissional.Nome}}
+      </div>
+      <input name="nome" required value="{{.Profissional.Nome}}"
+        class="flex-1 min-w-[120px] rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-white focus:ring-2 focus:ring-accent-500/40 outline-none">
+    </div>
+  </td>
+  <td class="px-5 py-3">
+    {{template "especialidade_select" (dict "Selected" .Profissional.EspecialidadeID "Options" .Especialidades "Disabled" false)}}
+  </td>
+  <td class="px-5 py-3 text-right">
+    <input name="comissao_porcentagem" required type="number" min="0" max="100" step="0.5" value="{{printf "%.1f" .Profissional.ComissaoPorcentagem}}"
+      class="w-20 ml-auto rounded-lg bg-surface-800 border border-surface-600 px-2.5 py-1.5 text-sm text-emerald-400 font-semibold text-right focus:ring-2 focus:ring-accent-500/40 outline-none">
+  </td>
+  <td class="px-5 py-3 text-center">
+    <input type="checkbox" name="ativo" value="on" checked
+      class="rounded border-surface-600 bg-surface-800 text-accent-500 focus:ring-accent-500/30">
+  </td>
+  <td class="px-5 py-3 text-right">
+    <button type="button"
+      hx-post="/admin/equipe/{{.Profissional.ID}}"
+      hx-include="#equipe-row-{{.Profissional.ID}}"
+      hx-swap="none"
+      class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-600/25 text-accent-300 border border-accent-500/30 hover:bg-accent-600/40 whitespace-nowrap">
+      Salvar
+    </button>
+  </td>
+</tr>
+{{end}}
+
+{{define "equipe_empty_remove_oob"}}
+<tr id="equipe-empty" hx-swap-oob="delete"></tr>
+{{end}}
+
+{{define "equipe_flash_oob"}}
+<div id="equipe-flash" hx-swap-oob="true"
+     class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+  {{.}}
+</div>
 {{end}}

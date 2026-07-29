@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	RoleSuperAdmin  = "SUPER_ADMIN"
-	RoleDona        = "DONA"
+	RoleSuperAdmin   = "SUPER_ADMIN"
+	RoleDona         = "DONA"
+	RoleSecretaria   = "SECRETARIA"
 	RoleProfissional = "PROFISSIONAL"
 
 	SuperAdminEmail = "ferrariwill@gmail.com"
@@ -142,6 +143,13 @@ func validateClaimsScope(claims Claims) error {
 		if claims.ProfissionalID != nil {
 			return fmt.Errorf("dona não deve ter profissional_id")
 		}
+	case RoleSecretaria:
+		if claims.EstabelecimentoID == nil || *claims.EstabelecimentoID == "" {
+			return fmt.Errorf("secretaria requer estabelecimento_id")
+		}
+		if claims.ProfissionalID != nil {
+			return fmt.Errorf("secretaria não deve ter profissional_id")
+		}
 	case RoleProfissional:
 		if claims.EstabelecimentoID == nil || *claims.EstabelecimentoID == "" {
 			return fmt.Errorf("profissional requer estabelecimento_id")
@@ -208,6 +216,22 @@ func RequireDona(next http.Handler) http.Handler {
 			return
 		}
 		if claims.Role != RoleDona {
+			respondForbidden(w, r, claims.Role, RoleDona)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// RequireTenantStaff permite dona ou secretaria (agenda, clientes, cobrança).
+func RequireTenantStaff(next http.Handler) http.Handler {
+	return AuthenticateMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := ClaimsFromContext(r.Context())
+		if !ok {
+			respondUnauthorized(w, r)
+			return
+		}
+		if claims.Role != RoleDona && claims.Role != RoleSecretaria {
 			respondForbidden(w, r, claims.Role, RoleDona)
 			return
 		}
@@ -305,6 +329,8 @@ func loginPathForRole(role string) string {
 		return "/login/superadmin"
 	case RoleDona:
 		return "/login/dona"
+	case RoleSecretaria:
+		return "/login/secretaria"
 	case RoleProfissional:
 		return "/login/profissional"
 	default:
