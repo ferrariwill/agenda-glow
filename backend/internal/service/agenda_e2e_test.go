@@ -152,7 +152,7 @@ func TestAgendaGlowJornadaCompleta(t *testing.T) {
 	// -------------------------------------------------------------------------
 	t.Log("ETAPA 1: plano SaaS + estabelecimento + assinatura")
 
-	planoID, err := planoSvc.CreateSaasPlan(ctx, "Plano Solo", 97.00, 1)
+	planoID, err := planoSvc.CreateSaasPlan(ctx, fmt.Sprintf("Plano Solo E2E %d", time.Now().UnixNano()), 97.00, 1)
 	if err != nil {
 		t.Fatalf("criar plano SaaS: %v", err)
 	}
