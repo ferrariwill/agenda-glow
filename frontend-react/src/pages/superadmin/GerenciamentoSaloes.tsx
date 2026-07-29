@@ -28,6 +28,7 @@ import {
   suspendTenant,
 } from '../../utils/mockDb'
 import { formatDateBR, initials, todayISO } from '../../utils/format'
+import { matchesTenantStatusFilter, type TenantStatusFilter } from '../../utils/tenantStatus'
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
 const PAGE_SIZE = 5
@@ -35,7 +36,7 @@ const PAGE_SIZE = 5
 export function GerenciamentoSaloes() {
   const [db, setDb] = useState(getDb())
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'TODOS' | 'ATIVO' | 'VENCIDO'>('TODOS')
+  const [statusFilter, setStatusFilter] = useState<TenantStatusFilter>('TODOS')
   const [page, setPage] = useState(1)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -58,7 +59,7 @@ export function GerenciamentoSaloes() {
 
   const filtered = useMemo(() => {
     let list = [...db.tenants]
-    if (statusFilter !== 'TODOS') list = list.filter((t) => t.status === statusFilter)
+    list = list.filter((t) => matchesTenantStatusFilter(t.status, statusFilter))
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(
@@ -182,7 +183,7 @@ export function GerenciamentoSaloes() {
         >
           <option value="TODOS">Todos os Salões</option>
           <option value="ATIVO">Ativos</option>
-          <option value="VENCIDO">Vencidos / Suspensos</option>
+          <option value="INATIVOS">Vencidos / Suspensos</option>
         </select>
         <button
           type="button"

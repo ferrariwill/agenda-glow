@@ -8,14 +8,16 @@ import type {
   Profissional,
   Servico,
   Tenant,
+  TenantStatus,
 } from '../types'
+import { normalizeTenantStatus } from '../utils/tenantStatus'
 
 interface TenantBootstrapApi {
   tenant: {
     id: string
     nome: string
     slug: string
-    status: string
+    status: TenantStatus
     logo_url?: string
     plano_id?: string
     data_vencimento?: string
@@ -125,7 +127,7 @@ interface AdminBootstrapApi {
     plano_id?: string
     plano_nome?: string
     data_vencimento?: string
-    status_assinatura: string
+    status_assinatura: TenantStatus
   }[]
   planos: PlanoSaas[]
 }
@@ -139,7 +141,7 @@ export function mapTenantBootstrap(
     id: tenantId,
     nome: payload.tenant.nome,
     slug: payload.tenant.slug,
-    status: payload.tenant.status === 'VENCIDO' ? 'VENCIDO' : 'ATIVO',
+    status: normalizeTenantStatus(payload.tenant.status),
     logo_url: payload.tenant.logo_url,
     plano_id: payload.tenant.plano_id ?? '',
     data_vencimento: payload.tenant.data_vencimento ?? '',
@@ -297,7 +299,7 @@ export function mapAdminBootstrap(payload: AdminBootstrapApi, prev: MockDatabase
     id: t.id,
     nome: t.nome_comercial,
     slug: t.slug,
-    status: t.status_assinatura === 'ATIVO' || t.ativo ? 'ATIVO' : 'VENCIDO',
+    status: normalizeTenantStatus(t.status_assinatura),
     plano_id: t.plano_id ?? '',
     data_vencimento: t.data_vencimento?.slice(0, 10) ?? '',
     criado_em: t.data_cadastro?.slice(0, 10) ?? '',

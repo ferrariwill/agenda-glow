@@ -1,4 +1,4 @@
-export type TenantStatus = 'ATIVO' | 'VENCIDO'
+export type TenantStatus = 'ATIVO' | 'VENCIDO' | 'SUSPENSO'
 export type WhatsAppIntegrationStatus = 'DESCONECTADO' | 'PENDENTE' | 'CONECTADO'
 export type AgendamentoStatus =
   | 'AGENDADO'

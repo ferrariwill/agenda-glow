@@ -2,6 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import type { UserRole } from '../../types'
 import { getDb } from '../../utils/mockDb'
+import { isTenantAtivo } from '../../utils/tenantStatus'
 import { SubscriptionBlocked } from '../../pages/admin/SubscriptionBlocked'
 
 interface ProtectedRouteProps {
@@ -22,7 +23,7 @@ export function ProtectedRoute({ allowedRoles, checkSubscription }: ProtectedRou
 
   if (checkSubscription && session.user.tenant_id) {
     const tenant = getDb().tenants.find((t) => t.id === session.user.tenant_id)
-    if (tenant?.status === 'VENCIDO') {
+    if (tenant && !isTenantAtivo(tenant.status)) {
       return <SubscriptionBlocked />
     }
   }

@@ -1,3 +1,5 @@
+import type { TenantStatus } from '../../types'
+
 type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'muted'
 
 const styles: Record<BadgeVariant, string> = {
@@ -26,8 +28,15 @@ export function Badge({ children, variant = 'default' }: BadgeProps) {
   )
 }
 
-export function statusTenantBadge(status: 'ATIVO' | 'VENCIDO') {
-  return status === 'ATIVO' ? 'success' : 'danger'
+export function statusTenantBadge(status: TenantStatus): BadgeVariant {
+  switch (status) {
+    case 'ATIVO':
+      return 'success'
+    case 'VENCIDO':
+      return 'danger'
+    case 'SUSPENSO':
+      return 'warning'
+  }
 }
 
 export function statusAgendamentoBadge(
