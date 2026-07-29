@@ -1,6 +1,9 @@
 .env
 .env.local
 *.exe
+*.log
 agendaglow
 _hashgen.go
 cmd/hashgen/
+tests/regression/ui/node_modules/
+tests/regression/ui/evidencia_*.png
