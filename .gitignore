@@ -1,6 +1,7 @@
 .env
 .env.local
 *.exe
+*.log
 agendaglow
 _hashgen.go
 cmd/hashgen/

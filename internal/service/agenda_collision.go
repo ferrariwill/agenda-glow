@@ -104,15 +104,21 @@ FOR UPDATE OF a
 		return nil, fmt.Errorf("verificar sobreposição de término: %w", err)
 	}
 
-	minutos := int(fim.Sub(proximoInicio).Minutes())
+	return &detalheSobreposicao{
+		ProximoInicio:    normalizarFusoDoBanco(proximoInicio, fim.Location()),
+		MinutosInvadidos: calcularMinutosInvadidos(fim, proximoInicio),
+	}, nil
+}
+
+// calcularMinutosInvadidos mede quanto o novo atendimento avança sobre o início
+// do próximo. proximoInicio sai de uma coluna TIMESTAMP e precisa ser realinhado
+// ao fuso de fim, senão a subtração soma o offset do fuso.
+func calcularMinutosInvadidos(fim, proximoInicio time.Time) int {
+	minutos := int(fim.Sub(normalizarFusoDoBanco(proximoInicio, fim.Location())).Minutes())
 	if minutos < 1 {
 		minutos = 1
 	}
-
-	return &detalheSobreposicao{
-		ProximoInicio:    proximoInicio,
-		MinutosInvadidos: minutos,
-	}, nil
+	return minutos
 }
 
 // intervaloTotalmenteLivre garante que o procedimento cabe sem nenhuma sobreposição.
