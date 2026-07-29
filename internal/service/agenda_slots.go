@@ -71,8 +71,11 @@ func (s *AgendaService) buscarExpedienteDoDia(
 	professionalID string,
 	diaSemana int,
 ) (*expedienteDia, error) {
+	// Colunas TIME precisam do ::text: o driver converte TIME em time.Time
+	// (0000-01-01) e o scan para string produziria RFC3339, ilegível para
+	// parseHorarioExpediente.
 	const query = `
-SELECT horario_entrada, inicio_almoco, fim_almoco, horario_saida
+SELECT horario_entrada::text, inicio_almoco::text, fim_almoco::text, horario_saida::text
 FROM expedientes_profissionais
 WHERE profissional_id = $1
   AND dia_semana = $2
@@ -173,7 +176,22 @@ ORDER BY data_hora_inicio ASC
 	if ocupados == nil {
 		ocupados = []intervaloAgendado{}
 	}
+	loc := date.Location()
+	for i := range ocupados {
+		ocupados[i].Inicio = normalizarFusoDoBanco(ocupados[i].Inicio, loc)
+		ocupados[i].Fim = normalizarFusoDoBanco(ocupados[i].Fim, loc)
+	}
 	return ocupados, nil
+}
+
+// normalizarFusoDoBanco reinterpreta a hora de parede de um TIMESTAMP (sem
+// fuso, que o driver devolve em UTC) na zona das datas vindas da requisição.
+// Sem isso, Sub/Before/After entre os dois valores somam o offset do fuso.
+func normalizarFusoDoBanco(t time.Time, loc *time.Location) time.Time {
+	if loc == nil || t.Location() == loc {
+		return t
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
 }
 
 func limitesDoDia(date time.Time) (time.Time, time.Time) {
