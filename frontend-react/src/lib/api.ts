@@ -12,6 +12,24 @@ export class ApiError extends Error {
   }
 }
 
+type ApiErrorListener = (err: ApiError) => void
+const errorListeners = new Set<ApiErrorListener>()
+
+export const SUBSCRIPTION_BLOCKED_CODE = 'subscription_expired_or_suspended'
+
+export function onApiError(listener: ApiErrorListener): () => void {
+  errorListeners.add(listener)
+  return () => errorListeners.delete(listener)
+}
+
+export function isSubscriptionBlockedError(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 402 &&
+    err.code === SUBSCRIPTION_BLOCKED_CODE
+  )
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   init: RequestInit = {},
@@ -39,7 +57,9 @@ export async function apiFetch<T = unknown>(
     } catch {
       /* mantém text */
     }
-    throw new ApiError(message, res.status, code)
+    const error = new ApiError(message, res.status, code)
+    errorListeners.forEach((listener) => listener(error))
+    throw error
   }
 
   if (res.status === 204) return undefined as T
