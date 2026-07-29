@@ -196,6 +196,13 @@ func (h *BootstrapAPIHandler) UpdateProfessional(w http.ResponseWriter, r *http.
 		return
 	}
 	if err := h.prof.UpdateProfessional(r.Context(), establishmentID, profID, req.Nome, req.EspecialidadeID, req.Comissao, req.Ativo); err != nil {
+		if errors.Is(err, service.ErrPlanLimitExceeded) {
+			writeJSON(w, http.StatusForbidden, limitReachedResponse{
+				Error:   "limit_reached",
+				Message: "Seu plano atingiu o limite de profissionais parceiras permitidas. Faça um upgrade no painel.",
+			})
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
 		return
 	}
