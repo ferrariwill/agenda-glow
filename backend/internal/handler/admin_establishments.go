@@ -3,17 +3,26 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
+	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/agendaglow/agendaglow/internal/service"
 )
 
 type AdminEstablishmentsHandler struct {
 	estabelecimentos *service.EstabelecimentoService
+	whatsAppGate     *security.WhatsAppGate
 }
 
-func NewAdminEstablishmentsHandler(estabelecimentos *service.EstabelecimentoService) *AdminEstablishmentsHandler {
-	return &AdminEstablishmentsHandler{estabelecimentos: estabelecimentos}
+func NewAdminEstablishmentsHandler(
+	estabelecimentos *service.EstabelecimentoService,
+	whatsAppGate *security.WhatsAppGate,
+) *AdminEstablishmentsHandler {
+	return &AdminEstablishmentsHandler{
+		estabelecimentos: estabelecimentos,
+		whatsAppGate:     whatsAppGate,
+	}
 }
 
 type createEstablishmentRequest struct {
@@ -28,6 +37,10 @@ type createEstablishmentResponse struct {
 
 type toggleStatusRequest struct {
 	Ativo bool `json:"ativo"`
+}
+
+type toggleWhatsAppRequest struct {
+	WhatsAppEnabled *bool `json:"whatsapp_enabled"`
 }
 
 // List serve GET /api/v1/admin/establishments
@@ -94,6 +107,43 @@ func (h *AdminEstablishmentsHandler) ToggleStatus(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, map[string]bool{"ativo": req.Ativo})
 }
 
+// ToggleWhatsApp serve PUT /api/v1/admin/establishments/{id}/toggle-whatsapp.
+func (h *AdminEstablishmentsHandler) ToggleWhatsApp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+
+	var req toggleWhatsAppRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	if req.WhatsAppEnabled == nil {
+		writeJSONError(w, http.StatusBadRequest, "missing_whatsapp_enabled")
+		return
+	}
+
+	view, err := h.estabelecimentos.SetWhatsAppEnabled(r.Context(), id, *req.WhatsAppEnabled)
+	if err != nil {
+		if errors.Is(err, service.ErrEstabelecimentoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	h.whatsAppGate.InvalidateCache(id)
+	actor := ""
+	if claims, ok := security.ClaimsFromContext(r.Context()); ok {
+		actor = claims.Email
+	}
+	log.Printf("audit whatsapp_toggle: actor=%s tenant=%s enabled=%v", actor, id, *req.WhatsAppEnabled)
+	writeJSON(w, http.StatusOK, view)
+}
+
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -102,4 +152,8 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeJSONError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]string{"error": code})
+}
+
+func writeJSONErrorMessage(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{"error": code, "message": message})
 }

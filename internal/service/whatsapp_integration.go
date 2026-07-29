@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 const (
@@ -19,18 +21,75 @@ const (
 )
 
 var (
-	ErrWhatsAppStateInvalido = errors.New("state de integração WhatsApp inválido")
+	ErrWhatsAppStateInvalido     = errors.New("state de integração WhatsApp inválido")
+	ErrWhatsAppRecursoDesativado = errors.New("recurso de whatsapp desativado")
 )
+
+type WhatsAppFeatureView struct {
+	EstabelecimentoID string     `db:"estabelecimento_id" json:"estabelecimento_id"`
+	NomeComercial     string     `db:"nome_comercial" json:"nome_comercial"`
+	WhatsAppEnabled   bool       `db:"whatsapp_enabled" json:"whatsapp_enabled"`
+	WhatsAppStatus    string     `db:"whatsapp_status" json:"whatsapp_status"`
+	ConnectedAt       *time.Time `db:"connected_at" json:"connected_at,omitempty"`
+}
 
 // WhatsAppIntegrationView é o estado da integração para o painel da dona.
 type WhatsAppIntegrationView struct {
 	EstabelecimentoID string     `json:"estabelecimento_id"`
+	WhatsAppEnabled   bool       `json:"whatsapp_enabled"`
 	Status            string     `json:"status"`
 	State             string     `json:"state"`
 	SignupURL         string     `json:"signup_url"`
 	WabaID            *string    `json:"waba_id,omitempty"`
 	PhoneNumberID     *string    `json:"phone_number_id,omitempty"`
 	ConnectedAt       *time.Time `json:"connected_at,omitempty"`
+}
+
+// SetWhatsAppEnabled liga/desliga a permissão sem alterar o estado da conexão.
+func (s *EstabelecimentoService) SetWhatsAppEnabled(
+	ctx context.Context,
+	estabelecimentoID string,
+	enabled bool,
+) (*WhatsAppFeatureView, error) {
+	const query = `
+UPDATE estabelecimentos
+SET whatsapp_enabled = $2
+WHERE id = $1
+RETURNING id AS estabelecimento_id,
+          nome_comercial,
+          whatsapp_enabled,
+          COALESCE(whatsapp_status, 'DESCONECTADO') AS whatsapp_status,
+          whatsapp_connected_at AS connected_at
+`
+	var view WhatsAppFeatureView
+	if err := s.db.GetContext(ctx, &view, query, estabelecimentoID, enabled); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrEstabelecimentoNaoEncontrado
+		}
+		return nil, fmt.Errorf("atualizar flag whatsapp: %w", err)
+	}
+	return &view, nil
+}
+
+// WhatsAppEnabledForTenant consulta a permissão no escopo explícito do salão.
+func WhatsAppEnabledForTenant(
+	ctx context.Context,
+	q sqlx.QueryerContext,
+	estabelecimentoID string,
+) (bool, error) {
+	const query = `
+SELECT COALESCE(whatsapp_enabled, FALSE)
+FROM estabelecimentos
+WHERE id = $1
+`
+	var enabled bool
+	if err := sqlx.GetContext(ctx, q, &enabled, query, estabelecimentoID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("consultar flag whatsapp: %w", err)
+	}
+	return enabled, nil
 }
 
 // WhatsAppConnectedPayload é o aviso do Gateway após Embedded Signup bem-sucedido.
@@ -98,6 +157,7 @@ func BuildWhatsAppEmbeddedSignupURL(estabelecimentoID string) string {
 func (s *EstabelecimentoService) GetWhatsAppIntegration(ctx context.Context, estabelecimentoID string) (*WhatsAppIntegrationView, error) {
 	const q = `
 SELECT id,
+       COALESCE(whatsapp_enabled, FALSE) AS whatsapp_enabled,
        COALESCE(whatsapp_status, 'DESCONECTADO') AS whatsapp_status,
        whatsapp_waba_id,
        whatsapp_phone_number_id,
@@ -107,6 +167,7 @@ WHERE id = $1
 `
 	var row struct {
 		ID            string         `db:"id"`
+		Enabled       bool           `db:"whatsapp_enabled"`
 		Status        string         `db:"whatsapp_status"`
 		WabaID        sql.NullString `db:"whatsapp_waba_id"`
 		PhoneNumberID sql.NullString `db:"whatsapp_phone_number_id"`
@@ -121,9 +182,12 @@ WHERE id = $1
 
 	view := &WhatsAppIntegrationView{
 		EstabelecimentoID: row.ID,
+		WhatsAppEnabled:   row.Enabled,
 		Status:            row.Status,
-		State:             BuildWhatsAppState(row.ID),
-		SignupURL:         BuildWhatsAppEmbeddedSignupURL(row.ID),
+	}
+	if row.Enabled {
+		view.State = BuildWhatsAppState(row.ID)
+		view.SignupURL = BuildWhatsAppEmbeddedSignupURL(row.ID)
 	}
 	if row.WabaID.Valid {
 		view.WabaID = &row.WabaID.String
@@ -218,6 +282,14 @@ func (s *EstabelecimentoService) MarkWhatsAppConnected(ctx context.Context, payl
 		return "", fmt.Errorf("%w: status deve indicar sucesso", ErrWebhookPayloadInvalido)
 	}
 
+	enabled, err := WhatsAppEnabledForTenant(ctx, s.db, id)
+	if err != nil {
+		return "", err
+	}
+	if !enabled {
+		return "", ErrWhatsAppRecursoDesativado
+	}
+
 	const q = `
 UPDATE estabelecimentos
 SET whatsapp_status = $2,
@@ -228,7 +300,7 @@ WHERE id = $1
 RETURNING id
 `
 	var updated string
-	err := s.db.QueryRowContext(
+	err = s.db.QueryRowContext(
 		ctx,
 		q,
 		id,

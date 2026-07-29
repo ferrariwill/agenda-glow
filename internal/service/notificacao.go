@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	whatsappSistemaOrigem      = "beleza"
-	whatsappTemplateLembrete   = "lembrete_agenda"
+	whatsappSistemaOrigem        = "beleza"
+	whatsappTemplateLembrete     = "lembrete_agenda"
 	whatsappSendNotificationPath = "/send-notification"
-	defaultWhatsAppHTTPTimeout = 15 * time.Second
-	defaultWhatsAppLanguage    = "pt_BR"
+	defaultWhatsAppHTTPTimeout   = 15 * time.Second
+	defaultWhatsAppLanguage      = "pt_BR"
 )
 
 // whatsAppSendNotificationRequest é o contrato Beleza → Gateway.
@@ -134,6 +134,17 @@ func (s *AgendaService) dispararLembreteWhatsAppAgendamento(agendamentoID string
 	ag, err := s.buscarAgendamento(ctx, agendamentoID)
 	if err != nil {
 		log.Printf("whatsapp lembrete: buscar agendamento %s: %v", agendamentoID, err)
+		return
+	}
+
+	enabled, err := WhatsAppEnabledForTenant(ctx, s.db, ag.EstabelecimentoID)
+	if err != nil {
+		log.Printf("whatsapp lembrete: checar flag do salão %s: %v", ag.EstabelecimentoID, err)
+		return
+	}
+	if !enabled {
+		log.Printf("whatsapp lembrete: recurso desativado para salão %s — envio ignorado (agendamento %s)",
+			ag.EstabelecimentoID, ag.ID)
 		return
 	}
 

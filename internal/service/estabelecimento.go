@@ -50,11 +50,13 @@ type CreateEstablishmentInput struct {
 }
 
 type EstablishmentAdminView struct {
-	ID            string    `db:"id" json:"id"`
-	NomeComercial string    `db:"nome_comercial" json:"nome_comercial"`
-	Slug          string    `db:"slug" json:"slug"`
-	Ativo         bool      `db:"ativo" json:"ativo"`
-	DataCadastro  time.Time `db:"data_cadastro" json:"data_cadastro"`
+	ID              string    `db:"id" json:"id"`
+	NomeComercial   string    `db:"nome_comercial" json:"nome_comercial"`
+	Slug            string    `db:"slug" json:"slug"`
+	Ativo           bool      `db:"ativo" json:"ativo"`
+	DataCadastro    time.Time `db:"data_cadastro" json:"data_cadastro"`
+	WhatsAppEnabled bool      `db:"whatsapp_enabled" json:"whatsapp_enabled"`
+	WhatsAppStatus  string    `db:"whatsapp_status" json:"whatsapp_status"`
 }
 
 type ProfissionalCatalogo struct {
@@ -64,10 +66,10 @@ type ProfissionalCatalogo struct {
 }
 
 type ServicoAdicionalCatalogo struct {
-	ID                        string  `db:"id" json:"id"`
-	Nome                      string  `db:"nome" json:"nome"`
-	PrecoAdicional            float64 `db:"preco_adicional" json:"preco_adicional"`
-	DuracaoAdicionalMinutos   int     `db:"duracao_adicional_minutos" json:"duracao_adicional_minutos"`
+	ID                      string  `db:"id" json:"id"`
+	Nome                    string  `db:"nome" json:"nome"`
+	PrecoAdicional          float64 `db:"preco_adicional" json:"preco_adicional"`
+	DuracaoAdicionalMinutos int     `db:"duracao_adicional_minutos" json:"duracao_adicional_minutos"`
 }
 
 type ServicoCatalogo struct {
@@ -149,7 +151,9 @@ RETURNING id
 // ListAllEstablishments retorna todos os estabelecimentos para o painel Super Admin.
 func (s *EstabelecimentoService) ListAllEstablishments(ctx context.Context) ([]EstablishmentAdminView, error) {
 	const query = `
-SELECT id, nome_comercial, slug, ativo, data_cadastro
+SELECT id, nome_comercial, slug, ativo, data_cadastro,
+       COALESCE(whatsapp_enabled, FALSE) AS whatsapp_enabled,
+       COALESCE(whatsapp_status, 'DESCONECTADO') AS whatsapp_status
 FROM estabelecimentos
 ORDER BY data_cadastro DESC
 `
