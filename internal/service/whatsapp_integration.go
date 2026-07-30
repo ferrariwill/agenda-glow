@@ -92,6 +92,37 @@ WHERE id = $1
 	return enabled, nil
 }
 
+// WhatsAppChannelReadyForTenant compõe a permissão administrativa com o estado
+// da conexão: só há canal de saída quando o recurso está liberado e o Embedded
+// Signup concluiu. O erro sobe para o chamador decidir a política fail-closed.
+func WhatsAppChannelReadyForTenant(
+	ctx context.Context,
+	q sqlx.QueryerContext,
+	estabelecimentoID string,
+) (bool, error) {
+	enabled, err := WhatsAppEnabledForTenant(ctx, q, estabelecimentoID)
+	if err != nil {
+		return false, err
+	}
+	if !enabled {
+		return false, nil
+	}
+
+	const query = `
+SELECT COALESCE(whatsapp_status, 'DESCONECTADO')
+FROM estabelecimentos
+WHERE id = $1
+`
+	var status string
+	if err := sqlx.GetContext(ctx, q, &status, query, estabelecimentoID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("consultar status whatsapp: %w", err)
+	}
+	return status == WhatsAppStatusConectado, nil
+}
+
 // WhatsAppConnectedPayload é o aviso do Gateway após Embedded Signup bem-sucedido.
 // Aceita o payload oficial (event/tenant_id/salon_id) e aliases legados.
 type WhatsAppConnectedPayload struct {

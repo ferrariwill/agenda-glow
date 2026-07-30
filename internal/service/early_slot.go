@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -16,6 +17,10 @@ import (
 const (
 	earlySlotOfferTTL = 5 * time.Minute
 	earlySlotTemplate = "antecipacao_horario"
+
+	// Único motivo de encerramento não natural de uma rodada: o canal de saída
+	// caiu, então continuar ofertando prenderia o slot sem ninguém receber.
+	earlySlotMotivoCanalIndisponivel = "whatsapp_indisponivel"
 )
 
 var (
@@ -26,10 +31,11 @@ var (
 )
 
 type EarlySlotService struct {
-	db      *sqlx.DB
-	now     func() time.Time
-	baseURL string
-	send    func(context.Context, WhatsAppNotificationInput) error
+	db           *sqlx.DB
+	now          func() time.Time
+	baseURL      string
+	send         func(context.Context, WhatsAppNotificationInput) error
+	channelReady func(context.Context, sqlx.QueryerContext, string) (bool, error)
 }
 
 type EarlySlotOfferView struct {
@@ -54,13 +60,14 @@ type EarlySlotAcceptResult struct {
 }
 
 type EarlySlotRound struct {
-	ID             string             `json:"id" db:"id"`
-	Status         string             `json:"status" db:"status"`
-	ProfessionalID string             `json:"profissional_id" db:"profissional_id"`
-	SlotStart      time.Time          `json:"slot_inicio" db:"slot_inicio"`
-	SlotEnd        time.Time          `json:"slot_fim" db:"slot_fim"`
-	Current        *EarlySlotCurrent  `json:"candidato_atual,omitempty"`
-	History        []EarlySlotHistory `json:"historico"`
+	ID                 string             `json:"id" db:"id"`
+	Status             string             `json:"status" db:"status"`
+	MotivoEncerramento *string            `json:"motivo_encerramento" db:"motivo_encerramento"`
+	ProfessionalID     string             `json:"profissional_id" db:"profissional_id"`
+	SlotStart          time.Time          `json:"slot_inicio" db:"slot_inicio"`
+	SlotEnd            time.Time          `json:"slot_fim" db:"slot_fim"`
+	Current            *EarlySlotCurrent  `json:"candidato_atual,omitempty"`
+	History            []EarlySlotHistory `json:"historico"`
 }
 
 type EarlySlotCurrent struct {
@@ -94,7 +101,8 @@ type earlySlotDelivery struct {
 func NewEarlySlotService(db *sqlx.DB, baseURL string) *EarlySlotService {
 	return &EarlySlotService{
 		db: db, now: time.Now, baseURL: baseURL,
-		send: EnviarNotificacaoWhatsApp,
+		send:         EnviarNotificacaoWhatsApp,
+		channelReady: WhatsAppChannelReadyForTenant,
 	}
 }
 
@@ -180,8 +188,23 @@ FOR UPDATE`, appointmentID, tenantID)
 }
 
 func (s *EarlySlotService) openRoundTx(ctx context.Context, tx *sqlx.Tx, tenantID, cancelledID, professionalID string, start, end time.Time) (*earlySlotDelivery, error) {
+	// Sem canal de saída a fila só prenderia o slot por 5 minutos sem ninguém
+	// receber a oferta. Erro de checagem é tratado como indisponível
+	// (fail-closed) e nunca derruba o cancelamento, que já foi efetivado.
+	ready, err := s.channelReady(ctx, tx, tenantID)
+	if err != nil {
+		log.Printf("antecipacao: checagem de canal falhou tenant=%s agendamento_cancelado=%s — rodada não aberta: %v",
+			tenantID, cancelledID, err)
+		return nil, nil
+	}
+	if !ready {
+		log.Printf("antecipacao: canal whatsapp indisponível tenant=%s agendamento_cancelado=%s — rodada não aberta (motivo=%s)",
+			tenantID, cancelledID, earlySlotMotivoCanalIndisponivel)
+		return nil, nil
+	}
+
 	var roundID string
-	err := tx.GetContext(ctx, &roundID, `
+	err = tx.GetContext(ctx, &roundID, `
 INSERT INTO rodadas_antecipacao
     (estabelecimento_id, profissional_id, slot_inicio, slot_fim, agendamento_cancelado_id)
 VALUES ($1, $2, $3, $4, $5)
@@ -213,6 +236,21 @@ FOR UPDATE`, roundID, tenantID)
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// Reavaliado a cada oferta, não só na abertura: o canal pode cair durante
+	// os 5 minutos exclusivos do candidato anterior.
+	ready, err := s.channelReady(ctx, tx, tenantID)
+	if err != nil {
+		// Fail-closed: não avança a fila e não encerra a rodada — um erro
+		// transitório não é evidência de queda. A varredura tenta de novo.
+		return nil, fmt.Errorf("checar canal whatsapp da rodada %s: %w", roundID, err)
+	}
+	if !ready {
+		if err := s.closeRoundChannelDownTx(ctx, tx, tenantID, roundID); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	}
 
 	var candidate struct {
@@ -477,19 +515,33 @@ WHERE id=$1 AND estabelecimento_id=$2`, item.AppointmentID, item.TenantID, item.
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, `
+	// Statements separados: com placeholders o lib/pq usa o protocolo estendido,
+	// que recusa mais de um comando por Exec.
+	if _, err = tx.ExecContext(ctx, `
 UPDATE ofertas_antecipacao SET status='ACEITA', respondida_em=NOW(), origem_resposta=$3
-WHERE id=$1 AND estabelecimento_id=$2;
+WHERE id=$1 AND estabelecimento_id=$2`,
+		item.OfferID, item.TenantID, origin); err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `
 UPDATE ofertas_antecipacao SET status='INVALIDADA', respondida_em=NOW()
-WHERE rodada_id=$4 AND estabelecimento_id=$2 AND id<>$1 AND status='PENDENTE';
+WHERE rodada_id=$3 AND estabelecimento_id=$2 AND id<>$1 AND status='PENDENTE'`,
+		item.OfferID, item.TenantID, item.RoundID); err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `
 UPDATE rodadas_antecipacao SET status='PREENCHIDA', finished_at=NOW()
-WHERE id=$4 AND estabelecimento_id=$2;
+WHERE id=$1 AND estabelecimento_id=$2`,
+		item.RoundID, item.TenantID); err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `
 INSERT INTO antecipacao_auditoria
  (estabelecimento_id, rodada_id, oferta_id, evento, horario_anterior_inicio,
   horario_anterior_fim, horario_novo_inicio, horario_novo_fim, origem)
-VALUES ($2,$4,$1,'ACEITE',$5,$6,$7,$8,$3)`,
-		item.OfferID, item.TenantID, origin, item.RoundID, item.CurrentStart, item.CurrentEnd, item.SlotStart, newEnd)
-	if err != nil {
+VALUES ($1,$2,$3,'ACEITE',$4,$5,$6,$7,$8)`,
+		item.TenantID, item.RoundID, item.OfferID,
+		item.CurrentStart, item.CurrentEnd, item.SlotStart, newEnd, origin); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -624,6 +676,96 @@ WHERE id=$1 AND estabelecimento_id=$2`, item.ID, item.TenantID)
 	return processed, nil
 }
 
+// closeRoundChannelDownTx encerra a rodada e invalida a oferta pendente numa
+// única transação, sem chamar o próximo candidato: o slot volta a ficar livre.
+// Rodada já PREENCHIDA é terminal e não é alcançada por este caminho, então um
+// aceite concluído antes da queda nunca é revertido.
+func (s *EarlySlotService) closeRoundChannelDownTx(ctx context.Context, tx *sqlx.Tx, tenantID, roundID string) error {
+	if _, err := tx.ExecContext(ctx, `
+UPDATE ofertas_antecipacao SET status='INVALIDADA', respondida_em=NOW()
+WHERE rodada_id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
+		roundID, tenantID); err != nil {
+		return fmt.Errorf("invalidar oferta pendente da rodada %s: %w", roundID, err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE rodadas_antecipacao
+SET status='CANCELADA', motivo_encerramento=$3, finished_at=NOW(),
+    candidato_atual_agendamento_id=NULL
+WHERE id=$1 AND estabelecimento_id=$2 AND status='ATIVA'`,
+		roundID, tenantID, earlySlotMotivoCanalIndisponivel); err != nil {
+		return fmt.Errorf("encerrar rodada %s por canal indisponível: %w", roundID, err)
+	}
+	log.Printf("antecipacao: rodada encerrada tenant=%s rodada=%s motivo=%s",
+		tenantID, roundID, earlySlotMotivoCanalIndisponivel)
+	return nil
+}
+
+// ProcessChannelDrops encerra rodadas ATIVA cujo salão perdeu o canal durante a
+// janela exclusiva. Erro na checagem não encerra nada (fail-closed): a rodada
+// fica para o próximo ciclo.
+func (s *EarlySlotService) ProcessChannelDrops(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var pending []struct {
+		RoundID  string `db:"id"`
+		TenantID string `db:"estabelecimento_id"`
+	}
+	if err := s.db.SelectContext(ctx, &pending, `
+SELECT r.id, r.estabelecimento_id
+FROM rodadas_antecipacao r
+WHERE r.status='ATIVA'
+  AND EXISTS (
+      SELECT 1 FROM ofertas_antecipacao o
+      WHERE o.rodada_id=r.id AND o.estabelecimento_id=r.estabelecimento_id
+        AND o.status='PENDENTE')
+ORDER BY r.created_at
+LIMIT $1`, limit); err != nil {
+		return 0, fmt.Errorf("listar rodadas ativas: %w", err)
+	}
+
+	closed := 0
+	for _, round := range pending {
+		ready, err := s.channelReady(ctx, s.db, round.TenantID)
+		if err != nil {
+			log.Printf("antecipacao: checagem de canal falhou tenant=%s rodada=%s — rodada mantida: %v",
+				round.TenantID, round.RoundID, err)
+			continue
+		}
+		if ready {
+			continue
+		}
+
+		tx, err := s.db.BeginTxx(ctx, nil)
+		if err != nil {
+			return closed, err
+		}
+		var locked string
+		err = tx.GetContext(ctx, &locked, `
+SELECT id FROM rodadas_antecipacao
+WHERE id=$1 AND estabelecimento_id=$2 AND status='ATIVA'
+FOR UPDATE SKIP LOCKED`, round.RoundID, round.TenantID)
+		if errors.Is(err, sql.ErrNoRows) {
+			_ = tx.Rollback()
+			continue
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return closed, err
+		}
+		if err := s.closeRoundChannelDownTx(ctx, tx, round.TenantID, round.RoundID); err != nil {
+			_ = tx.Rollback()
+			return closed, err
+		}
+		if err := tx.Commit(); err != nil {
+			return closed, err
+		}
+		closed++
+	}
+	return closed, nil
+}
+
 func (s *EarlySlotService) RunExpirationWorker(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -636,6 +778,7 @@ func (s *EarlySlotService) RunExpirationWorker(ctx context.Context, interval tim
 			return
 		case <-ticker.C:
 			_, _ = s.ProcessExpired(ctx, 50)
+			_, _ = s.ProcessChannelDrops(ctx, 50)
 		}
 	}
 }
@@ -643,7 +786,7 @@ func (s *EarlySlotService) RunExpirationWorker(ctx context.Context, interval tim
 func (s *EarlySlotService) GetRound(ctx context.Context, tenantID, roundID string) (*EarlySlotRound, error) {
 	var round EarlySlotRound
 	err := s.db.GetContext(ctx, &round, `
-SELECT id,status,profissional_id,slot_inicio,slot_fim
+SELECT id,status,motivo_encerramento,profissional_id,slot_inicio,slot_fim
 FROM rodadas_antecipacao WHERE id=$1 AND estabelecimento_id=$2`, roundID, tenantID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEarlySlotOfferNotFound
@@ -681,7 +824,7 @@ WHERE o.rodada_id=$1 AND o.estabelecimento_id=$2 AND o.status='PENDENTE'`, round
 
 func (s *EarlySlotService) ListRounds(ctx context.Context, tenantID, professionalID, status string) ([]EarlySlotRound, error) {
 	query := `
-SELECT id,status,profissional_id,slot_inicio,slot_fim
+SELECT id,status,motivo_encerramento,profissional_id,slot_inicio,slot_fim
 FROM rodadas_antecipacao
 WHERE estabelecimento_id=$1
   AND ($2='' OR profissional_id::text=$2)

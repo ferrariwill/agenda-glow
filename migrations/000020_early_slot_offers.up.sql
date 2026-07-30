@@ -42,6 +42,8 @@ CREATE TABLE rodadas_antecipacao (
     agendamento_cancelado_id UUID NOT NULL REFERENCES agendamentos(id),
     status VARCHAR(16) NOT NULL DEFAULT 'ATIVA'
         CHECK (status IN ('ATIVA', 'PREENCHIDA', 'ESGOTADA', 'CANCELADA')),
+    motivo_encerramento VARCHAR(40)
+        CHECK (motivo_encerramento IS NULL OR motivo_encerramento IN ('whatsapp_indisponivel')),
     candidato_atual_agendamento_id UUID REFERENCES agendamentos(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished_at TIMESTAMPTZ,
