@@ -39,6 +39,7 @@ import { ClienteMinhaConta } from './pages/public/ClienteMinhaConta'
 import { AprovacaoPublica } from './pages/public/AprovacaoPublica'
 import { CancelamentoRecuperacao } from './pages/public/CancelamentoRecuperacao'
 import { AntecipacaoOferta } from './pages/public/AntecipacaoOferta'
+import { GestaoAgendamentoPublico } from './pages/public/GestaoAgendamentoPublico'
 
 export default function App() {
   return (
@@ -104,6 +105,7 @@ export default function App() {
 
           <Route path="/publico/aprovacao/:id" element={<AprovacaoPublica />} />
           <Route path="/publico/cancelar/:id" element={<CancelamentoRecuperacao />} />
+          <Route path="/p/agendamento/:token" element={<GestaoAgendamentoPublico />} />
 
           {/* Links públicos por token — antes de /:slug para não serem engolidos pelo catálogo. */}
           <Route path="/p/antecipacao/:token" element={<AntecipacaoOferta />} />
