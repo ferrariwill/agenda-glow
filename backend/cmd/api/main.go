@@ -205,6 +205,7 @@ func main() {
 	mux.HandleFunc("GET /api/v1/public/early-slot-offers/{token}", earlySlotHandler.GetOffer)
 	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/accept", earlySlotHandler.Accept)
 	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/decline", earlySlotHandler.Decline)
+	mux.HandleFunc("PATCH /api/v1/public/appointments/manage/{token}/early-slot-preference", earlySlotHandler.SetPreferencePublic)
 
 	mux.Handle("GET /superadmin/dashboard", superAdminRoute(superAdminUIHandler.Dashboard))
 	mux.Handle("POST /superadmin/establishments", superAdminRoute(superAdminUIHandler.CreateEstablishment))

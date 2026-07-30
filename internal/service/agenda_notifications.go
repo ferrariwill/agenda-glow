@@ -203,8 +203,17 @@ type AppointmentManagementView struct {
 	Establishment struct {
 		Name         string `json:"name"`
 		ContactPhone string `json:"contact_phone"`
+		// Sinal canônico e fail-closed do gate composto de WhatsApp: nas
+		// superfícies públicas ele vive no objeto do estabelecimento.
+		EarlySlotNotificationsAvailable bool `json:"early_slot_notifications_available"`
 	} `json:"establishment"`
+	EarlySlot    EarlySlotPreferenceView  `json:"early_slot"`
 	Cancellation CancellationAvailability `json:"cancellation"`
+}
+
+type EarlySlotPreferenceView struct {
+	AceitaAdiantar bool `json:"aceita_adiantar"`
+	Eligible       bool `json:"eligible"`
 }
 
 type CancellationAvailability struct {
@@ -223,6 +232,7 @@ type managementAppointment struct {
 	Status                         string    `db:"status"`
 	CustomerConfirmation           string    `db:"confirmacao_cliente"`
 	TokenExpiresAt                 time.Time `db:"gestao_token_expires_at"`
+	AceitaAdiantar                 bool      `db:"aceita_adiantar"`
 	EstablishmentName              string    `db:"nome_salao"`
 	ContactPhone                   string    `db:"telefone_contato"`
 	MinimumCancellationNoticeHours int       `db:"janela_minima_cancelamento_horas"`
@@ -269,6 +279,15 @@ func (s *AgendaService) GetAppointmentManagement(ctx context.Context, token stri
 	out.Appointment.CustomerConfirmation = ag.CustomerConfirmation
 	out.Establishment.Name = ag.EstablishmentName
 	out.Establishment.ContactPhone = ag.ContactPhone
+	if s.earlySlot != nil {
+		out.Establishment.EarlySlotNotificationsAvailable =
+			s.earlySlot.NotificationsAvailable(ctx, ag.EstablishmentID)
+	}
+	out.EarlySlot = EarlySlotPreferenceView{
+		AceitaAdiantar: ag.AceitaAdiantar,
+		Eligible: (ag.Status == "AGENDADO" || ag.Status == "CONFIRMADO") &&
+			ag.StartsAt.After(now),
+	}
 	out.Cancellation = cancellationAvailability(ag.Status, ag.StartsAt, now,
 		ag.MinimumCancellationNoticeHours, ag.ReasonRequired)
 	return &out, nil
@@ -310,6 +329,14 @@ func (s *AgendaService) CancelAppointmentByManagementToken(ctx context.Context, 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("confirmar cancelamento: %w", err)
 	}
+	// Hook pós-commit, igual aos demais cancelamentos: se a fila falhar, o
+	// cancelamento continua bem-sucedido e o slot apenas volta livre.
+	if result.SlotReleased && s.earlySlot != nil {
+		if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstablishmentID, ag.ID); err != nil {
+			log.Printf("antecipacao: hook pós-cancelamento por token falhou tenant=%s agendamento_cancelado=%s: %v",
+				ag.EstablishmentID, ag.ID, err)
+		}
+	}
 	return result, nil
 }
 
@@ -325,6 +352,7 @@ func (s *AgendaService) lookupManagementAppointment(ctx context.Context, db sqlx
 	query := `
 SELECT a.id, a.estabelecimento_id, s.nome AS servico, p.nome AS profissional,
        a.data_hora_inicio, a.status, a.confirmacao_cliente, a.gestao_token_expires_at,
+       a.aceita_adiantar,
        e.nome_comercial AS nome_salao, COALESCE(e.whatsapp_phone_number, '') AS telefone_contato,
        cfg.janela_minima_cancelamento_horas, cfg.motivo_cancelamento_obrigatorio
 FROM agendamentos a

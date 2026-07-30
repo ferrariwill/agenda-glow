@@ -61,6 +61,12 @@ CREATE TABLE ofertas_antecipacao (
     rodada_id UUID NOT NULL REFERENCES rodadas_antecipacao(id) ON DELETE CASCADE,
     agendamento_candidato_id UUID NOT NULL REFERENCES agendamentos(id),
     cliente_id UUID REFERENCES clientes(id),
+    -- Retrato do candidato no instante da oferta. O aceite compara o
+    -- agendamento atual com estas colunas: troca de profissional ou
+    -- reagendamento durante os 5 minutos invalidam a oferta.
+    profissional_snapshot_id UUID NOT NULL REFERENCES profissionais(id),
+    inicio_snapshot TIMESTAMPTZ NOT NULL,
+    fim_snapshot TIMESTAMPTZ NOT NULL,
     posicao INTEGER NOT NULL CHECK (posicao > 0),
     status VARCHAR(16) NOT NULL DEFAULT 'PENDENTE'
         CHECK (status IN ('PENDENTE', 'ACEITA', 'RECUSADA', 'EXPIRADA', 'INVALIDADA', 'FALHA_ENVIO')),

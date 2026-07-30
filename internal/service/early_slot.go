@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -18,6 +19,11 @@ const (
 	earlySlotOfferTTL             = 5 * time.Minute
 	earlySlotTemplate             = "antecipacao_horario"
 	earlySlotConfirmationTemplate = "confirmacao_antecipacao"
+
+	// Retry curto: cabe folgado na janela de 5 minutos e absorve indisponibilidade
+	// momentânea do Gateway sem queimar a vez do candidato.
+	earlySlotSendAttempts   = 2
+	earlySlotSendRetryDelay = 2 * time.Second
 
 	// Único motivo de encerramento não natural de uma rodada: o canal de saída
 	// caiu, então continuar ofertando prenderia o slot sem ninguém receber.
@@ -32,11 +38,12 @@ var (
 )
 
 type EarlySlotService struct {
-	db           *sqlx.DB
-	now          func() time.Time
-	baseURL      string
-	send         func(context.Context, WhatsAppNotificationInput) error
-	channelReady func(context.Context, sqlx.QueryerContext, string) (bool, error)
+	db             *sqlx.DB
+	now            func() time.Time
+	baseURL        string
+	send           func(context.Context, WhatsAppNotificationInput) error
+	channelReady   func(context.Context, sqlx.QueryerContext, string) (bool, error)
+	sendRetryDelay time.Duration
 }
 
 type EarlySlotOfferView struct {
@@ -102,8 +109,9 @@ type earlySlotDelivery struct {
 func NewEarlySlotService(db *sqlx.DB, baseURL string) *EarlySlotService {
 	return &EarlySlotService{
 		db: db, now: time.Now, baseURL: baseURL,
-		send:         EnviarNotificacaoWhatsApp,
-		channelReady: WhatsAppChannelReadyForTenant,
+		send:           EnviarNotificacaoWhatsApp,
+		channelReady:   WhatsAppChannelReadyForTenant,
+		sendRetryDelay: earlySlotSendRetryDelay,
 	}
 }
 
@@ -268,19 +276,21 @@ FOR UPDATE`, roundID, tenantID)
 	}
 
 	var candidate struct {
-		ID           string    `db:"id"`
-		ClientID     string    `db:"cliente_id"`
-		ClientName   string    `db:"cliente_nome"`
-		Phone        string    `db:"cliente_telefone"`
-		SalonName    string    `db:"salon_name"`
-		Professional string    `db:"professional_name"`
-		CurrentStart time.Time `db:"data_hora_inicio"`
-		Position     int       `db:"posicao"`
+		ID             string    `db:"id"`
+		ClientID       string    `db:"cliente_id"`
+		ClientName     string    `db:"cliente_nome"`
+		Phone          string    `db:"cliente_telefone"`
+		SalonName      string    `db:"salon_name"`
+		Professional   string    `db:"professional_name"`
+		ProfessionalID string    `db:"profissional_id"`
+		CurrentStart   time.Time `db:"data_hora_inicio"`
+		CurrentEnd     time.Time `db:"data_hora_fim"`
+		Position       int       `db:"posicao"`
 	}
 	err = tx.GetContext(ctx, &candidate, `
 SELECT a.id, a.cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
        e.nome_comercial AS salon_name, p.nome AS professional_name,
-       a.data_hora_inicio,
+       a.profissional_id, a.data_hora_inicio, a.data_hora_fim,
        (SELECT COUNT(*) + 1 FROM ofertas_antecipacao ox
         WHERE ox.rodada_id = $2) AS posicao
 FROM agendamentos a
@@ -341,10 +351,12 @@ WHERE id = $1 AND estabelecimento_id = $2`, roundID, tenantID)
 	err = tx.GetContext(ctx, &offerID, `
 INSERT INTO ofertas_antecipacao
     (estabelecimento_id, rodada_id, agendamento_candidato_id, cliente_id,
+     profissional_snapshot_id, inicio_snapshot, fim_snapshot,
      posicao, token_hash, enviada_em, expira_em, tentativas_envio)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)
-RETURNING id`, tenantID, roundID, candidate.ID, candidate.ClientID, candidate.Position,
-		tokenHash[:], s.now(), expiresAt)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1)
+RETURNING id`, tenantID, roundID, candidate.ID, candidate.ClientID,
+		candidate.ProfessionalID, candidate.CurrentStart, candidate.CurrentEnd,
+		candidate.Position, tokenHash[:], s.now(), expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("criar oferta de antecipação: %w", err)
 	}
@@ -378,16 +390,55 @@ func (s *EarlySlotService) deliverOrAdvance(ctx context.Context, d *earlySlotDel
 		return
 	}
 	link := s.baseURL + "/p/antecipacao/" + d.Token
-	err := s.send(ctx, WhatsAppNotificationInput{
+	input := WhatsAppNotificationInput{
 		TenantID: d.TenantID, PhoneNumber: d.Phone, TemplateName: earlySlotTemplate,
 		AppointmentID: d.AppointmentID,
 		Variables: []string{d.ClientName, d.SalonName, d.Professional,
 			d.CurrentStart.Format("02/01/2006 15:04"), d.OfferedStart.Format("02/01/2006 15:04"), link},
-	})
-	if err == nil {
-		return
 	}
+
+	// Uma falha isolada do Gateway não deve custar a vez do candidato: são
+	// duas tentativas curtas dentro da janela exclusiva antes de desistir.
+	var err error
+	for attempt := 1; attempt <= earlySlotSendAttempts; attempt++ {
+		if err = s.send(ctx, input); err == nil {
+			if attempt > 1 {
+				s.recordDeliveryAttempts(ctx, d.TenantID, d.OfferID, attempt)
+			}
+			return
+		}
+		log.Printf("antecipacao: envio da oferta falhou tenant=%s oferta=%s tentativa=%d/%d: %v",
+			d.TenantID, d.OfferID, attempt, earlySlotSendAttempts, err)
+		if attempt == earlySlotSendAttempts {
+			break
+		}
+		if !s.sleep(ctx, s.sendRetryDelay) {
+			break
+		}
+	}
+	s.recordDeliveryAttempts(ctx, d.TenantID, d.OfferID, earlySlotSendAttempts)
 	_ = s.failOfferAndAdvance(ctx, d.TenantID, d.OfferID)
+}
+
+// sleep respeita o cancelamento do contexto e devolve false quando o ciclo deve
+// parar em vez de tentar de novo.
+func (s *EarlySlotService) sleep(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (s *EarlySlotService) recordDeliveryAttempts(ctx context.Context, tenantID, offerID string, attempts int) {
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE ofertas_antecipacao SET tentativas_envio=$3
+WHERE id=$1 AND estabelecimento_id=$2`, offerID, tenantID, attempts); err != nil {
+		log.Printf("antecipacao: registrar tentativas de envio oferta=%s: %v", offerID, err)
+	}
 }
 
 func (s *EarlySlotService) failOfferAndAdvance(ctx context.Context, tenantID, offerID string) error {
@@ -463,42 +514,8 @@ func (s *EarlySlotService) Accept(ctx context.Context, token, origin string) (*E
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	var item struct {
-		OfferID        string    `db:"offer_id"`
-		OfferStatus    string    `db:"offer_status"`
-		ExpiresAt      time.Time `db:"expira_em"`
-		RoundID        string    `db:"rodada_id"`
-		RoundStatus    string    `db:"round_status"`
-		TenantID       string    `db:"estabelecimento_id"`
-		AppointmentID  string    `db:"agendamento_id"`
-		ProfessionalID string    `db:"profissional_id"`
-		SlotStart      time.Time `db:"slot_inicio"`
-		SlotEnd        time.Time `db:"slot_fim"`
-		CurrentStart   time.Time `db:"current_start"`
-		CurrentEnd     time.Time `db:"current_end"`
-		Eligible       bool      `db:"eligible"`
-		ClientName     string    `db:"cliente_nome"`
-		Phone          string    `db:"cliente_telefone"`
-		Professional   string    `db:"profissional_nome"`
-		Service        string    `db:"servico_nome"`
-	}
-	err = tx.GetContext(ctx, &item, `
-SELECT o.id AS offer_id, o.status AS offer_status, o.expira_em, r.id AS rodada_id,
-       r.status AS round_status, o.estabelecimento_id, a.id AS agendamento_id,
-       a.profissional_id, r.slot_inicio, r.slot_fim,
-       a.data_hora_inicio AS current_start, a.data_hora_fim AS current_end,
-       a.cliente_nome, a.cliente_telefone,
-       p.nome AS profissional_nome, sv.nome AS servico_nome,
-       (a.aceita_adiantar AND a.status IN ('AGENDADO','CONFIRMADO')
-        AND a.data_hora_inicio > r.slot_inicio
-        AND (a.data_hora_fim-a.data_hora_inicio) <= (r.slot_fim-r.slot_inicio)) AS eligible
-FROM ofertas_antecipacao o
-JOIN rodadas_antecipacao r ON r.id=o.rodada_id AND r.estabelecimento_id=o.estabelecimento_id
-JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
-JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=a.estabelecimento_id
-JOIN servicos sv ON sv.id=a.servico_id AND sv.estabelecimento_id=a.estabelecimento_id
-WHERE o.token_hash=$1
-FOR UPDATE OF o, r, a`, hash[:])
+	var item earlySlotAcceptItem
+	err = tx.GetContext(ctx, &item, earlySlotAcceptLookupSQL, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEarlySlotOfferNotFound
 	}
@@ -517,9 +534,75 @@ FOR UPDATE OF o, r, a`, hash[:])
 	if !item.Eligible {
 		return nil, ErrEarlySlotAppointmentIneligible
 	}
+	return s.completeAcceptTx(ctx, tx, item, origin)
+}
+
+type earlySlotAcceptItem struct {
+	OfferID        string    `db:"offer_id"`
+	OfferStatus    string    `db:"offer_status"`
+	ExpiresAt      time.Time `db:"expira_em"`
+	RoundID        string    `db:"rodada_id"`
+	RoundStatus    string    `db:"round_status"`
+	TenantID       string    `db:"estabelecimento_id"`
+	AppointmentID  string    `db:"agendamento_id"`
+	ProfessionalID string    `db:"profissional_id"`
+	SlotStart      time.Time `db:"slot_inicio"`
+	SlotEnd        time.Time `db:"slot_fim"`
+	CurrentStart   time.Time `db:"current_start"`
+	CurrentEnd     time.Time `db:"current_end"`
+	Eligible       bool      `db:"eligible"`
+	ClientName     string    `db:"cliente_nome"`
+	Phone          string    `db:"cliente_telefone"`
+	Professional   string    `db:"profissional_nome"`
+	Service        string    `db:"servico_nome"`
+}
+
+// earlySlotAcceptLookupSQL trava oferta, rodada e agendamento na mesma linha do
+// tempo e decide `eligible` dentro do banco, para que a revalidação do cenário
+// 12 não dependa de leitura feita fora do lock.
+const earlySlotAcceptLookupSQL = `
+SELECT o.id AS offer_id, o.status AS offer_status, o.expira_em, r.id AS rodada_id,
+       r.status AS round_status, o.estabelecimento_id, a.id AS agendamento_id,
+       a.profissional_id, r.slot_inicio, r.slot_fim,
+       a.data_hora_inicio AS current_start, a.data_hora_fim AS current_end,
+       a.cliente_nome, a.cliente_telefone,
+       p.nome AS profissional_nome, sv.nome AS servico_nome,
+       (a.aceita_adiantar AND a.status IN ('AGENDADO','CONFIRMADO')
+        AND a.data_hora_inicio > r.slot_inicio
+        AND (a.data_hora_fim-a.data_hora_inicio) <= (r.slot_fim-r.slot_inicio)
+        -- Cenário 12: o candidato precisa ser exatamente o mesmo que recebeu a
+        -- oferta. Troca de profissional ou reagendamento no meio dos 5 minutos
+        -- invalidam o aceite em vez de mover o agendamento errado para o slot.
+        AND a.profissional_id = o.profissional_snapshot_id
+        AND a.profissional_id = r.profissional_id
+        AND a.data_hora_inicio = o.inicio_snapshot
+        AND a.data_hora_fim = o.fim_snapshot
+        -- O expediente pode ter mudado depois da oferta; o slot precisa caber
+        -- na jornada do profissional e ficar fora do almoço.
+        AND EXISTS (
+            SELECT 1 FROM expedientes_profissionais ep
+            WHERE ep.profissional_id = r.profissional_id
+              AND ep.dia_semana = EXTRACT(DOW FROM r.slot_inicio)::int
+              AND r.slot_inicio::time >= ep.horario_entrada
+              AND (r.slot_inicio + (a.data_hora_fim - a.data_hora_inicio))::time <= ep.horario_saida
+              AND (ep.inicio_almoco IS NULL OR ep.fim_almoco IS NULL
+                   OR NOT (r.slot_inicio::time < ep.fim_almoco
+                           AND (r.slot_inicio + (a.data_hora_fim - a.data_hora_inicio))::time > ep.inicio_almoco)))
+       ) AS eligible
+FROM ofertas_antecipacao o
+JOIN rodadas_antecipacao r ON r.id=o.rodada_id AND r.estabelecimento_id=o.estabelecimento_id
+JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
+JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=a.estabelecimento_id
+JOIN servicos sv ON sv.id=a.servico_id AND sv.estabelecimento_id=a.estabelecimento_id
+WHERE o.token_hash=$1
+FOR UPDATE OF o, r, a`
+
+func (s *EarlySlotService) completeAcceptTx(
+	ctx context.Context, tx *sqlx.Tx, item earlySlotAcceptItem, origin string,
+) (*EarlySlotAcceptResult, error) {
 	newEnd := item.SlotStart.Add(item.CurrentEnd.Sub(item.CurrentStart))
 	var conflictingIDs []string
-	err = tx.SelectContext(ctx, &conflictingIDs, `
+	err := tx.SelectContext(ctx, &conflictingIDs, `
 SELECT id FROM agendamentos
 WHERE estabelecimento_id=$1 AND profissional_id=$2
   AND status IN ('AGENDADO','CONFIRMADO') AND id<>$3
@@ -606,13 +689,14 @@ func (s *EarlySlotService) Decline(ctx context.Context, token, origin string) (s
 	}
 	defer tx.Rollback() //nolint:errcheck
 	var item struct {
-		ID       string `db:"id"`
-		Status   string `db:"status"`
-		TenantID string `db:"estabelecimento_id"`
-		RoundID  string `db:"rodada_id"`
+		ID        string    `db:"id"`
+		Status    string    `db:"status"`
+		TenantID  string    `db:"estabelecimento_id"`
+		RoundID   string    `db:"rodada_id"`
+		ExpiresAt time.Time `db:"expira_em"`
 	}
 	err = tx.GetContext(ctx, &item, `
-SELECT id,status,estabelecimento_id,rodada_id FROM ofertas_antecipacao
+SELECT id,status,estabelecimento_id,rodada_id,expira_em FROM ofertas_antecipacao
 WHERE token_hash=$1 FOR UPDATE`, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrEarlySlotOfferNotFound
@@ -623,8 +707,16 @@ WHERE token_hash=$1 FOR UPDATE`, hash[:])
 	if item.Status == "RECUSADA" {
 		return "RECUSADA", nil
 	}
+	if item.Status == "EXPIRADA" {
+		return "", ErrEarlySlotOfferExpired
+	}
 	if item.Status != "PENDENTE" {
 		return "", ErrEarlySlotOfferUnavailable
+	}
+	// Uma oferta vencida não vira RECUSADA: quem avança a fila é a varredura de
+	// expiração, senão a recusa tardia consumiria a vez do próximo candidato.
+	if !s.now().Before(item.ExpiresAt) {
+		return "", ErrEarlySlotOfferExpired
 	}
 	_, err = tx.ExecContext(ctx, `
 UPDATE ofertas_antecipacao SET status='RECUSADA',respondida_em=NOW(),origem_resposta=$3
@@ -886,6 +978,79 @@ ORDER BY created_at DESC`
 		rounds = []EarlySlotRound{}
 	}
 	return rounds, nil
+}
+
+// EarlySlotPreferenceResult carrega o eco canônico do PATCH de preferência,
+// usado tanto pela rota staff quanto pela rota pública de gestão.
+type EarlySlotPreferenceResult struct {
+	TenantID             string     `json:"-"`
+	AceitaAdiantar       bool       `json:"aceita_adiantar"`
+	AceitaAdiantarEm     *time.Time `json:"aceita_adiantar_em"`
+	NotificationsEnabled bool       `json:"early_slot_notifications_available"`
+}
+
+// SetPreferenceByManagementToken é o contrato público de opt-in por
+// `gestao_token` (DEV-84). O opt-in é persistido mesmo com o canal fora do ar:
+// o sinal devolvido apenas informa que ainda não haverá oferta.
+func (s *EarlySlotService) SetPreferenceByManagementToken(
+	ctx context.Context, token string, enabled bool, now time.Time,
+) (*EarlySlotPreferenceResult, error) {
+	token = strings.TrimSpace(token)
+	if !managementTokenPattern.MatchString(token) {
+		return nil, ErrEarlySlotOfferNotFound
+	}
+
+	var current struct {
+		TenantID  string    `db:"estabelecimento_id"`
+		Status    string    `db:"status"`
+		StartsAt  time.Time `db:"data_hora_inicio"`
+		ExpiresAt time.Time `db:"gestao_token_expires_at"`
+	}
+	err := s.db.GetContext(ctx, &current, `
+SELECT estabelecimento_id, status, data_hora_inicio, gestao_token_expires_at
+FROM agendamentos WHERE gestao_token::text = $1`, token)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrEarlySlotOfferNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	// Token vencido é indistinguível de token inexistente para quem chama: não
+	// vaza a existência do agendamento.
+	if !now.Before(current.ExpiresAt) {
+		return nil, ErrEarlySlotOfferNotFound
+	}
+	if current.Status != "AGENDADO" && current.Status != "CONFIRMADO" {
+		return nil, ErrEarlySlotAppointmentIneligible
+	}
+	if !current.StartsAt.After(now) {
+		return nil, ErrEarlySlotAppointmentIneligible
+	}
+
+	var at sql.NullTime
+	err = s.db.GetContext(ctx, &at, `
+UPDATE agendamentos SET aceita_adiantar = $2
+WHERE gestao_token::text = $1
+  AND status IN ('AGENDADO','CONFIRMADO')
+  AND data_hora_inicio > $3
+RETURNING aceita_adiantar_em`, token, enabled, now)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrEarlySlotAppointmentIneligible
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	out := &EarlySlotPreferenceResult{
+		TenantID:             current.TenantID,
+		AceitaAdiantar:       enabled,
+		NotificationsEnabled: s.NotificationsAvailable(ctx, current.TenantID),
+	}
+	if enabled && at.Valid {
+		moment := at.Time
+		out.AceitaAdiantarEm = &moment
+	}
+	return out, nil
 }
 
 func (s *EarlySlotService) SetPreference(ctx context.Context, tenantID, appointmentID string, enabled bool) (time.Time, error) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/agendaglow/agendaglow/internal/service"
@@ -102,6 +103,25 @@ func (h *EarlySlotHandler) SetPreference(w http.ResponseWriter, r *http.Request)
 		response["aceita_adiantar_em"] = at
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// SetPreferencePublic é o contrato de opt-in por `gestao_token`: o cliente
+// altera a preferência sem sessão de staff, pelo mesmo link da gestão pública.
+func (h *EarlySlotHandler) SetPreferencePublic(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Enabled *bool `json:"aceita_adiantar"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Enabled == nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	result, err := h.service.SetPreferenceByManagementToken(
+		r.Context(), r.PathValue("token"), *req.Enabled, time.Now())
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *EarlySlotHandler) writeError(w http.ResponseWriter, err error) {
