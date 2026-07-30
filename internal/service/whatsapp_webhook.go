@@ -17,9 +17,11 @@ var (
 )
 
 const (
-	WhatsAppActionConfirm = "CONFIRM"
-	WhatsAppActionCancel  = "CANCEL"
-	WhatsAppSistemaBeleza = "beleza"
+	WhatsAppActionConfirm          = "CONFIRM"
+	WhatsAppActionCancel           = "CANCEL"
+	WhatsAppActionEarlySlotAccept  = "EARLY_SLOT_ACCEPT"
+	WhatsAppActionEarlySlotDecline = "EARLY_SLOT_DECLINE"
+	WhatsAppSistemaBeleza          = "beleza"
 )
 
 // WhatsAppCallbackPayload representa o JSON repassado pelo WhatsApp Gateway (Gateway → Beleza).
@@ -33,6 +35,7 @@ type WhatsAppCallbackPayload struct {
 	EventType     string `json:"event_type"`
 	Action        string `json:"action"`
 	AppointmentID string `json:"appointment_id"`
+	OfferToken    string `json:"offer_token"`
 	// Legado (pré-contrato Gateway atual)
 	SystemID         string `json:"system_id"`
 	ExternalClientID string `json:"external_client_id"`
@@ -47,6 +50,7 @@ func (p *WhatsAppCallbackPayload) normalize() {
 	p.EventType = strings.TrimSpace(p.EventType)
 	p.Action = strings.ToUpper(strings.TrimSpace(p.Action))
 	p.AppointmentID = strings.TrimSpace(p.AppointmentID)
+	p.OfferToken = strings.TrimSpace(p.OfferToken)
 	p.SystemID = strings.TrimSpace(p.SystemID)
 	p.ExternalClientID = strings.TrimSpace(p.ExternalClientID)
 
@@ -86,6 +90,10 @@ func (p *WhatsAppCallbackPayload) validate() error {
 
 	switch p.Action {
 	case WhatsAppActionConfirm, WhatsAppActionCancel:
+	case WhatsAppActionEarlySlotAccept, WhatsAppActionEarlySlotDecline:
+		if p.TenantID == "" || p.OfferToken == "" {
+			return fmt.Errorf("%w: tenant_id e offer_token obrigatórios", ErrWebhookPayloadInvalido)
+		}
 	default:
 		return ErrAcaoWhatsAppInvalida
 	}
@@ -97,6 +105,15 @@ func (p *WhatsAppCallbackPayload) validate() error {
 func (s *AgendaService) ProcessWhatsAppCallback(ctx context.Context, payload WhatsAppCallbackPayload) (string, error) {
 	if err := payload.validate(); err != nil {
 		return "", err
+	}
+	if payload.Action == WhatsAppActionEarlySlotAccept || payload.Action == WhatsAppActionEarlySlotDecline {
+		if s.earlySlot == nil {
+			return "", ErrEarlySlotOfferUnavailable
+		}
+		return s.earlySlot.RespondWhatsApp(
+			ctx, payload.OfferToken, payload.TenantID, payload.PhoneNumber,
+			payload.Action == WhatsAppActionEarlySlotAccept,
+		)
 	}
 
 	ag, err := s.resolverAgendamentoWhatsApp(ctx, payload)
@@ -119,6 +136,11 @@ func (s *AgendaService) ProcessWhatsAppCallback(ctx context.Context, payload Wha
 	}
 
 	if ag.Status == targetStatus {
+		if targetStatus == "CANCELADO" && s.earlySlot != nil {
+			if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstabelecimentoID, ag.ID); err != nil {
+				return "", fmt.Errorf("abrir fila de antecipação após cancelamento: %w", err)
+			}
+		}
 		return targetStatus, nil
 	}
 
@@ -154,6 +176,11 @@ WHERE id = $1
 	}
 	if rows == 0 {
 		return "", ErrAgendamentoNaoEncontrado
+	}
+	if targetStatus == "CANCELADO" && s.earlySlot != nil {
+		if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstabelecimentoID, ag.ID); err != nil {
+			return "", fmt.Errorf("abrir fila de antecipação após cancelamento: %w", err)
+		}
 	}
 
 	return targetStatus, nil

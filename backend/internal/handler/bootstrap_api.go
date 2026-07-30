@@ -20,6 +20,7 @@ type BootstrapAPIHandler struct {
 	fin       *service.FinanceiroService
 	fila      *service.FilaEsperaService
 	insumo    *service.InsumoService
+	earlySlot *service.EarlySlotService
 }
 
 func NewBootstrapAPIHandler(
@@ -32,6 +33,7 @@ func NewBootstrapAPIHandler(
 	fin *service.FinanceiroService,
 	fila *service.FilaEsperaService,
 	insumo *service.InsumoService,
+	earlySlot *service.EarlySlotService,
 ) *BootstrapAPIHandler {
 	return &BootstrapAPIHandler{
 		bootstrap: bootstrap,
@@ -43,6 +45,7 @@ func NewBootstrapAPIHandler(
 		fin:       fin,
 		fila:      fila,
 		insumo:    insumo,
+		earlySlot: earlySlot,
 	}
 }
 
@@ -92,14 +95,14 @@ func (h *BootstrapAPIHandler) PublicCatalog(w http.ResponseWriter, r *http.Reque
 }
 
 type createAppointmentRequest struct {
-	ClienteNome      string   `json:"cliente_nome"`
-	ClienteTelefone  string   `json:"cliente_telefone"`
-	ProfissionalID   string   `json:"profissional_id"`
-	ServicoID        string   `json:"servico_id"`
-	AdicionalIDs     []string `json:"adicional_ids"`
-	Data             string   `json:"data"`
-	HoraInicio       string   `json:"hora_inicio"`
-	AceitaAdiantar   bool     `json:"aceita_adiantar"`
+	ClienteNome     string   `json:"cliente_nome"`
+	ClienteTelefone string   `json:"cliente_telefone"`
+	ProfissionalID  string   `json:"profissional_id"`
+	ServicoID       string   `json:"servico_id"`
+	AdicionalIDs    []string `json:"adicional_ids"`
+	Data            string   `json:"data"`
+	HoraInicio      string   `json:"hora_inicio"`
+	AceitaAdiantar  bool     `json:"aceita_adiantar"`
 }
 
 // CreateAppointment POST /api/v1/appointments (dona/secretaria) ou /api/v1/public/{slug}/appointments
@@ -457,8 +460,11 @@ func (h *BootstrapAPIHandler) CancelAppointment(w http.ResponseWriter, r *http.R
 		return
 	}
 	agID := r.PathValue("id")
-	const q = `UPDATE agendamentos SET status = 'CANCELADO' WHERE id = $1 AND estabelecimento_id = $2`
-	if _, err := h.bootstrap.DB().ExecContext(r.Context(), q, agID, establishmentID); err != nil {
+	if err := h.earlySlot.CancelAppointment(r.Context(), establishmentID, agID); err != nil {
+		if errors.Is(err, service.ErrAgendamentoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
 		return
 	}

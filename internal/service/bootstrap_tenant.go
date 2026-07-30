@@ -10,25 +10,25 @@ import (
 
 // TenantBootstrapPayload agrega dados do salão para o front-end React.
 type TenantBootstrapPayload struct {
-	Tenant         TenantBootstrapView      `json:"tenant"`
-	Plano          *PlanoSaas               `json:"plano,omitempty"`
-	Especialidades []Especialidade          `json:"especialidades"`
-	Profissionais  []ProfissionalBootstrap  `json:"profissionais"`
-	Servicos       []Servico                `json:"servicos"`
-	Clientes       []ClienteBootstrap       `json:"clientes"`
-	Agendamentos   []AgendamentoBootstrap   `json:"agendamentos"`
-	Lancamentos    []LancamentoBootstrap    `json:"lancamentos"`
-	FilaEspera     []FilaEsperaEntry        `json:"fila_espera"`
-	Insumos        []Insumo                 `json:"insumos"`
+	Tenant         TenantBootstrapView     `json:"tenant"`
+	Plano          *PlanoSaas              `json:"plano,omitempty"`
+	Especialidades []Especialidade         `json:"especialidades"`
+	Profissionais  []ProfissionalBootstrap `json:"profissionais"`
+	Servicos       []Servico               `json:"servicos"`
+	Clientes       []ClienteBootstrap      `json:"clientes"`
+	Agendamentos   []AgendamentoBootstrap  `json:"agendamentos"`
+	Lancamentos    []LancamentoBootstrap   `json:"lancamentos"`
+	FilaEspera     []FilaEsperaEntry       `json:"fila_espera"`
+	Insumos        []Insumo                `json:"insumos"`
 }
 
 type TenantBootstrapView struct {
-	ID            string  `json:"id"`
-	Nome          string  `json:"nome"`
-	Slug          string  `json:"slug"`
-	Status        string  `json:"status"`
-	LogoURL       *string `json:"logo_url,omitempty"`
-	PlanoID       *string `json:"plano_id,omitempty"`
+	ID             string  `json:"id"`
+	Nome           string  `json:"nome"`
+	Slug           string  `json:"slug"`
+	Status         string  `json:"status"`
+	LogoURL        *string `json:"logo_url,omitempty"`
+	PlanoID        *string `json:"plano_id,omitempty"`
 	DataVencimento *string `json:"data_vencimento,omitempty"`
 }
 
@@ -47,31 +47,39 @@ type ClienteBootstrap struct {
 }
 
 type AgendamentoBootstrap struct {
-	ID              string   `json:"id"`
-	TenantID        string   `json:"tenant_id"`
-	ProfissionalID  string   `json:"profissional_id"`
-	ServicoID       string   `json:"servico_id"`
-	ServicoIDs      []string `json:"servico_ids"`
-	AdicionalIDs    []string `json:"adicional_ids"`
-	ClienteNome     string   `json:"cliente_nome"`
-	ClienteTelefone string   `json:"cliente_telefone"`
-	Data            string   `json:"data"`
-	HoraInicio      string   `json:"hora_inicio"`
-	Status          string   `json:"status"`
-	MinutosInvadidos int     `json:"minutos_invadidos,omitempty"`
-	AceitaAdiantar   bool    `json:"aceita_adiantar,omitempty"`
-	ValorCobrado     *float64 `json:"valor_cobrado,omitempty"`
-	MetodoPagamento  *string  `json:"metodo_pagamento,omitempty"`
-	CobradoEm        *string  `json:"cobrado_em,omitempty"`
+	ID               string                 `json:"id"`
+	TenantID         string                 `json:"tenant_id"`
+	ProfissionalID   string                 `json:"profissional_id"`
+	ServicoID        string                 `json:"servico_id"`
+	ServicoIDs       []string               `json:"servico_ids"`
+	AdicionalIDs     []string               `json:"adicional_ids"`
+	ClienteNome      string                 `json:"cliente_nome"`
+	ClienteTelefone  string                 `json:"cliente_telefone"`
+	Data             string                 `json:"data"`
+	HoraInicio       string                 `json:"hora_inicio"`
+	Status           string                 `json:"status"`
+	MinutosInvadidos int                    `json:"minutos_invadidos,omitempty"`
+	AceitaAdiantar   bool                   `json:"aceita_adiantar,omitempty"`
+	AceitaAdiantarEm *string                `json:"aceita_adiantar_em,omitempty"`
+	EarlySlotOffer   *EarlySlotOfferSummary `json:"early_slot_offer"`
+	ValorCobrado     *float64               `json:"valor_cobrado,omitempty"`
+	MetodoPagamento  *string                `json:"metodo_pagamento,omitempty"`
+	CobradoEm        *string                `json:"cobrado_em,omitempty"`
+}
+
+type EarlySlotOfferSummary struct {
+	RoundID     string    `json:"round_id"`
+	OfferStatus string    `json:"offer_status"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type LancamentoBootstrap struct {
-	ID          string  `json:"id"`
-	TenantID    string  `json:"tenant_id"`
-	Tipo        string  `json:"tipo"`
-	Valor       float64 `json:"valor"`
-	Descricao   string  `json:"descricao"`
-	Data        string  `json:"data"`
+	ID             string  `json:"id"`
+	TenantID       string  `json:"tenant_id"`
+	Tipo           string  `json:"tipo"`
+	Valor          float64 `json:"valor"`
+	Descricao      string  `json:"descricao"`
+	Data           string  `json:"data"`
 	ProfissionalID *string `json:"profissional_id,omitempty"`
 }
 
@@ -295,32 +303,44 @@ SELECT
     a.data_hora_inicio,
     a.minutos_invadidos,
     a.aceita_adiantar,
+    a.aceita_adiantar_em,
     a.valor_cobrado,
     a.metodo_pagamento,
     a.cobrado_em,
     c.nome AS cliente_nome,
-    c.telefone AS cliente_telefone
+    c.telefone AS cliente_telefone,
+    eo.rodada_id AS early_round_id,
+    eo.status AS early_offer_status,
+    eo.expira_em AS early_offer_expires_at
 FROM agendamentos a
 INNER JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
+LEFT JOIN ofertas_antecipacao eo
+  ON eo.agendamento_candidato_id = a.id
+ AND eo.estabelecimento_id = a.estabelecimento_id
+ AND eo.status = 'PENDENTE'
 WHERE a.estabelecimento_id = $1
   AND a.data_hora_inicio >= NOW() - INTERVAL '30 days'
   AND a.data_hora_inicio < NOW() + INTERVAL '90 days'
 ORDER BY a.data_hora_inicio
 `
 	type row struct {
-		ID               string     `db:"id"`
-		EstabelecimentoID string    `db:"estabelecimento_id"`
-		ProfissionalID   string     `db:"profissional_id"`
-		ServicoID        string     `db:"servico_id"`
-		Status           string     `db:"status"`
-		DataHoraInicio   time.Time  `db:"data_hora_inicio"`
-		MinutosInvadidos int        `db:"minutos_invadidos"`
-		AceitaAdiantar   bool       `db:"aceita_adiantar"`
-		ValorCobrado     *float64   `db:"valor_cobrado"`
-		MetodoPagamento  *string    `db:"metodo_pagamento"`
-		CobradoEm        *time.Time `db:"cobrado_em"`
-		ClienteNome      string     `db:"cliente_nome"`
-		ClienteTelefone  string     `db:"cliente_telefone"`
+		ID                  string     `db:"id"`
+		EstabelecimentoID   string     `db:"estabelecimento_id"`
+		ProfissionalID      string     `db:"profissional_id"`
+		ServicoID           string     `db:"servico_id"`
+		Status              string     `db:"status"`
+		DataHoraInicio      time.Time  `db:"data_hora_inicio"`
+		MinutosInvadidos    int        `db:"minutos_invadidos"`
+		AceitaAdiantar      bool       `db:"aceita_adiantar"`
+		AceitaAdiantarEm    *time.Time `db:"aceita_adiantar_em"`
+		ValorCobrado        *float64   `db:"valor_cobrado"`
+		MetodoPagamento     *string    `db:"metodo_pagamento"`
+		CobradoEm           *time.Time `db:"cobrado_em"`
+		ClienteNome         string     `db:"cliente_nome"`
+		ClienteTelefone     string     `db:"cliente_telefone"`
+		EarlyRoundID        *string    `db:"early_round_id"`
+		EarlyOfferStatus    *string    `db:"early_offer_status"`
+		EarlyOfferExpiresAt *time.Time `db:"early_offer_expires_at"`
 	}
 	var rows []row
 	if err := s.db.SelectContext(ctx, &rows, query, establishmentID); err != nil {
@@ -346,6 +366,15 @@ ORDER BY a.data_hora_inicio
 			ValorCobrado:     r.ValorCobrado,
 			MetodoPagamento:  r.MetodoPagamento,
 		}
+		if r.AceitaAdiantarEm != nil {
+			formatted := r.AceitaAdiantarEm.Format(time.RFC3339)
+			item.AceitaAdiantarEm = &formatted
+		}
+		if r.EarlyRoundID != nil && r.EarlyOfferStatus != nil && r.EarlyOfferExpiresAt != nil {
+			item.EarlySlotOffer = &EarlySlotOfferSummary{
+				RoundID: *r.EarlyRoundID, OfferStatus: *r.EarlyOfferStatus, ExpiresAt: *r.EarlyOfferExpiresAt,
+			}
+		}
 		if r.CobradoEm != nil {
 			s := r.CobradoEm.Format("2006-01-02")
 			item.CobradoEm = &s
@@ -369,13 +398,13 @@ ORDER BY data_transacao DESC
 LIMIT 200
 `
 	type row struct {
-		ID              string   `db:"id"`
-		TenantID        string   `db:"estabelecimento_id"`
-		Tipo            string   `db:"tipo"`
-		Descricao       string   `db:"descricao"`
-		Valor           float64  `db:"valor"`
-		Data            string   `db:"data"`
-		ProfissionalID  *string  `db:"profissional_id"`
+		ID             string  `db:"id"`
+		TenantID       string  `db:"estabelecimento_id"`
+		Tipo           string  `db:"tipo"`
+		Descricao      string  `db:"descricao"`
+		Valor          float64 `db:"valor"`
+		Data           string  `db:"data"`
+		ProfissionalID *string `db:"profissional_id"`
 	}
 	var rows []row
 	if err := s.db.SelectContext(ctx, &rows, query, establishmentID, inicio, fim); err != nil {

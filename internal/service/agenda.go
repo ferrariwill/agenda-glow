@@ -28,9 +28,16 @@ var (
 )
 
 type AgendaService struct {
-	db      *sqlx.DB
-	baseURL string
-	mailer  Mailer
+	db        *sqlx.DB
+	baseURL   string
+	mailer    Mailer
+	earlySlot *EarlySlotService
+}
+
+// SetEarlySlotService conecta o hook pós-cancelamento sem alterar o contrato
+// dos construtores usados pelos testes e demais consumidores.
+func (s *AgendaService) SetEarlySlotService(earlySlot *EarlySlotService) {
+	s.earlySlot = earlySlot
 }
 
 func NewAgendaService(db *sqlx.DB, opts ...AgendaOptions) *AgendaService {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,8 +10,8 @@ import (
 	"time"
 
 	adminhandler "github.com/agendaglow/agendaglow/backend/internal/handler"
-	publichandler "github.com/agendaglow/agendaglow/internal/handler"
 	"github.com/agendaglow/agendaglow/internal/config"
+	publichandler "github.com/agendaglow/agendaglow/internal/handler"
 	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/agendaglow/agendaglow/internal/service"
 	"github.com/jmoiron/sqlx"
@@ -52,12 +53,15 @@ func main() {
 	saasGuard := security.NewSaaSGuard(db, 60*time.Second)
 	filaSvc := service.NewFilaEsperaService(db)
 	insumoSvc := service.NewInsumoService(db)
+	earlySlotSvc := service.NewEarlySlotService(db, envOrDefault("APP_BASE_URL", "http://localhost:8081"))
+	agendaSvc.SetEarlySlotService(earlySlotSvc)
 
 	bookingHandler := publichandler.NewBookingPageHandler(estabelecimentoSvc)
 	publicSlotsHandler := publichandler.NewPublicSlotsHandler(agendaSvc, estabelecimentoSvc)
 	publicAppointmentsHandler := publichandler.NewPublicAppointmentsHandler(agendaSvc)
 	whatsAppWebhookHandler := publichandler.NewWhatsAppWebhookHandler(agendaSvc, estabelecimentoSvc)
 	whatsAppIntegrationHandler := adminhandler.NewWhatsAppIntegrationHandler(estabelecimentoSvc)
+	earlySlotHandler := adminhandler.NewEarlySlotHandler(earlySlotSvc)
 	configHandler := adminhandler.NewEstabelecimentoConfigHandler(estabelecimentoSvc)
 	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
@@ -74,7 +78,9 @@ func main() {
 		financeiroSvc,
 		filaSvc,
 		insumoSvc,
+		earlySlotSvc,
 	)
+	go earlySlotSvc.RunExpirationWorker(context.Background(), 30*time.Second)
 
 	dashboardHandler, err := adminhandler.NewDashboardDonaHandler(financeiroSvc, estabelecimentoSvc)
 	if err != nil {
@@ -161,6 +167,9 @@ func main() {
 	mux.Handle("PUT /api/v1/professionals/{id}", donaRoute(bootstrapAPI.UpdateProfessional))
 	mux.Handle("POST /api/v1/appointments", tenantStaffRoute(bootstrapAPI.CreateAppointment))
 	mux.Handle("POST /api/v1/appointments/{id}/cancel", tenantStaffRoute(bootstrapAPI.CancelAppointment))
+	mux.Handle("PATCH /api/v1/appointments/{id}/early-slot-preference", tenantStaffRoute(earlySlotHandler.SetPreference))
+	mux.Handle("GET /api/v1/early-slot-rounds/{id}", tenantStaffRoute(earlySlotHandler.GetRound))
+	mux.Handle("GET /api/v1/early-slot-rounds", tenantStaffRoute(earlySlotHandler.ListRounds))
 	mux.Handle("POST /api/v1/appointments/{id}/charge", tenantStaffRoute(bootstrapAPI.ChargeAppointment))
 	mux.Handle("POST /api/v1/clients", tenantStaffRoute(bootstrapAPI.CreateClient))
 	mux.Handle("POST /api/v1/cash-flow", donaRoute(bootstrapAPI.CreateLancamento))
@@ -177,6 +186,9 @@ func main() {
 
 	mux.Handle("GET /api/v1/public/{slug}/catalog", http.HandlerFunc(bootstrapAPI.PublicCatalog))
 	mux.Handle("POST /api/v1/public/{slug}/appointments", http.HandlerFunc(bootstrapAPI.CreateAppointment))
+	mux.HandleFunc("GET /api/v1/public/early-slot-offers/{token}", earlySlotHandler.GetOffer)
+	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/accept", earlySlotHandler.Accept)
+	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/decline", earlySlotHandler.Decline)
 
 	mux.Handle("GET /superadmin/dashboard", superAdminRoute(superAdminUIHandler.Dashboard))
 	mux.Handle("POST /superadmin/establishments", superAdminRoute(superAdminUIHandler.CreateEstablishment))
