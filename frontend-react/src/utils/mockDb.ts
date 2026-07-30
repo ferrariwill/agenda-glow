@@ -2331,7 +2331,7 @@ export async function createAgendamento(
     const path = opts?.publicSlug
       ? `/api/v1/public/${opts.publicSlug}/appointments`
       : '/api/v1/appointments'
-    const result = await apiFetch<{ id: string; status: string }>(path, {
+    const result = await apiFetch<{ id: string; status: string; management_url?: string }>(path, {
       method: 'POST',
       body: JSON.stringify({
         cliente_nome: input.cliente_nome,
@@ -2346,7 +2346,7 @@ export async function createAgendamento(
     })
     await refreshAfterMutation()
     const ag = getDb().agendamentos.find((a) => a.id === result.id)
-    if (ag) return ag
+    if (ag) return { ...ag, management_url: result.management_url }
     return {
       id: result.id,
       tenant_id: input.tenant_id,
@@ -2359,6 +2359,7 @@ export async function createAgendamento(
       data: input.data,
       hora_inicio: input.hora_inicio,
       status: result.status as AgendamentoStatus,
+      management_url: result.management_url,
     }
   }
 
@@ -2380,6 +2381,7 @@ export async function createAgendamento(
     status: 'AGENDADO',
     observacoes: input.observacoes,
     aceita_adiantar: input.aceita_adiantar,
+    management_url: opts?.publicSlug ? '/p/agendamento/mock-valid' : undefined,
   }
   const duracao = getAgendamentoDuration(draft, db)
   const avaliacao = input.forcar_status

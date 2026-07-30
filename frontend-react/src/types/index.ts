@@ -6,6 +6,10 @@ export type AgendamentoStatus =
   | 'EM_APROVACAO'
   | 'CANCELADO'
   | 'CONCLUIDO'
+export type ConfirmacaoCliente =
+  | 'PENDENTE'
+  | 'CONFIRMADO_CLIENTE'
+  | 'CANCELADO_CLIENTE'
 export type FilaStatus = 'AGUARDANDO' | 'NOTIFICADO'
 export type UserRole = 'SUPER_ADMIN' | 'DONA' | 'PROFISSIONAL' | 'SECRETARIA' | 'CLIENTE'
 
@@ -153,6 +157,49 @@ export interface Agendamento {
   valor_cobrado?: number
   metodo_pagamento?: MetodoPagamento
   cobrado_em?: string
+  confirmacao_cliente?: ConfirmacaoCliente
+  ultimo_lembrete_enviado_em?: string | null
+  /** Retornada apenas na criação pública; o token nunca aparece em listagens. */
+  management_url?: string
+}
+
+export interface PublicAppointmentManageResponse {
+  appointment: {
+    service: string
+    professional: string
+    starts_at: string
+    status: AgendamentoStatus
+    customer_confirmation: ConfirmacaoCliente
+  }
+  establishment: {
+    name: string
+    contact_phone?: string | null
+  }
+  cancellation: {
+    allowed: boolean
+    reason_required: boolean
+    minimum_notice_hours: number
+    denial_reason?: string | null
+  }
+}
+
+export interface PublicCancelAppointmentResponse {
+  status: 'cancelled'
+  appointment_status: 'CANCELADO'
+  customer_confirmation: 'CANCELADO_CLIENTE'
+  slot_released: boolean
+}
+
+export interface NotificacoesAgendaSettings {
+  lembretes_ativos: boolean
+  antecedencia_confirmacao_horas: number
+  antecedencia_lembrete_horas: number
+  janela_minima_cancelamento_horas: number
+  motivo_cancelamento_obrigatorio: boolean
+  template_confirmacao: string
+  template_lembrete: string
+  allowed_variables: string[]
+  whatsapp_status: WhatsAppIntegrationStatus
 }
 
 export interface FilaEspera {

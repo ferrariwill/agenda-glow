@@ -79,6 +79,8 @@ interface TenantBootstrapApi {
     valor_cobrado?: number
     metodo_pagamento?: string
     cobrado_em?: string
+    confirmacao_cliente?: Agendamento['confirmacao_cliente']
+    ultimo_lembrete_enviado_em?: string | null
   }[]
   lancamentos: {
     id: string
@@ -218,6 +220,8 @@ export function mapTenantBootstrap(
     valor_cobrado: a.valor_cobrado,
     metodo_pagamento: a.metodo_pagamento as Agendamento['metodo_pagamento'],
     cobrado_em: a.cobrado_em,
+    confirmacao_cliente: a.confirmacao_cliente ?? 'PENDENTE',
+    ultimo_lembrete_enviado_em: a.ultimo_lembrete_enviado_em ?? null,
   }))
 
   const lancamentos: Lancamento[] = payload.lancamentos.map((l) => ({

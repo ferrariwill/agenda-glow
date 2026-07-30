@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Banknote,
   CalendarPlus,
@@ -17,9 +17,12 @@ import { CobrancaAgendamentoModal } from '../../components/secretaria/CobrancaAg
 import { NovoAgendamentoModal, type NovoAgendamentoPreset } from '../../components/dona/NovoAgendamentoModal'
 import { EditarAgendamentoProfModal } from '../profissional/EditarAgendamentoProfModal'
 import { Alert } from '../../components/ui/Alert'
+import { Badge, confirmacaoClienteBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
+import { useBootstrapState } from '../../data/BootstrapContext'
+import { subscribeStore } from '../../data/store'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
 import {
@@ -90,6 +93,15 @@ function appointmentEndTime(ag: Agendamento, db: ReturnType<typeof getDb>) {
   return `${formatTimeBR(ag.hora_inicio)} - ${formatTimeBR(minutesToTime(end))}`
 }
 
+function confirmationHint(ag: Agendamento) {
+  if (ag.ultimo_lembrete_enviado_em) {
+    return `Lembrete enviado em ${new Date(ag.ultimo_lembrete_enviado_em).toLocaleString('pt-BR')}`
+  }
+  return (ag.confirmacao_cliente ?? 'PENDENTE') === 'PENDENTE'
+    ? 'Aguardando resposta'
+    : undefined
+}
+
 function statusDisplay(ag: Agendamento, data: string) {
   const now = new Date()
   const isToday = data === todayISO()
@@ -130,6 +142,7 @@ function cardClasses(kind: ReturnType<typeof statusDisplay>['card']) {
 export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const isSecretaria = variant === 'secretaria'
   const { session } = useAuth()
+  const { retry } = useBootstrapState()
   const tenantId = session?.user.tenant_id ?? ''
   const [data, setData] = useState(todayISO())
   const [db, setDb] = useState(getDb())
@@ -153,7 +166,25 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const [editAg, setEditAg] = useState<Agendamento | null>(null)
   const [cobrancaAg, setCobrancaAg] = useState<Agendamento | null>(null)
 
-  const refresh = () => setDb(getDb())
+  const refresh = useCallback(() => setDb(getDb()), [])
+
+  useEffect(() => subscribeStore(refresh), [refresh])
+
+  useEffect(() => {
+    const sync = () => retry()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') sync()
+    }
+    sync()
+    const interval = window.setInterval(sync, 45_000)
+    window.addEventListener('focus', sync)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', sync)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [retry])
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
   const especialidades = db.especialidades.filter((e) => e.tenant_id === tenantId)
   const hours = hourLabels()
@@ -254,6 +285,8 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
     const height = Math.max(((duration / 60) * ROW_HEIGHT) - 4, 36)
     const servicoLabel = getAgendamentoServicosNomes(ag, db)
     const st = statusDisplay(ag, data)
+    const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
+    const hint = confirmationHint(ag)
 
     return (
       <div
@@ -280,9 +313,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
             </p>
             <p className="truncate text-sm font-semibold text-aura-anthracite">{ag.cliente_nome}</p>
             <p className="truncate text-xs text-aura-muted">{servicoLabel}</p>
-            <div className="mt-1.5 flex items-center gap-1">
+            <div className="mt-1.5 flex flex-wrap items-center gap-1" title={hint}>
               <span className={`h-2 w-2 rounded-full ${st.dot}`} />
               <span className="text-[10px] text-aura-muted">{st.label}</span>
+              <Badge variant={confirmation.variant}>{confirmation.label}</Badge>
               {ag.cobrado_em && (
                 <span className="text-[10px] font-medium text-emerald-700">· Pago</span>
               )}
@@ -533,6 +567,8 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
               .filter((a) => a.profissional_id === profMobileId)
               .map((ag) => {
                 const st = statusDisplay(ag, data)
+                const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
+                const hint = confirmationHint(ag)
                 return (
                   <div
                     key={ag.id}
@@ -551,9 +587,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                         <p className="text-sm text-aura-muted">
                           {getAgendamentoServicosNomes(ag, db)}
                         </p>
-                        <div className="mt-1 flex items-center gap-1">
+                        <div className="mt-1 flex flex-wrap items-center gap-1" title={hint}>
                           <span className={`h-2 w-2 rounded-full ${st.dot}`} />
                           <span className="text-xs text-aura-muted">{st.label}</span>
+                          <Badge variant={confirmation.variant}>{confirmation.label}</Badge>
                           {ag.cobrado_em && (
                             <span className="text-xs font-medium text-emerald-700">· Pago</span>
                           )}

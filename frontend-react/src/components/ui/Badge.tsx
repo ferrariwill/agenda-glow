@@ -1,4 +1,4 @@
-import type { TenantStatus } from '../../types'
+import type { ConfirmacaoCliente, TenantStatus } from '../../types'
 
 type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'muted'
 
@@ -52,5 +52,19 @@ export function statusAgendamentoBadge(
       return 'danger'
     default:
       return 'muted'
+  }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- helper visual compartilhado pelos badges
+export function confirmacaoClienteBadge(
+  status: ConfirmacaoCliente = 'PENDENTE',
+): { variant: BadgeVariant; label: string } {
+  switch (status) {
+    case 'CONFIRMADO_CLIENTE':
+      return { variant: 'success', label: 'Confirmou' }
+    case 'CANCELADO_CLIENTE':
+      return { variant: 'danger', label: 'Cancelou' }
+    case 'PENDENTE':
+      return { variant: 'warning', label: 'Pendente' }
   }
 }

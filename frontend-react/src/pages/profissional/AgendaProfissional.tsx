@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -11,9 +11,11 @@ import {
 import { NovoAgendamentoModal } from '../../components/dona/NovoAgendamentoModal'
 import { ProfissionalLayout, ProfissionalGLASS } from '../../components/profissional/ProfissionalLayout'
 import { Alert } from '../../components/ui/Alert'
-import { Badge, statusAgendamentoBadge } from '../../components/ui/Badge'
+import { Badge, confirmacaoClienteBadge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
+import { useBootstrapState } from '../../data/BootstrapContext'
+import { subscribeStore } from '../../data/store'
 import { IS_MOCK } from '../../lib/config'
 import type { Agendamento } from '../../types'
 import {
@@ -45,14 +47,11 @@ function weekDays(start: string): string[] {
 
 export function AgendaProfissional() {
   const { session } = useAuth()
+  const { retry } = useBootstrapState()
   const profId = session?.user.profissional_id ?? ''
   const tenantId = session?.user.tenant_id ?? ''
   const isProf = session?.user.role === 'PROFISSIONAL'
   const isDonaAgenda = session?.user.role === 'DONA'
-
-  if (isDonaAgenda && !profId) {
-    return <Navigate to="/admin/configuracoes" replace />
-  }
 
   const [db, setDb] = useState(getDb())
   const [weekAnchor, setWeekAnchor] = useState(weekStart(todayISO()))
@@ -64,7 +63,29 @@ export function AgendaProfissional() {
   const days = useMemo(() => weekDays(weekAnchor), [weekAnchor])
   const hoje = todayISO()
 
-  const refresh = () => setDb(getDb())
+  const refresh = useCallback(() => setDb(getDb()), [])
+
+  useEffect(() => subscribeStore(refresh), [refresh])
+
+  useEffect(() => {
+    const sync = () => retry()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') sync()
+    }
+    sync()
+    const interval = window.setInterval(sync, 45_000)
+    window.addEventListener('focus', sync)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', sync)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [retry])
+
+  if (isDonaAgenda && !profId) {
+    return <Navigate to="/admin/configuracoes" replace />
+  }
 
   const agendamentos = db.agendamentos.filter(
     (a) =>
@@ -196,6 +217,12 @@ export function AgendaProfissional() {
             const podeConcluir =
               ag.status === 'CONFIRMADO' || ag.status === 'AGENDADO'
             const podeEditar = ag.status !== 'CONCLUIDO'
+            const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
+            const confirmationHint = ag.ultimo_lembrete_enviado_em
+              ? `Lembrete enviado em ${new Date(ag.ultimo_lembrete_enviado_em).toLocaleString('pt-BR')}`
+              : (ag.confirmacao_cliente ?? 'PENDENTE') === 'PENDENTE'
+                ? 'Aguardando resposta'
+                : undefined
 
             return (
               <div
@@ -211,6 +238,9 @@ export function AgendaProfissional() {
                       <Badge variant={statusAgendamentoBadge(ag.status)}>
                         {ag.status}
                       </Badge>
+                      <span title={confirmationHint}>
+                        <Badge variant={confirmation.variant}>{confirmation.label}</Badge>
+                      </span>
                     </div>
                     <p className="mt-1 font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
                     <p className="text-sm text-[#514440]">

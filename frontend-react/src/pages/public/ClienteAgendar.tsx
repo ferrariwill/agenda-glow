@@ -77,6 +77,7 @@ export function ClienteAgendar() {
   const [error, setError] = useState('')
 
   const [done, setDone] = useState(false)
+  const [managementUrl, setManagementUrl] = useState('')
 
 
 
@@ -278,6 +279,7 @@ export function ClienteAgendar() {
 
       }
 
+      setManagementUrl(ag.management_url ?? '')
       setDone(true)
 
     } catch (err) {
@@ -333,6 +335,15 @@ export function ClienteAgendar() {
           )}
 
           <p className="mt-1 text-sm text-[#514440]">Enviamos a confirmação por WhatsApp.</p>
+
+          {managementUrl && (
+            <a
+              href={managementUrl}
+              className="mt-4 inline-flex text-sm font-semibold text-[#7d5141] underline underline-offset-4"
+            >
+              Gerenciar / cancelar meu horário
+            </a>
+          )}
 
           <div className="mt-5 flex flex-col gap-2">
 
