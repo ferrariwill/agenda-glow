@@ -44,6 +44,8 @@ erDiagram
 | `000015` | Especialidades |
 | `000016` | Secretaria, fila, insumos, cobrança, `pendente_aprovacao` |
 | `000017` | Schema completo do domínio (CRM, catálogo, financeiro estendido) |
+| `000018` | Estado da integração oficial do WhatsApp |
+| `000019` | Permissão administrativa `whatsapp_enabled` e backfill de conectados |
 
 ## Tabelas por domínio
 
@@ -54,7 +56,8 @@ erDiagram
 - `users` — credenciais staff (SUPER_ADMIN, DONA, SECRETARIA, PROFISSIONAL)
 
 ### Salão (tenant)
-- `estabelecimentos` — nome, slug, logo, endereço, bio, dona
+- `estabelecimentos` — nome, slug, logo, endereço, bio, dona e integração WhatsApp
+  (`whatsapp_enabled`, status, WABA, telefone e data de conexão)
 - `especialidades` — cargos/áreas da equipe
 - `profissionais` — equipe, comissão, expediente, perfil
 - `expedientes_profissionais` — jornada por dia da semana

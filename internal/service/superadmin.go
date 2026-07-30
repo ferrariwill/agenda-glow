@@ -20,6 +20,8 @@ type EstablishmentSuperAdminView struct {
 	StatusRaw        *string    `db:"status_raw" json:"-"`
 	DataVencimento   *time.Time `db:"data_vencimento" json:"data_vencimento,omitempty"`
 	StatusAssinatura string     `json:"status_assinatura"`
+	WhatsAppEnabled  bool       `db:"whatsapp_enabled" json:"whatsapp_enabled"`
+	WhatsAppStatus   string     `db:"whatsapp_status" json:"whatsapp_status"`
 }
 
 // ListEstablishmentsSuperAdmin lista salões com status de assinatura calculado.
@@ -31,6 +33,8 @@ SELECT
     e.slug,
     e.ativo,
     e.data_cadastro,
+    COALESCE(e.whatsapp_enabled, FALSE) AS whatsapp_enabled,
+    COALESCE(e.whatsapp_status, 'DESCONECTADO') AS whatsapp_status,
     ae.plano_id,
     ps.nome AS plano_nome,
     ae.status AS status_raw,
@@ -64,6 +68,8 @@ SELECT
     e.slug,
     e.ativo,
     e.data_cadastro,
+    COALESCE(e.whatsapp_enabled, FALSE) AS whatsapp_enabled,
+    COALESCE(e.whatsapp_status, 'DESCONECTADO') AS whatsapp_status,
     ae.plano_id,
     ps.nome AS plano_nome,
     ae.status AS status_raw,

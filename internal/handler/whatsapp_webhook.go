@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -140,6 +141,11 @@ func (h *WhatsAppWebhookHandler) handleConnectedBody(w http.ResponseWriter, r *h
 	id, err := h.estabelecimentos.MarkWhatsAppConnected(r.Context(), payload)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrWhatsAppRecursoDesativado):
+			log.Printf("webhook whatsapp-connected recusado: recurso desativado tenant=%s",
+				whatsAppTenantHint(payload))
+			writeJSONErrorMessage(w, http.StatusForbidden, "whatsapp_feature_disabled",
+				"Recurso de WhatsApp desativado para este estabelecimento. Contate o administrador")
 		case errors.Is(err, service.ErrWhatsAppStateInvalido),
 			errors.Is(err, service.ErrWebhookPayloadInvalido):
 			writeJSONError(w, http.StatusBadRequest, "invalid_payload")
@@ -200,4 +206,24 @@ func mapWhatsAppWebhookError(w http.ResponseWriter, err error) {
 	default:
 		writeJSONError(w, http.StatusInternalServerError, "internal_error")
 	}
+}
+
+func whatsAppTenantHint(payload service.WhatsAppConnectedPayload) string {
+	for _, value := range []string{
+		payload.EstabelecimentoID,
+		payload.TenantID,
+		payload.SalonID,
+		strings.TrimPrefix(payload.State, service.WhatsAppStatePrefix+"_"),
+	} {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return "desconhecido"
+}
+
+func writeJSONErrorMessage(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "message": message})
 }

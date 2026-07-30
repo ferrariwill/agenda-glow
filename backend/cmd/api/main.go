@@ -53,6 +53,7 @@ func main() {
 	saasGuard := security.NewSaaSGuard(db, 60*time.Second)
 	filaSvc := service.NewFilaEsperaService(db)
 	insumoSvc := service.NewInsumoService(db)
+	whatsAppGate := security.NewWhatsAppGate(db, 30*time.Second)
 	earlySlotSvc := service.NewEarlySlotService(db, envOrDefault("APP_BASE_URL", "http://localhost:8081"))
 	agendaSvc.SetEarlySlotService(earlySlotSvc)
 
@@ -63,7 +64,7 @@ func main() {
 	whatsAppIntegrationHandler := adminhandler.NewWhatsAppIntegrationHandler(estabelecimentoSvc)
 	earlySlotHandler := adminhandler.NewEarlySlotHandler(earlySlotSvc)
 	configHandler := adminhandler.NewEstabelecimentoConfigHandler(estabelecimentoSvc)
-	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc)
+	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc, whatsAppGate)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
 	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc)
 	tenantFinanceHandler := adminhandler.NewTenantFinanceHandler(financeiroSvc)
@@ -103,12 +104,21 @@ func main() {
 	}
 
 	saasValidation := security.SaaSValidationMiddleware(saasGuard)
+	whatsAppFeature := security.RequireWhatsAppEnabled(whatsAppGate)
 
 	// Dona do salão: role DONA + assinatura SaaS ativa
 	donaRoute := func(h http.HandlerFunc) http.Handler {
 		return chainHandlers(
 			security.RequireDona,
 			http.HandlerFunc(saasValidation(h)),
+		)
+	}
+
+	// Dona + assinatura ativa + recurso WhatsApp liberado pelo SUPER_ADMIN.
+	donaWhatsAppRoute := func(h http.HandlerFunc) http.Handler {
+		return chainHandlers(
+			security.RequireDona,
+			http.HandlerFunc(saasValidation(whatsAppFeature(h))),
 		)
 	}
 
@@ -152,6 +162,7 @@ func main() {
 	mux.Handle("GET /api/v1/admin/establishments", superAdminRoute(adminEstHandler.List))
 	mux.Handle("POST /api/v1/admin/establishments", superAdminRoute(adminEstHandler.Create))
 	mux.Handle("PUT /api/v1/admin/establishments/{id}/status", superAdminRoute(adminEstHandler.ToggleStatus))
+	mux.Handle("PUT /api/v1/admin/establishments/{id}/toggle-whatsapp", superAdminRoute(adminEstHandler.ToggleWhatsApp))
 	mux.Handle("POST /api/v1/admin/establishments/{id}/assign-plan", superAdminRoute(adminPlansHandler.AssignPlan))
 	mux.Handle("GET /api/v1/admin/plans", superAdminRoute(adminPlansHandler.List))
 	mux.Handle("POST /api/v1/admin/plans", superAdminRoute(adminPlansHandler.Create))
@@ -240,7 +251,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/webhook/whatsapp-gateway", whatsAppWebhookHandler.Gateway)
 
 	mux.Handle("GET /api/v1/whatsapp/integration", donaRoute(whatsAppIntegrationHandler.GetIntegration))
-	mux.Handle("POST /api/v1/whatsapp/integration/start", donaRoute(whatsAppIntegrationHandler.StartConnection))
+	mux.Handle("POST /api/v1/whatsapp/integration/start", donaWhatsAppRoute(whatsAppIntegrationHandler.StartConnection))
 
 	// Página pública de agendamento (sem autenticação — cliente final)
 	mux.Handle("GET /{slug}", bookingHandler)
