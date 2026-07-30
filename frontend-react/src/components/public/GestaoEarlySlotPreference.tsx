@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { Alert } from '../ui/Alert'
 import { EarlySlotPreferenceToggle } from './EarlySlotPreferenceToggle'
-import { earlySlotErrorMessage, patchEarlySlotPreference } from '../../services/earlySlotOfferApi'
+import { patchEarlySlotPreference } from '../../services/earlySlotOfferApi'
+import {
+  resolvePreferenceFailure,
+  resolvePreferenceSuccess,
+} from './gestaoEarlySlotPreferenceState'
 
 interface GestaoEarlySlotPreferenceProps {
   gestaoToken: string
@@ -43,18 +47,20 @@ export function GestaoEarlySlotPreference({
     setError('')
     try {
       const result = await patchEarlySlotPreference(gestaoToken, value)
-      setChecked(result.aceita_adiantar)
-      if (typeof result.early_slot_notifications_available === 'boolean') {
-        setChannelAvailable(result.early_slot_notifications_available)
+      const next = resolvePreferenceSuccess(channelAvailable, result)
+      setChecked(next.checked)
+      if (next.hasChannelEcho) {
+        setChannelAvailable(next.channelAvailable)
       }
       onChange?.(
-        result.aceita_adiantar,
-        result.aceita_adiantar_em,
-        result.early_slot_notifications_available,
+        next.onChange.aceitaAdiantar,
+        next.onChange.aceitaAdiantarEm,
+        next.onChange.notificationsAvailable,
       )
     } catch (err) {
-      setChecked(anterior)
-      setError(earlySlotErrorMessage(err))
+      const next = resolvePreferenceFailure(anterior, err)
+      setChecked(next.checked)
+      setError(next.error)
     } finally {
       setSaving(false)
     }
