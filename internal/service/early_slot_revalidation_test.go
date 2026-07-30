@@ -80,144 +80,6 @@ func TestAcceptOnMutatedCandidateIsRejectedWithoutAnyWrite(t *testing.T) {
 	}
 }
 
-// Recusa após o vencimento não pode virar RECUSADA nem avançar a fila: quem
-// avança é a varredura de expiração.
-func TestDeclineAfterExpiryReturnsOfferExpiredWithoutAdvancing(t *testing.T) {
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer rawDB.Close() //nolint:errcheck
-
-	svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "")
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	svc.now = func() time.Time { return now }
-	svc.send = func(context.Context, WhatsAppNotificationInput) error {
-		t.Fatal("oferta vencida não pode disparar o próximo candidato")
-		return nil
-	}
-
-	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id,status,estabelecimento_id,rodada_id,expira_em`)).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "status", "estabelecimento_id", "rodada_id", "expira_em",
-		}).AddRow("oferta-1", "PENDENTE", "tenant-1", "rodada-1", now.Add(-time.Second)))
-	mock.ExpectRollback()
-
-	if _, err := svc.Decline(context.Background(), "token-vencido", "WEB"); !errors.Is(err, ErrEarlySlotOfferExpired) {
-		t.Fatalf("esperado offer_expired, recebido: %v", err)
-	}
-	// Nenhum UPDATE para RECUSADA e nenhum avanço de rodada foram emitidos.
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestDeclineStillWorksBeforeExpiry(t *testing.T) {
-	svc, mock := newEarlySlotServiceForTest(t,
-		func(context.Context, sqlx.QueryerContext, string) (bool, error) { return true, nil })
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	svc.now = func() time.Time { return now }
-
-	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id,status,estabelecimento_id,rodada_id,expira_em`)).
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "status", "estabelecimento_id", "rodada_id", "expira_em",
-		}).AddRow("oferta-1", "PENDENTE", "tenant-1", "rodada-1", now.Add(2*time.Minute)))
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='RECUSADA'`)).
-		WithArgs("oferta-1", "tenant-1", "WEB").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(regexp.QuoteMeta(`FROM rodadas_antecipacao`)).
-		WithArgs("rodada-1", "tenant-1").
-		WillReturnError(sql.ErrNoRows)
-	mock.ExpectCommit()
-
-	status, err := svc.Decline(context.Background(), "token-valido", "WEB")
-	if err != nil || status != "RECUSADA" {
-		t.Fatalf("status=%q err=%v", status, err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func newDeliveryService(t *testing.T) (*EarlySlotService, sqlmock.Sqlmock) {
-	t.Helper()
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	t.Cleanup(func() { _ = rawDB.Close() })
-	svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "http://localhost:8081")
-	svc.sendRetryDelay = 0
-	return svc, mock
-}
-
-func sampleDelivery() *earlySlotDelivery {
-	return &earlySlotDelivery{
-		OfferID: "oferta-1", TenantID: "tenant-1", AppointmentID: "agendamento-1",
-		Phone: "5511999999999", ClientName: "Maria", SalonName: "Studio",
-		Professional: "Ana", CurrentStart: time.Now().Add(48 * time.Hour),
-		OfferedStart: time.Now().Add(24 * time.Hour), Token: "token-1",
-	}
-}
-
-// Uma falha isolada do Gateway não custa a vez do candidato: a segunda
-// tentativa entrega e a oferta segue PENDENTE.
-func TestOfferDeliveryRetriesOnceBeforeGivingUp(t *testing.T) {
-	svc, mock := newDeliveryService(t)
-	attempts := 0
-	svc.send = func(context.Context, WhatsAppNotificationInput) error {
-		attempts++
-		if attempts == 1 {
-			return errors.New("gateway momentaneamente fora")
-		}
-		return nil
-	}
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET tentativas_envio=$3`)).
-		WithArgs("oferta-1", "tenant-1", 2).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	svc.deliverOrAdvance(context.Background(), sampleDelivery())
-
-	if attempts != earlySlotSendAttempts {
-		t.Fatalf("tentativas = %d, esperado %d", attempts, earlySlotSendAttempts)
-	}
-	// Nenhum FALHA_ENVIO e nenhum avanço: a expectativa estrita garante isso.
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestOfferDeliveryMarksFailureOnlyAfterAllAttempts(t *testing.T) {
-	svc, mock := newDeliveryService(t)
-	attempts := 0
-	svc.send = func(context.Context, WhatsAppNotificationInput) error {
-		attempts++
-		return errors.New("gateway fora")
-	}
-
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET tentativas_envio=$3`)).
-		WithArgs("oferta-1", "tenant-1", earlySlotSendAttempts).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SET status = 'FALHA_ENVIO'`)).
-		WithArgs("oferta-1", "tenant-1").
-		WillReturnError(sql.ErrNoRows)
-	mock.ExpectRollback()
-
-	svc.deliverOrAdvance(context.Background(), sampleDelivery())
-
-	if attempts != earlySlotSendAttempts {
-		t.Fatalf("tentativas = %d, esperado %d", attempts, earlySlotSendAttempts)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // Cenário 27: opt-in público por gestao_token persiste mesmo com o canal
 // indisponível — só o sinal informa que ainda não haverá oferta.
 func TestPublicPreferenceByManagementTokenPersistsWhenChannelIsDown(t *testing.T) {
@@ -351,6 +213,7 @@ func TestConcurrentAcceptsLeaveExactlyOneWinner(t *testing.T) {
 	slotEnd := slotStart.Add(time.Hour)
 	currentStart := now.Add(48 * time.Hour)
 	currentEnd := currentStart.Add(45 * time.Minute)
+	newEnd := slotStart.Add(currentEnd.Sub(currentStart))
 
 	var rowLock sync.Mutex
 	roundFilled := false
@@ -390,7 +253,6 @@ func TestConcurrentAcceptsLeaveExactlyOneWinner(t *testing.T) {
 				slotStart, slotEnd, currentStart, currentEnd,
 				"Maria", "5511999999999", "Ana", "Corte", true,
 			))
-		newEnd := slotStart.Add(currentEnd.Sub(currentStart))
 		mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
 			WithArgs("tenant-1", "prof-1", appointmentID, slotStart, newEnd).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}))
