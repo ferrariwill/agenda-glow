@@ -11,9 +11,11 @@ import {
   declineOffer,
   earlySlotErrorMessage,
   getOffer,
+  isEarlySlotTerminalError,
 } from '../../services/earlySlotOfferApi'
 import type { EarlySlotAcceptResult, EarlySlotOffer } from '../../types/earlySlot'
 import { formatTimestampBR, formatTimestampTimeBR } from '../../utils/format'
+import { visibleOfferError } from './earlySlotActionState'
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -58,12 +60,14 @@ export function AntecipacaoOferta() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [revalidating, setRevalidating] = useState(false)
-  const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [actionTerminal, setActionTerminal] = useState(false)
   const mountedRef = useRef(true)
 
   const carregar = useCallback(async (opts?: { soft?: boolean }) => {
     if (!token) {
-      setError('Oferta não encontrada.')
+      setLoadError('Oferta não encontrada.')
       setLoading(false)
       return
     }
@@ -73,11 +77,11 @@ export function AntecipacaoOferta() {
       const data = await getOffer(token)
       if (!mountedRef.current) return
       setOffer(data)
-      setError('')
+      setLoadError('')
     } catch (err) {
       if (!mountedRef.current) return
       setOffer(null)
-      setError(earlySlotErrorMessage(err))
+      setLoadError(earlySlotErrorMessage(err))
     } finally {
       if (mountedRef.current) {
         setLoading(false)
@@ -108,18 +112,21 @@ export function AntecipacaoOferta() {
   )
 
   const acoes = offer?.actions_allowed ?? []
-  const actionsBlocked = submitting || revalidating || expired || secondsRemaining === 0
+  const actionsBlocked =
+    submitting || revalidating || expired || secondsRemaining === 0 || actionTerminal
   const podeAceitar = isPendente && acoes.includes('accept') && !actionsBlocked
   const podeRecusar = isPendente && acoes.includes('decline') && !actionsBlocked
 
   const aceitar = async () => {
     if (!token || !podeAceitar) return
     setSubmitting(true)
-    setError('')
+    setActionError('')
+    setActionTerminal(false)
     try {
       setAccepted(await acceptOffer(token))
     } catch (err) {
-      setError(earlySlotErrorMessage(err))
+      setActionError(earlySlotErrorMessage(err))
+      setActionTerminal(isEarlySlotTerminalError(err))
       await carregar({ soft: true })
     } finally {
       setSubmitting(false)
@@ -129,12 +136,14 @@ export function AntecipacaoOferta() {
   const recusar = async () => {
     if (!token || !podeRecusar) return
     setSubmitting(true)
-    setError('')
+    setActionError('')
+    setActionTerminal(false)
     try {
       const result = await declineOffer(token)
       setOffer((prev) => (prev ? { ...prev, ...result, actions_allowed: [] } : prev))
     } catch (err) {
-      setError(earlySlotErrorMessage(err))
+      setActionError(earlySlotErrorMessage(err))
+      setActionTerminal(isEarlySlotTerminalError(err))
       await carregar({ soft: true })
     } finally {
       setSubmitting(false)
@@ -190,7 +199,9 @@ export function AntecipacaoOferta() {
           <h1 className="font-display text-xl font-semibold text-aura-anthracite">
             Oferta indisponível
           </h1>
-          <p className="mt-2 text-sm text-aura-muted">{error || 'Oferta não encontrada.'}</p>
+          <p className="mt-2 text-sm text-aura-muted">
+            {visibleOfferError(loadError, actionError) || 'Oferta não encontrada.'}
+          </p>
         </div>
       </Shell>
     )
@@ -234,9 +245,16 @@ export function AntecipacaoOferta() {
           'Surgiu um horário mais cedo para o seu atendimento.'}
       </p>
 
-      {error && (
-        <Alert variant="error" className="mt-4" onDismiss={() => setError('')}>
-          {error}
+      {visibleOfferError(loadError, actionError) && (
+        <Alert
+          variant="error"
+          className="mt-4"
+          onDismiss={() => {
+            setLoadError('')
+            setActionError('')
+          }}
+        >
+          {visibleOfferError(loadError, actionError)}
         </Alert>
       )}
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Banknote,
   CalendarPlus,
@@ -25,6 +25,7 @@ import { ConfirmModal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
 import { refreshAfterMutation } from '../../data/sync'
 import { IS_MOCK } from '../../lib/config'
+import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
 import {
@@ -158,10 +159,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const [editAg, setEditAg] = useState<Agendamento | null>(null)
   const [cobrancaAg, setCobrancaAg] = useState<Agendamento | null>(null)
 
-  const refresh = () => setDb(getDb())
+  const refresh = useCallback(() => setDb(getDb()), [])
 
   // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
-  const handleOfferExpired = () => {
+  const handleOfferExpired = useCallback(() => {
     if (IS_MOCK) {
       refresh()
       return
@@ -169,7 +170,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
     refreshAfterMutation(session?.user.role)
       .then(refresh)
       .catch(() => undefined)
-  }
+  }, [refresh, session?.user.role])
 
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
   const especialidades = db.especialidades.filter((e) => e.tenant_id === tenantId)
@@ -192,6 +193,13 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
       )
       .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
   }, [db, tenantId, data, search])
+
+  useEarlySlotAgendaExpiry(
+    agendamentosDia
+      .filter((ag) => ag.early_slot_offer?.offer_status === 'PENDENTE')
+      .map((ag) => ag.early_slot_offer?.expires_at),
+    handleOfferExpired,
+  )
 
   const totalHoje = agendamentosDia.length
   const ocupacao = calcOcupacao(data, profissionais, agendamentosDia, db)
@@ -293,9 +301,15 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
       >
         <div className="flex items-start justify-between gap-1">
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase text-[#7d5141]">
-              {appointmentEndTime(ag, db)}
-            </p>
+            <div className="flex items-center justify-between gap-1">
+              <p className="truncate text-[10px] font-bold uppercase text-[#7d5141]">
+                {appointmentEndTime(ag, db)}
+              </p>
+              <span className="flex shrink-0 items-center gap-1">
+                <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} compact />
+                <EarlySlotRoundIndicator offer={ag.early_slot_offer} compact />
+              </span>
+            </div>
             <p className="truncate text-sm font-semibold text-aura-anthracite">{ag.cliente_nome}</p>
             <p className="truncate text-xs text-aura-muted">{servicoLabel}</p>
             <div className="mt-1.5 flex items-center gap-1">
@@ -305,16 +319,6 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                 <span className="text-[10px] font-medium text-emerald-700">· Pago</span>
               )}
             </div>
-            {(ag.aceita_adiantar || ag.early_slot_offer) && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
-                <EarlySlotRoundIndicator
-                  offer={ag.early_slot_offer}
-                  onExpire={handleOfferExpired}
-                  compact
-                />
-              </div>
-            )}
           </div>
           <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
             {isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO' && (
@@ -375,7 +379,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
     setCalYear(y)
   }
 
-  const SidebarPanel = () => (
+  const sidebarPanel = (
     <aside className="flex w-full flex-col gap-6 lg:w-80 lg:shrink-0">
       <div className="rounded-xl border border-[#efdcd1]/20 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between px-1">
@@ -524,7 +528,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {success}
         </Alert>
       )}
-      <EarlySlotQueueInactiveBanner queueActive={tenant?.early_slot_queue_active} />
+      <EarlySlotQueueInactiveBanner
+        queueActive={tenant?.early_slot_queue_active}
+        canReconnectWhatsApp={session?.user.role === 'DONA'}
+      />
 
       {viewMode !== 'hoje' && (
         <div className="mb-4 rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] px-4 py-3 text-sm text-aura-muted">
@@ -592,7 +599,6 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                             <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
                             <EarlySlotRoundIndicator
                               offer={ag.early_slot_offer}
-                              onExpire={handleOfferExpired}
                             />
                           </div>
                         )}
@@ -623,7 +629,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
             {agendamentosDia.filter((a) => a.profissional_id === profMobileId).length === 0 && (
               <p className="py-6 text-center text-sm text-aura-muted">Nenhum agendamento neste dia.</p>
             )}
-            <SidebarPanel />
+            {sidebarPanel}
           </div>
 
           {/* Desktop grid */}
@@ -725,7 +731,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
         </section>
 
         <div className="hidden lg:block">
-          <SidebarPanel />
+          {sidebarPanel}
         </div>
       </div>
 

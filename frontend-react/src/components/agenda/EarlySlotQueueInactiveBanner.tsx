@@ -7,18 +7,27 @@ import { Alert } from '../ui/Alert'
  */
 export function EarlySlotQueueInactiveBanner({
   queueActive,
+  canReconnectWhatsApp = false,
 }: {
   queueActive?: boolean
+  canReconnectWhatsApp?: boolean
 }) {
   if (queueActive !== false) return null
 
   return (
     <Alert variant="warning" className="mb-4">
-      A fila de antecipação está inativa porque o WhatsApp do salão está desconectado. Reconecte em{' '}
-      <Link to="/admin/whatsapp" className="font-semibold underline">
-        Integração WhatsApp
-      </Link>
-      .
+      A fila de antecipação está inativa porque o WhatsApp do salão está desconectado.{' '}
+      {canReconnectWhatsApp ? (
+        <>
+          Reconecte em{' '}
+          <Link to="/admin/whatsapp" className="font-semibold underline">
+            Integração WhatsApp
+          </Link>
+          .
+        </>
+      ) : (
+        <>Peça à dona ou administradora do salão para reconectar o WhatsApp.</>
+      )}
     </Alert>
   )
 }

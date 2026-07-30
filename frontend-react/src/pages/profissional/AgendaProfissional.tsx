@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -19,6 +19,7 @@ import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { refreshAfterMutation } from '../../data/sync'
 import { IS_MOCK } from '../../lib/config'
+import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
 import type { Agendamento } from '../../types'
 import {
   getAgendamentoDuration,
@@ -54,10 +55,6 @@ export function AgendaProfissional() {
   const isProf = session?.user.role === 'PROFISSIONAL'
   const isDonaAgenda = session?.user.role === 'DONA'
 
-  if (isDonaAgenda && !profId) {
-    return <Navigate to="/admin/configuracoes" replace />
-  }
-
   const [db, setDb] = useState(getDb())
   const [weekAnchor, setWeekAnchor] = useState(weekStart(todayISO()))
   const [selectedDay, setSelectedDay] = useState(todayISO())
@@ -69,10 +66,10 @@ export function AgendaProfissional() {
   const hoje = todayISO()
   const tenant = db.tenants.find((item) => item.id === tenantId)
 
-  const refresh = () => setDb(getDb())
+  const refresh = useCallback(() => setDb(getDb()), [])
 
   // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
-  const handleOfferExpired = () => {
+  const handleOfferExpired = useCallback(() => {
     if (IS_MOCK) {
       refresh()
       return
@@ -80,7 +77,7 @@ export function AgendaProfissional() {
     refreshAfterMutation(session?.user.role)
       .then(refresh)
       .catch(() => undefined)
-  }
+  }, [refresh, session?.user.role])
 
   const agendamentos = db.agendamentos.filter(
     (a) =>
@@ -89,6 +86,17 @@ export function AgendaProfissional() {
       days.includes(a.data) &&
       a.status !== 'CANCELADO',
   )
+
+  useEarlySlotAgendaExpiry(
+    agendamentos
+      .filter((ag) => ag.early_slot_offer?.offer_status === 'PENDENTE')
+      .map((ag) => ag.early_slot_offer?.expires_at),
+    handleOfferExpired,
+  )
+
+  if (isDonaAgenda && !profId) {
+    return <Navigate to="/admin/configuracoes" replace />
+  }
 
   const dayAgs = agendamentos
     .filter((a) => a.data === selectedDay)
@@ -131,7 +139,10 @@ export function AgendaProfissional() {
           {success}
         </Alert>
       )}
-      <EarlySlotQueueInactiveBanner queueActive={tenant?.early_slot_queue_active} />
+      <EarlySlotQueueInactiveBanner
+        queueActive={tenant?.early_slot_queue_active}
+        canReconnectWhatsApp={session?.user.role === 'DONA'}
+      />
 
       {/* Navegação semanal */}
       <div className={`mb-6 flex flex-wrap items-center justify-between gap-4 p-4 ${ProfissionalGLASS}`}>
@@ -231,7 +242,6 @@ export function AgendaProfissional() {
                       <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
                       <EarlySlotRoundIndicator
                         offer={ag.early_slot_offer}
-                        onExpire={handleOfferExpired}
                       />
                     </div>
                     <p className="mt-1 font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
