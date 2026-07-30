@@ -3,20 +3,25 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { EarlySlotQueueInactiveBanner } from './EarlySlotQueueInactiveBanner'
 
-function render(active?: boolean): string {
+function render(active?: boolean, canReconnectWhatsApp = false): string {
   return renderToStaticMarkup(
     <MemoryRouter>
-      <EarlySlotQueueInactiveBanner active={active} />
+      <EarlySlotQueueInactiveBanner
+        active={active}
+        canReconnectWhatsApp={canReconnectWhatsApp}
+      />
     </MemoryRouter>,
   )
 }
 
 describe('EarlySlotQueueInactiveBanner', () => {
-  it('exibe aviso e reconexão somente quando o sinal canônico é false', () => {
-    const html = render(false)
+  it('só mostra o link de reconexão para quem pode abrir /admin/whatsapp', () => {
+    const dona = render(false, true)
+    const secretaria = render(false, false)
 
-    expect(html).toContain('fila de antecipação está inativa')
-    expect(html).toContain('href="/admin/whatsapp"')
+    expect(dona).toContain('href="/admin/whatsapp"')
+    expect(secretaria).not.toContain('href="/admin/whatsapp"')
+    expect(secretaria).toContain('dona ou administradora')
   })
 
   it('não trata campo ausente de backend antigo como fila inativa', () => {

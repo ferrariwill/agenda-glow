@@ -503,7 +503,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {success}
         </Alert>
       )}
-      <EarlySlotQueueInactiveBanner active={tenant?.early_slot_queue_active} />
+      <EarlySlotQueueInactiveBanner
+        active={tenant?.early_slot_queue_active}
+        canReconnectWhatsApp={session?.user.role === 'DONA'}
+      />
 
       {viewMode !== 'hoje' && (
         <div className="mb-4 rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] px-4 py-3 text-sm text-aura-muted">

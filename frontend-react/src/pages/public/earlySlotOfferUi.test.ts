@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../lib/api'
 import {
+  acceptedScheduleStart,
   nextExpiryRefreshState,
   offerErrorView,
   terminalOfferView,
@@ -34,5 +35,17 @@ describe('earlySlotOfferUi', () => {
   it('libera uma nova confirmação somente após prazo positivo novo', () => {
     expect(nextExpiryRefreshState(true, 'PENDENTE', 45)).toBe(false)
     expect(nextExpiryRefreshState(false, 'EXPIRADA', 0)).toBe(true)
+  })
+
+  it('usa new_start do POST e cai no offered_start do GET ACEITA', () => {
+    expect(
+      acceptedScheduleStart(
+        { new_start: '2026-08-01T14:00:00-03:00' },
+        { offered_start: '2026-08-01T13:00:00-03:00' },
+      ),
+    ).toBe('2026-08-01T14:00:00-03:00')
+    expect(
+      acceptedScheduleStart(null, { offered_start: '2026-08-01T14:00:00-03:00' }),
+    ).toBe('2026-08-01T14:00:00-03:00')
   })
 })

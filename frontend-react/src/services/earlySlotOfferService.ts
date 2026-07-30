@@ -45,11 +45,17 @@ export function declineEarlySlotOffer(token: string): Promise<EarlySlotDeclineRe
   return apiFetch<EarlySlotDeclineResponse>(`${offerPath(token)}/decline`, { method: 'POST' })
 }
 
+export interface EarlySlotPreferenceResponse {
+  aceita_adiantar: boolean
+  aceita_adiantar_em?: string | null
+  early_slot_notifications_available?: boolean
+}
+
 export function updateEarlySlotPreference(
   managementToken: string,
   aceitaAdiantar: boolean,
-): Promise<{ aceita_adiantar: boolean; aceita_adiantar_em?: string | null }> {
-  return apiFetch(
+): Promise<EarlySlotPreferenceResponse> {
+  return apiFetch<EarlySlotPreferenceResponse>(
     `/api/v1/public/appointments/manage/${encodeURIComponent(managementToken)}/early-slot-preference`,
     {
       method: 'PATCH',

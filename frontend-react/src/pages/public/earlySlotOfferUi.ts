@@ -49,3 +49,13 @@ export function nextExpiryRefreshState(
   if (reconciledSeconds > 0) return false
   return alreadyRefetched
 }
+
+/** Prefer POST confirmation times; for terminal GET ACEITA use offer times. */
+export function acceptedScheduleStart(
+  accepted: { new_start: string } | null,
+  offer: Pick<EarlySlotOfferDetail, 'offered_start'> | null,
+): string | null {
+  if (accepted?.new_start) return accepted.new_start
+  if (offer?.offered_start) return offer.offered_start
+  return null
+}

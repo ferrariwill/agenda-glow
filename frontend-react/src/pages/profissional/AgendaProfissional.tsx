@@ -118,7 +118,10 @@ export function AgendaProfissional() {
           {success}
         </Alert>
       )}
-      <EarlySlotQueueInactiveBanner active={tenant?.early_slot_queue_active} />
+      <EarlySlotQueueInactiveBanner
+        active={tenant?.early_slot_queue_active}
+        canReconnectWhatsApp={session?.user.role === 'DONA'}
+      />
 
       {/* Navegação semanal */}
       <div className={`mb-6 flex flex-wrap items-center justify-between gap-4 p-4 ${ProfissionalGLASS}`}>

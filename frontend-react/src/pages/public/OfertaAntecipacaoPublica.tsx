@@ -8,6 +8,7 @@ import {
   type EarlySlotOfferDetail,
 } from '../../services/earlySlotOfferService'
 import {
+  acceptedScheduleStart,
   nextExpiryRefreshState,
   offerErrorView,
   terminalOfferView,
@@ -124,11 +125,12 @@ export function OfertaAntecipacaoPublica() {
     void load()
   }
 
+  const confirmedStart = acceptedScheduleStart(accepted, offer)
   const stateCopy: Partial<Record<ViewState, { title: string; body: string }>> = {
     accepted: {
       title: 'Novo horário confirmado',
-      body: accepted
-        ? `Seu atendimento foi antecipado para ${formatDateTime(accepted.new_start)}.`
+      body: confirmedStart
+        ? `Seu atendimento foi antecipado para ${formatDateTime(confirmedStart)}.`
         : 'Esta oferta já foi aceita.',
     },
     declined: { title: 'Oferta recusada', body: 'Seu agendamento atual não foi alterado.' },
