@@ -183,6 +183,13 @@ func TestAcceptInvalidatesOfferWhenCandidateWasRescheduled(t *testing.T) {
 	currentEnd := currentStart.Add(45 * time.Minute)
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT o.estabelecimento_id, a.profissional_id`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"estabelecimento_id", "profissional_id"}).
+			AddRow("tenant-1", "prof-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
+		WithArgs("prof-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
@@ -240,6 +247,9 @@ func TestFirstSendFailureSchedulesRetryInsteadOfFailing(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
 		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), 1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
+		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	delivery := failingDelivery("oferta-1")
 	delivery.Attempt = 1
@@ -264,6 +274,9 @@ func TestSecondSendFailureMarksFailureAndAdvances(t *testing.T) {
 	slotStart := now.Add(2 * time.Hour)
 	slotEnd := slotStart.Add(time.Hour)
 
+	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
+		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), earlySlotMaxSendAttempts).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(`SET status = 'FALHA_ENVIO'`)).
 		WithArgs("oferta-1", "tenant-1").
@@ -312,10 +325,13 @@ func TestSendRetryRotatesTokenAndResends(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(now, earlySlotMaxSendAttempts).
 		WillReturnRows(pendingRetryRow(currentStart, slotStart))
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET token_hash=$3`)).
-		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg()).
+	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash=$3, tentativas_envio=$4, proxima_tentativa_em=$5`)).
+		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg(), 2, now.Add(earlySlotSendRetryDelay)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
+		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`SET proxima_tentativa_em=NULL`)).
 		WithArgs("oferta-1", "tenant-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -341,6 +357,42 @@ func TestSendRetryRotatesTokenAndResends(t *testing.T) {
 	link := sent.Variables[len(sent.Variables)-1]
 	if strings.Contains(link, "token-oferta") || !strings.Contains(link, "/p/antecipacao/") {
 		t.Fatalf("reenvio deve carregar um token novo: %q", link)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Envio inline com Gateway lento: o lease empurra o due, então o worker não
+// reivindica a mesma oferta nem rotaciona o token da mensagem em voo.
+func TestInlineSendLeaseKeepsWorkerFromClaimingInFlightOffer(t *testing.T) {
+	svc, mock := newEarlySlotServiceForTest(t,
+		func(context.Context, sqlx.QueryerContext, string) (bool, error) { return true, nil })
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	var sends int
+	svc.send = func(context.Context, WhatsAppNotificationInput) error {
+		sends++
+		return nil
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
+		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`SET proxima_tentativa_em=NULL`)).
+		WithArgs("oferta-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	svc.deliverOrAdvance(context.Background(), &earlySlotDelivery{
+		OfferID: "oferta-1", TenantID: "tenant-1", AppointmentID: "agendamento-1",
+		Phone: "5511999999999", ClientName: "Maria", SalonName: "Glow",
+		Professional: "Ana", Token: "token-oferta", Attempt: 1,
+		CurrentStart: now.Add(48 * time.Hour), OfferedStart: now.Add(24 * time.Hour),
+	})
+
+	if sends != 1 {
+		t.Fatalf("envios = %d, esperado 1", sends)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

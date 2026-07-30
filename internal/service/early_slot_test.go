@@ -308,6 +308,13 @@ func TestAcceptCommitsRescheduleBeforeSendingWhatsAppConfirmation(t *testing.T) 
 	slotEnd := slotStart.Add(60 * time.Minute)
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT o.estabelecimento_id, a.profissional_id`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"estabelecimento_id", "profissional_id"}).
+			AddRow("tenant-1", "prof-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
+		WithArgs("prof-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
@@ -316,9 +323,6 @@ func TestAcceptCommitsRescheduleBeforeSendingWhatsAppConfirmation(t *testing.T) 
 			slotStart, slotEnd, currentStart, currentEnd,
 			"Maria", "5511999999999", "Ana", "Corte", true,
 		))
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
-		WithArgs("prof-1", "tenant-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
 		WithArgs("tenant-1", "prof-1", "agendamento-1", slotStart, slotStart.Add(45*time.Minute)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -456,6 +460,13 @@ func TestCompetitiveLoserCannotMutateFilledRound(t *testing.T) {
 	svc.now = func() time.Time { return now }
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT o.estabelecimento_id, a.profissional_id`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"estabelecimento_id", "profissional_id"}).
+			AddRow("tenant-1", "prof-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
+		WithArgs("prof-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{

@@ -411,16 +411,22 @@ WHERE id = $1 AND estabelecimento_id = $2`, roundID, tenantID)
 		return nil, err
 	}
 	var offerID string
-	expiresAt := s.now().Add(earlySlotOfferTTL)
+	sentAt := s.now()
+	expiresAt := sentAt.Add(earlySlotOfferTTL)
+	// proxima_tentativa_em nasce no futuro: o worker é rede de segurança após
+	// crash, não concorrente do envio inline. Due vencido no commit era o
+	// buraco que fazia o tick rotacionar o token enquanto o Gateway ainda
+	// respondia a primeira tentativa.
+	retryAt := sentAt.Add(earlySlotSendRetryDelay)
 	err = tx.GetContext(ctx, &offerID, `
 INSERT INTO ofertas_antecipacao
     (estabelecimento_id, rodada_id, agendamento_candidato_id, cliente_id,
      profissional_snapshot_id, inicio_snapshot, fim_snapshot,
      posicao, token_hash, enviada_em, expira_em, tentativas_envio, proxima_tentativa_em)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $10)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12)
 RETURNING id`, tenantID, roundID, candidate.ID, candidate.ClientID,
 		candidate.ProfessionalID, candidate.CurrentStart, candidate.CurrentEnd,
-		candidate.Position, tokenHash[:], s.now(), expiresAt)
+		candidate.Position, tokenHash[:], sentAt, expiresAt, retryAt)
 	if err != nil {
 		return nil, fmt.Errorf("criar oferta de antecipação: %w", err)
 	}
@@ -467,9 +473,19 @@ func (s *EarlySlotService) deliverOrAdvance(ctx context.Context, d *earlySlotDel
 		return
 	}
 	// O envio não herda o cancelamento do request HTTP: a oferta já está
-	// commitada com proxima_tentativa_em devido, e o worker recupera se este
-	// caminho não concluir.
+	// commitada com proxima_tentativa_em no futuro, e o worker recupera se
+	// este caminho não concluir antes do lease vencer.
 	sendCtx := context.WithoutCancel(ctx)
+	attempt := d.Attempt
+	if attempt < 1 {
+		attempt = 1
+	}
+	// Empurra o due enquanto o Gateway está em voo — sem isso um tick do
+	// worker pega a mesma oferta e rotaciona o token da mensagem já enviada.
+	if err := s.acquireSendLease(sendCtx, d.TenantID, d.OfferID, attempt); err != nil {
+		log.Printf("antecipacao: lease de envio falhou tenant=%s oferta=%s: %v",
+			d.TenantID, d.OfferID, err)
+	}
 	link := s.baseURL + "/p/antecipacao/" + d.Token
 	input := WhatsAppNotificationInput{
 		TenantID: d.TenantID, PhoneNumber: d.Phone, TemplateName: earlySlotTemplate,
@@ -485,10 +501,6 @@ func (s *EarlySlotService) deliverOrAdvance(ctx context.Context, d *earlySlotDel
 		}
 		return
 	}
-	attempt := d.Attempt
-	if attempt < 1 {
-		attempt = 1
-	}
 	log.Printf("antecipacao: envio da oferta falhou tenant=%s oferta=%s tentativa=%d/%d: %v",
 		d.TenantID, d.OfferID, attempt, earlySlotMaxSendAttempts, err)
 
@@ -500,6 +512,21 @@ func (s *EarlySlotService) deliverOrAdvance(ctx context.Context, d *earlySlotDel
 		return
 	}
 	_ = s.failOfferAndAdvance(sendCtx, d.TenantID, d.OfferID)
+}
+
+// acquireSendLease empurra proxima_tentativa_em para o futuro e registra a
+// tentativa corrente antes do Gateway. O claim do worker e o envio inline
+// compartilham o mesmo lease: quem está enviando não compete com o tick.
+func (s *EarlySlotService) acquireSendLease(ctx context.Context, tenantID, offerID string, attempt int) error {
+	if attempt < 1 {
+		attempt = 1
+	}
+	_, err := s.db.ExecContext(ctx, `
+UPDATE ofertas_antecipacao
+SET tentativas_envio=$4, proxima_tentativa_em=$3
+WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
+		offerID, tenantID, s.now().Add(earlySlotSendRetryDelay), attempt)
+	return err
 }
 
 // markDeliverySucceeded limpa o outbox após o Gateway confirmar. Sem isso o
@@ -581,18 +608,26 @@ func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (i
 			continue
 		}
 
-		// Rotaciona o token sem limpar proxima_tentativa_em: só o sucesso do
-		// Gateway remove o due. Crash entre este commit e o send continua
-		// recuperável pelo worker.
+		// Claim com lease: incrementa tentativas_envio e empurra o due DENTRO
+		// da transação, antes de soltar o envio. Sem isso um crash entre o
+		// commit do claim e o Gateway deixava tentativas intactas e o due
+		// vencido — o tick seguinte repetia a mesma tentativa sem consumir
+		// o orçamento. Token novo só quando a tentativa anterior já falhou
+		// (tentativas_envio > 0) ou quando recuperamos a primeira após crash
+		// (plaintext perdido); o lease impede rotacionar em cima de um envio
+		// inline ainda em voo.
 		token, tokenHash, err := newEarlySlotToken()
 		if err != nil {
 			_ = tx.Rollback()
 			return retried, err
 		}
+		attempt := pending.Attempts + 1
+		leaseUntil := s.now().Add(earlySlotSendRetryDelay)
 		if _, err = tx.ExecContext(ctx, `
-UPDATE ofertas_antecipacao SET token_hash=$3
+UPDATE ofertas_antecipacao
+SET token_hash=$3, tentativas_envio=$4, proxima_tentativa_em=$5
 WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
-			pending.OfferID, pending.TenantID, tokenHash[:]); err != nil {
+			pending.OfferID, pending.TenantID, tokenHash[:], attempt, leaseUntil); err != nil {
 			_ = tx.Rollback()
 			return retried, err
 		}
@@ -606,7 +641,7 @@ WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
 			ClientName: pending.ClientName, SalonName: pending.SalonName,
 			Professional: pending.Professional, CurrentStart: pending.CurrentStart,
 			OfferedStart: pending.OfferedStart, Token: token,
-			Attempt: pending.Attempts + 1,
+			Attempt: attempt,
 		})
 		retried++
 	}
@@ -686,6 +721,28 @@ func (s *EarlySlotService) Accept(ctx context.Context, token, origin string) (*E
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// Mesma ordem de lock que CriarAgendamento (profissional → agendamentos):
+	// o lookup FOR UPDATE OF o,r,a sem o profissional antes invertia a ordem e
+	// podia deadlockar (40P01) com uma reserva concorrente no horário atual.
+	var meta struct {
+		TenantID       string `db:"estabelecimento_id"`
+		ProfessionalID string `db:"profissional_id"`
+	}
+	err = tx.GetContext(ctx, &meta, `
+SELECT o.estabelecimento_id, a.profissional_id
+FROM ofertas_antecipacao o
+JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
+WHERE o.token_hash=$1`, hash[:])
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrEarlySlotOfferNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := lockAgendaProfissional(ctx, tx, meta.TenantID, meta.ProfessionalID); err != nil {
+		return nil, err
+	}
+
 	var item earlySlotAcceptItem
 	err = tx.GetContext(ctx, &item, earlySlotAcceptLookupSQL, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
@@ -747,11 +804,8 @@ func (s *EarlySlotService) completeAcceptTx(
 	ctx context.Context, tx *sqlx.Tx, item earlySlotAcceptItem, origin string,
 ) (*EarlySlotAcceptResult, error) {
 	newEnd := item.SlotStart.Add(item.CurrentEnd.Sub(item.CurrentStart))
-	// Mesmo FOR UPDATE em profissionais que CriarAgendamento: serializa as
-	// escritas de agenda do tenant/profissional antes da checagem de colisão.
-	if err := lockAgendaProfissional(ctx, tx, item.TenantID, item.ProfessionalID); err != nil {
-		return nil, err
-	}
+	// O lock em profissionais já foi tomado em Accept, antes do lookup FOR UPDATE
+	// da oferta — mesma ordem que CriarAgendamento.
 	var conflictingIDs []string
 	err := tx.SelectContext(ctx, &conflictingIDs, `
 SELECT id FROM agendamentos

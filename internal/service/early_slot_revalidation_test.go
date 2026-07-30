@@ -68,6 +68,13 @@ func TestAcceptOnMutatedCandidateInvalidatesOfferAndAdvances(t *testing.T) {
 	slotEnd := now.Add(2 * time.Hour)
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT o.estabelecimento_id, a.profissional_id`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"estabelecimento_id", "profissional_id"}).
+			AddRow("tenant-1", "prof-2"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
+		WithArgs("prof-2", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-2"))
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(

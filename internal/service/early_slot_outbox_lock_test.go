@@ -40,10 +40,14 @@ func TestWorkerRecoversFirstDeliveryAfterCrashBeforeGateway(t *testing.T) {
 			0, "Maria", "5511999999999",
 			"Glow", "Ana", currentStart, slotStart,
 		))
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET token_hash=$3`)).
-		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg()).
+	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash=$3, tentativas_envio=$4, proxima_tentativa_em=$5`)).
+		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg(), 1, now.Add(earlySlotSendRetryDelay)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
+	// deliverOrAdvance renova o lease antes do Gateway.
+	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
+		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`SET proxima_tentativa_em=NULL`)).
 		WithArgs("oferta-1", "tenant-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -68,8 +72,8 @@ func TestWorkerRecoversFirstDeliveryAfterCrashBeforeGateway(t *testing.T) {
 	}
 }
 
-// Accept takes FOR UPDATE on profissionais before the collision SELECT — the
-// same lock CriarAgendamento uses, serializing agenda writes.
+// Accept takes FOR UPDATE on profissionais before the offer lookup — the same
+// lock order CriarAgendamento uses, avoiding 40P01 with a concurrent booking.
 func TestAcceptLocksProfessionalBeforeCollisionCheck(t *testing.T) {
 	rawDB, mock, err := sqlmock.New()
 	if err != nil {
@@ -87,6 +91,13 @@ func TestAcceptLocksProfessionalBeforeCollisionCheck(t *testing.T) {
 	currentEnd := currentStart.Add(45 * time.Minute)
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT o.estabelecimento_id, a.profissional_id`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"estabelecimento_id", "profissional_id"}).
+			AddRow("tenant-1", "prof-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
+		WithArgs("prof-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
@@ -95,9 +106,6 @@ func TestAcceptLocksProfessionalBeforeCollisionCheck(t *testing.T) {
 			slotStart, slotEnd, currentStart, currentEnd,
 			"Maria", "5511999999999", "Ana", "Corte", true,
 		))
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
-		WithArgs("prof-1", "tenant-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
 		WithArgs("tenant-1", "prof-1", "agendamento-1", slotStart, slotStart.Add(45*time.Minute)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))

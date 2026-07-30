@@ -414,3 +414,104 @@ func TestPostgresDoubleAcceptOfSameOfferAppliesRescheduleOnce(t *testing.T) {
 		t.Fatalf("duração = %s, esperado 45m (o slot não pode esticar o atendimento)", got)
 	}
 }
+
+// Gateway lento + tick do worker durante o envio inline: o lease tem que
+// impedir o segundo envio e a rotação do token da mensagem já em voo.
+func TestPostgresInlineSendLeaseBlocksWorkerFromDoubleDelivery(t *testing.T) {
+	db := newEarlySlotPostgres(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	slotStart := now.Add(24 * time.Hour)
+	slotEnd := slotStart.Add(time.Hour)
+
+	cancelledID := seedEarlySlotTenant(t, db, slotStart, slotEnd)
+	roundID := insertRound(t, db, cancelledID, slotStart, slotEnd)
+
+	candStart := now.Add(72 * time.Hour)
+	candEnd := candStart.Add(45 * time.Minute)
+	candidateID := addCandidate(t, db, "00000000000d", candStart, candEnd)
+
+	token, hash, err := newEarlySlotToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Parte do estado do tip rejeitado: due já vencido no commit. O lease do
+	// envio inline é o que impede o worker de competir.
+	var offerID string
+	if err := db.Get(&offerID, `INSERT INTO ofertas_antecipacao
+		(estabelecimento_id, rodada_id, agendamento_candidato_id, cliente_id,
+		 profissional_snapshot_id, inicio_snapshot, fim_snapshot,
+		 posicao, token_hash, expira_em, tentativas_envio, proxima_tentativa_em)
+		SELECT $1,$2,$3,a.cliente_id,$4,$5,$6,1,$7,$8,0,$9
+		FROM agendamentos a WHERE a.id=$3
+		RETURNING id`,
+		tenantUUID, roundID, candidateID, profUUID, candStart, candEnd,
+		hash[:], now.Add(5*time.Minute), now.Add(-time.Second)); err != nil {
+		t.Fatalf("criar oferta com due vencido: %v", err)
+	}
+
+	var (
+		mu       sync.Mutex
+		sends    int
+		tokens   []string
+		gateOpen = make(chan struct{})
+		inFlight = make(chan struct{})
+	)
+	svc := newEarlySlotServiceForPostgres(db, now)
+	svc.send = func(_ context.Context, in WhatsAppNotificationInput) error {
+		mu.Lock()
+		sends++
+		link := in.Variables[len(in.Variables)-1]
+		tokens = append(tokens, link)
+		mu.Unlock()
+		close(inFlight)
+		<-gateOpen
+		return nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.deliverOrAdvance(context.Background(), &earlySlotDelivery{
+			OfferID: offerID, TenantID: tenantUUID, AppointmentID: candidateID,
+			Phone: "5511900000000d", ClientName: "Cliente 00000000000d", SalonName: "Glow",
+			Professional: "Ana", Token: token, Attempt: 1,
+			CurrentStart: candStart, OfferedStart: slotStart,
+		})
+	}()
+
+	<-inFlight
+
+	retried, err := svc.ProcessSendRetries(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ProcessSendRetries: %v", err)
+	}
+	close(gateOpen)
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	if retried != 0 {
+		t.Fatalf("worker reenviou=%d, esperado 0 com lease do envio inline", retried)
+	}
+	if sends != 1 {
+		t.Fatalf("envios=%d tokens=%v — o worker competiu com o inline", sends, tokens)
+	}
+
+	var attempts int
+	var due *time.Time
+	if err := db.QueryRow(`SELECT tentativas_envio, proxima_tentativa_em
+		FROM ofertas_antecipacao WHERE id=$1`, offerID).Scan(&attempts, &due); err != nil {
+		t.Fatalf("reler oferta: %v", err)
+	}
+	if attempts < 1 {
+		t.Fatalf("tentativas_envio=%d, esperado >=1 após lease/envio", attempts)
+	}
+	if due != nil {
+		t.Fatalf("proxima_tentativa_em=%v, esperado NULL após entrega ok", due)
+	}
+
+	// O token original continua válido — o worker não rotacionou.
+	if _, err := svc.GetOffer(context.Background(), token); err != nil {
+		t.Fatalf("link da primeira mensagem ficou inválido: %v", err)
+	}
+}
