@@ -9,10 +9,11 @@ import (
 )
 
 var (
-	ErrWebhookPayloadInvalido    = errors.New("payload do webhook inválido")
-	ErrAcaoWhatsAppInvalida      = errors.New("action inválida: use CONFIRM ou CANCEL")
-	ErrAgendamentoEscopoInvalido = errors.New("agendamento não pertence ao salão ou telefone informado")
-	ErrAgendamentoStatusFinal    = errors.New("agendamento em status final não pode ser alterado")
+	ErrWebhookPayloadInvalido                     = errors.New("payload do webhook inválido")
+	ErrAcaoWhatsAppInvalida                       = errors.New("action inválida: use CONFIRM ou CANCEL")
+	ErrAgendamentoEscopoInvalido                  = errors.New("agendamento não pertence ao salão ou telefone informado")
+	ErrAgendamentoStatusFinal                     = errors.New("agendamento em status final não pode ser alterado")
+	ErrAgendamentoAguardandoAprovacaoProfissional = errors.New("agendamento aguarda aprovação da profissional")
 )
 
 const (
@@ -24,14 +25,14 @@ const (
 // WhatsAppCallbackPayload representa o JSON repassado pelo WhatsApp Gateway (Gateway → Beleza).
 // Aceita o formato novo (sistema_origem + tenant_id) e o legado (appointment_id + external_client_id).
 type WhatsAppCallbackPayload struct {
-	SistemaOrigem    string `json:"sistema_origem"`
-	TenantID         string `json:"tenant_id"`
-	SalonID          string `json:"salon_id"`
-	PhoneNumber      string `json:"phone_number"`
-	Text             string `json:"text"`
-	EventType        string `json:"event_type"`
-	Action           string `json:"action"`
-	AppointmentID    string `json:"appointment_id"`
+	SistemaOrigem string `json:"sistema_origem"`
+	TenantID      string `json:"tenant_id"`
+	SalonID       string `json:"salon_id"`
+	PhoneNumber   string `json:"phone_number"`
+	Text          string `json:"text"`
+	EventType     string `json:"event_type"`
+	Action        string `json:"action"`
+	AppointmentID string `json:"appointment_id"`
 	// Legado (pré-contrato Gateway atual)
 	SystemID         string `json:"system_id"`
 	ExternalClientID string `json:"external_client_id"`
@@ -129,6 +130,11 @@ func (s *AgendaService) ProcessWhatsAppCallback(ctx context.Context, payload Wha
 			return "", ErrAgendamentoCancelado
 		}
 		return targetStatus, nil
+	case "EM_APROVACAO":
+		// Cliente confirma presença; não autoriza o encaixe — só a profissional pode.
+		if payload.Action == WhatsAppActionConfirm {
+			return "", ErrAgendamentoAguardandoAprovacaoProfissional
+		}
 	}
 
 	const update = `
