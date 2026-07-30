@@ -69,7 +69,23 @@ export function GestaoAgendamentoPublica() {
     try {
       const result = await cancelManage(token, { motivo })
       setDialogOpen(false)
-      setState({ kind: 'success', data: state.data, slotReleased: result.slot_released })
+      setState({
+        kind: 'success',
+        data: {
+          ...state.data,
+          appointment: {
+            ...state.data.appointment,
+            status: result.appointment_status,
+            customer_confirmation: result.customer_confirmation,
+          },
+          cancellation: {
+            ...state.data.cancellation,
+            allowed: false,
+            denial_reason: 'appointment_not_cancellable',
+          },
+        },
+        slotReleased: result.slot_released,
+      })
     } catch (error) {
       if (error instanceof ApiError && error.code === 'reason_required') {
         setDialogError('Informe o motivo para continuar.')
