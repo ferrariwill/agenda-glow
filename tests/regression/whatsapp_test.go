@@ -78,17 +78,24 @@ func TestWhatsApp_GatewayDispatchConfirmCancel(t *testing.T) {
 	var ag map[string]any
 	var ok bool
 	for _, h := range []string{"09:00", "09:30", "10:00", "10:30", "11:00", "14:00", "15:00", "16:00"} {
-		ag, ok = tryCreateAppointment(dona, map[string]any{
+		criado, criouOK := tryCreateAppointment(dona, map[string]any{
 			"cliente_nome": "QA WhatsApp", "cliente_telefone": phone,
 			"profissional_id": seedProfID, "servico_id": seedServicoID,
 			"adicional_ids": []string{}, "data": data, "hora_inicio": h,
 		})
-		if ok {
-			break
+		if !criouOK {
+			continue
 		}
+		// Encaixe nasce EM_APROVACAO e o CONFIRM da cliente responde 409 por regra (DEV-63).
+		// Este teste cobre o fluxo do agendamento comum, então segue para o próximo horário.
+		if st, _ := criado["status"].(string); st != "AGENDADO" {
+			continue
+		}
+		ag, ok = criado, true
+		break
 	}
 	if !ok {
-		t.Fatal("não foi possível criar agendamento para fluxo WhatsApp")
+		t.Fatal("não foi possível criar agendamento AGENDADO para fluxo WhatsApp")
 	}
 	agID, _ := ag["id"].(string)
 	if agID == "" {
