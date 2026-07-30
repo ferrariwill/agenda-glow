@@ -76,7 +76,8 @@ FOR UPDATE OF o, r, a`
 
 // earlySlotRetryLookupQuery reúne os dados da segunda tentativa de envio.
 const earlySlotRetryLookupQuery = `
-SELECT o.id, o.estabelecimento_id, o.agendamento_candidato_id, o.tentativas_envio,
+SELECT o.id, o.estabelecimento_id, o.rodada_id, o.agendamento_candidato_id,
+       o.tentativas_envio,
        c.nome AS cliente_nome, c.telefone AS cliente_telefone,
        e.nome_comercial AS salon_name, p.nome AS professional_name,
        a.data_hora_inicio, r.slot_inicio
@@ -437,6 +438,19 @@ WHERE id = $1 AND estabelecimento_id = $2`, roundID, tenantID, candidate.ID)
 	}, nil
 }
 
+// invalidateAndAdvanceTx encerra a oferta corrente como INVALIDADA e escolhe o
+// sucessor na mesma transação, para a rodada nunca ficar sem candidato ativo.
+func (s *EarlySlotService) invalidateAndAdvanceTx(
+	ctx context.Context, tx *sqlx.Tx, tenantID, offerID, roundID string,
+) (*earlySlotDelivery, error) {
+	if _, err := tx.ExecContext(ctx, `
+UPDATE ofertas_antecipacao SET status='INVALIDADA', respondida_em=NOW()
+WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`, offerID, tenantID); err != nil {
+		return nil, fmt.Errorf("invalidar oferta %s: %w", offerID, err)
+	}
+	return s.advanceRoundTx(ctx, tx, tenantID, roundID)
+}
+
 func newEarlySlotToken() (string, [32]byte, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -494,7 +508,9 @@ func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (i
 		limit = 50
 	}
 	retried := 0
-	for retried < limit {
+	// O laço conta iterações, não reenvios: uma rodada encerrada por queda de
+	// canal consome a oferta sem enviar nada, e ainda assim precisa terminar.
+	for range limit {
 		tx, err := s.db.BeginTxx(ctx, nil)
 		if err != nil {
 			return retried, err
@@ -502,6 +518,7 @@ func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (i
 		var pending struct {
 			OfferID       string    `db:"id"`
 			TenantID      string    `db:"estabelecimento_id"`
+			RoundID       string    `db:"rodada_id"`
 			AppointmentID string    `db:"agendamento_candidato_id"`
 			Attempts      int       `db:"tentativas_envio"`
 			ClientName    string    `db:"cliente_nome"`
@@ -519,6 +536,30 @@ func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (i
 		if err != nil {
 			_ = tx.Rollback()
 			return retried, err
+		}
+
+		// O gate vale para cada envio, não só para o primeiro: o canal pode ter
+		// caído entre a falha inicial e esta retentativa.
+		ready, err := s.channelReady(ctx, tx, pending.TenantID)
+		if err != nil {
+			// Fail-closed: nada é enviado e nada é escrito. A oferta continua
+			// agendada e o próximo ciclo tenta de novo.
+			_ = tx.Rollback()
+			log.Printf("antecipacao: checagem de canal falhou tenant=%s oferta=%s — reenvio adiado: %v",
+				pending.TenantID, pending.OfferID, err)
+			break
+		}
+		if !ready {
+			// Canal caído encerra a rodada e invalida a oferta pendente; a
+			// mensagem não chega a sair.
+			if err := s.closeRoundChannelDownTx(ctx, tx, pending.TenantID, pending.RoundID); err != nil {
+				_ = tx.Rollback()
+				return retried, err
+			}
+			if err := tx.Commit(); err != nil {
+				return retried, err
+			}
+			continue
 		}
 
 		// O token é rotacionado: a tentativa anterior não chegou a ninguém, e
@@ -643,7 +684,21 @@ func (s *EarlySlotService) Accept(ctx context.Context, token, origin string) (*E
 	if item.OfferStatus != "PENDENTE" || item.RoundStatus != "ATIVA" {
 		return nil, ErrEarlySlotOfferUnavailable
 	}
+	// O candidato mudou depois que a oferta saiu: trocou de profissional, foi
+	// reagendado, ou o slot deixou de caber no expediente. O horário da mensagem
+	// não vale mais, então a oferta morre — mas a rodada não: o slot continua
+	// livre e o próximo da fila é chamado.
 	if !item.Eligible {
+		next, err := s.invalidateAndAdvanceTx(ctx, tx, item.TenantID, item.OfferID, item.RoundID)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		log.Printf("antecipacao: candidato alterado após a oferta tenant=%s oferta=%s — oferta invalidada",
+			item.TenantID, item.OfferID)
+		s.deliverOrAdvance(ctx, next)
 		return nil, ErrEarlySlotAppointmentIneligible
 	}
 	return s.completeAcceptTx(ctx, tx, item, origin)
@@ -988,9 +1043,13 @@ func (s *EarlySlotService) RunExpirationWorker(ctx context.Context, interval tim
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Quedas de canal primeiro: encerrar rodadas órfãs antes de
+			// expirar ou reenviar evita trabalho que seria desfeito em
+			// seguida. Cada passo revalida o gate por conta própria, então a
+			// ordem é defesa em profundidade, não pré-requisito.
+			_, _ = s.ProcessChannelDrops(ctx, 50)
 			_, _ = s.ProcessExpired(ctx, 50)
 			_, _ = s.ProcessSendRetries(ctx, 50)
-			_, _ = s.ProcessChannelDrops(ctx, 50)
 		}
 	}
 }

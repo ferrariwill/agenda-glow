@@ -310,13 +310,7 @@ func TestAcceptCommitsRescheduleBeforeSendingWhatsAppConfirmation(t *testing.T) 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"offer_id", "offer_status", "expira_em", "rodada_id", "round_status",
-			"estabelecimento_id", "agendamento_id", "profissional_id",
-			"slot_inicio", "slot_fim", "current_start", "current_end",
-			"cliente_nome", "cliente_telefone", "profissional_nome", "servico_nome",
-			"eligible",
-		}).AddRow(
+		WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
 			"oferta-1", "PENDENTE", now.Add(5*time.Minute), "rodada-1", "ATIVA",
 			"tenant-1", "agendamento-1", "prof-1",
 			slotStart, slotEnd, currentStart, currentEnd,

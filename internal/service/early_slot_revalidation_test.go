@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -43,9 +43,11 @@ func TestAcceptRevalidatesProfessionalRescheduleAndWorkingHours(t *testing.T) {
 	}
 }
 
-// Um candidato que trocou de profissional ou foi reagendado chega aqui com
-// eligible=false: o aceite para em 422 sem tocar em nenhuma tabela.
-func TestAcceptOnMutatedCandidateIsRejectedWithoutAnyWrite(t *testing.T) {
+// Candidato que trocou de profissional depois de receber a oferta: o aceite é
+// recusado e a oferta morre, mas o slot não. A lista estrita de expectativas
+// prova que nenhum `UPDATE agendamentos` acontece — o slot não é ocupado por um
+// agendamento que já não é o que foi convidado — e que a rodada chama o próximo.
+func TestAcceptOnMutatedCandidateInvalidatesOfferAndAdvances(t *testing.T) {
 	rawDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -55,10 +57,16 @@ func TestAcceptOnMutatedCandidateIsRejectedWithoutAnyWrite(t *testing.T) {
 	svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "")
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
+	svc.channelReady = func(context.Context, sqlx.QueryerContext, string) (bool, error) {
+		return true, nil
+	}
 	svc.send = func(context.Context, WhatsAppNotificationInput) error {
 		t.Fatal("candidato inelegível não pode gerar notificação")
 		return nil
 	}
+
+	slotStart := now.Add(time.Hour)
+	slotEnd := now.Add(2 * time.Hour)
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
@@ -66,11 +74,25 @@ func TestAcceptOnMutatedCandidateIsRejectedWithoutAnyWrite(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
 			"oferta-1", "PENDENTE", now.Add(3*time.Minute), "rodada-1", "ATIVA",
 			"tenant-1", "agendamento-1", "prof-2",
-			now.Add(time.Hour), now.Add(2*time.Hour),
+			slotStart, slotEnd,
 			now.Add(5*time.Hour), now.Add(6*time.Hour),
 			"Maria", "5511999999999", "Ana", "Corte", false,
 		))
-	mock.ExpectRollback()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='INVALIDADA'`)).
+		WithArgs("oferta-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM rodadas_antecipacao`)).
+		WithArgs("rodada-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "profissional_id", "slot_inicio", "slot_fim",
+		}).AddRow("rodada-1", "prof-1", slotStart, slotEnd))
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM agendamentos a`)).
+		WithArgs("tenant-1", "rodada-1", "prof-1", slotStart, slotEnd).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE rodadas_antecipacao SET status = 'ESGOTADA'`)).
+		WithArgs("rodada-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	if _, err := svc.Accept(context.Background(), "token-alterado", "WEB"); !errors.Is(err, ErrEarlySlotAppointmentIneligible) {
 		t.Fatalf("esperado appointment_no_longer_eligible, recebido: %v", err)
