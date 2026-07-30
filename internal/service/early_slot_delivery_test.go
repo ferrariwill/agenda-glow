@@ -325,7 +325,7 @@ func TestSendRetryRotatesTokenAndResends(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(now, earlySlotMaxSendAttempts).
 		WillReturnRows(pendingRetryRow(currentStart, slotStart))
-	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash=$3, tentativas_envio=$4, proxima_tentativa_em=$5`)).
+	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash_anterior=token_hash, token_hash=$3`)).
 		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg(), 2, now.Add(earlySlotSendRetryDelay)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

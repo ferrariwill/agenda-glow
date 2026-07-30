@@ -71,7 +71,7 @@ JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=
 JOIN clientes c ON c.id=a.cliente_id AND c.estabelecimento_id=a.estabelecimento_id
 JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=a.estabelecimento_id
 JOIN servicos sv ON sv.id=a.servico_id AND sv.estabelecimento_id=a.estabelecimento_id
-WHERE o.token_hash=$1
+WHERE o.token_hash=$1 OR o.token_hash_anterior=$1
 FOR UPDATE OF o, r, a`
 
 // earlySlotRetryLookupQuery reúne os dados da segunda tentativa de envio.
@@ -612,10 +612,13 @@ func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (i
 		// da transação, antes de soltar o envio. Sem isso um crash entre o
 		// commit do claim e o Gateway deixava tentativas intactas e o due
 		// vencido — o tick seguinte repetia a mesma tentativa sem consumir
-		// o orçamento. Token novo só quando a tentativa anterior já falhou
-		// (tentativas_envio > 0) ou quando recuperamos a primeira após crash
-		// (plaintext perdido); o lease impede rotacionar em cima de um envio
-		// inline ainda em voo.
+		// o orçamento.
+		//
+		// O link é reemitido porque o texto em claro do token anterior não é
+		// persistido, mas o hash antigo fica em token_hash_anterior: a
+		// tentativa recuperada após um crash pode ter sido entregue, e sem
+		// isso a cliente que clicasse na primeira mensagem receberia
+		// offer_not_found dentro dos 5 minutos que são dela.
 		token, tokenHash, err := newEarlySlotToken()
 		if err != nil {
 			_ = tx.Rollback()
@@ -625,7 +628,8 @@ func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (i
 		leaseUntil := s.now().Add(earlySlotSendRetryDelay)
 		if _, err = tx.ExecContext(ctx, `
 UPDATE ofertas_antecipacao
-SET token_hash=$3, tentativas_envio=$4, proxima_tentativa_em=$5
+SET token_hash_anterior=token_hash, token_hash=$3,
+    tentativas_envio=$4, proxima_tentativa_em=$5
 WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
 			pending.OfferID, pending.TenantID, tokenHash[:], attempt, leaseUntil); err != nil {
 			_ = tx.Rollback()
@@ -692,7 +696,7 @@ JOIN agendamentos a ON a.id = o.agendamento_candidato_id AND a.estabelecimento_i
 JOIN estabelecimentos e ON e.id = o.estabelecimento_id
 JOIN profissionais p ON p.id = a.profissional_id AND p.estabelecimento_id = o.estabelecimento_id
 JOIN servicos sv ON sv.id = a.servico_id AND sv.estabelecimento_id = o.estabelecimento_id
-WHERE o.token_hash = $1`, hash[:])
+WHERE o.token_hash = $1 OR o.token_hash_anterior = $1`, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEarlySlotOfferNotFound
 	}
@@ -732,7 +736,7 @@ func (s *EarlySlotService) Accept(ctx context.Context, token, origin string) (*E
 SELECT o.estabelecimento_id, a.profissional_id
 FROM ofertas_antecipacao o
 JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
-WHERE o.token_hash=$1`, hash[:])
+WHERE o.token_hash=$1 OR o.token_hash_anterior=$1`, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEarlySlotOfferNotFound
 	}
@@ -902,7 +906,7 @@ func (s *EarlySlotService) Decline(ctx context.Context, token, origin string) (s
 	}
 	err = tx.GetContext(ctx, &item, `
 SELECT id,status,estabelecimento_id,rodada_id,expira_em FROM ofertas_antecipacao
-WHERE token_hash=$1 FOR UPDATE`, hash[:])
+WHERE token_hash=$1 OR token_hash_anterior=$1 FOR UPDATE`, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrEarlySlotOfferNotFound
 	}
@@ -952,7 +956,7 @@ SELECT o.estabelecimento_id,c.telefone
 FROM ofertas_antecipacao o
 JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
 JOIN clientes c ON c.id=a.cliente_id AND c.estabelecimento_id=a.estabelecimento_id
-WHERE o.token_hash=$1 AND o.estabelecimento_id=$2`, hash[:], tenantID)
+WHERE (o.token_hash=$1 OR o.token_hash_anterior=$1) AND o.estabelecimento_id=$2`, hash[:], tenantID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrEarlySlotOfferNotFound
 	}

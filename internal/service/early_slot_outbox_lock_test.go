@@ -40,7 +40,7 @@ func TestWorkerRecoversFirstDeliveryAfterCrashBeforeGateway(t *testing.T) {
 			0, "Maria", "5511999999999",
 			"Glow", "Ana", currentStart, slotStart,
 		))
-	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash=$3, tentativas_envio=$4, proxima_tentativa_em=$5`)).
+	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash_anterior=token_hash, token_hash=$3`)).
 		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg(), 1, now.Add(earlySlotSendRetryDelay)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

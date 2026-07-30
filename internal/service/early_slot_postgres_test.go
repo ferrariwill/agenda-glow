@@ -142,6 +142,7 @@ CREATE TABLE ofertas_antecipacao (
     status VARCHAR(16) NOT NULL DEFAULT 'PENDENTE'
         CHECK (status IN ('PENDENTE','ACEITA','RECUSADA','EXPIRADA','INVALIDADA','FALHA_ENVIO')),
     token_hash BYTEA NOT NULL,
+    token_hash_anterior BYTEA,
     enviada_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expira_em TIMESTAMPTZ NOT NULL,
     respondida_em TIMESTAMPTZ,
@@ -150,7 +151,8 @@ CREATE TABLE ofertas_antecipacao (
     tentativas_envio INTEGER NOT NULL DEFAULT 0,
     proxima_tentativa_em TIMESTAMPTZ,
     UNIQUE (rodada_id, agendamento_candidato_id),
-    UNIQUE (token_hash)
+    UNIQUE (token_hash),
+    UNIQUE (token_hash_anterior)
 );
 CREATE TABLE antecipacao_auditoria (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -513,5 +515,58 @@ func TestPostgresInlineSendLeaseBlocksWorkerFromDoubleDelivery(t *testing.T) {
 	// O token original continua válido — o worker não rotacionou.
 	if _, err := svc.GetOffer(context.Background(), token); err != nil {
 		t.Fatalf("link da primeira mensagem ficou inválido: %v", err)
+	}
+}
+
+// Queda do processo no meio do envio: vencido o lease o worker assume, e como o
+// texto em claro do token não é persistido ele precisa reemitir o link. A
+// mensagem anterior pode ter sido entregue, então o hash antigo continua
+// aceitando — senão a cliente clica no que recebeu e leva offer_not_found
+// dentro dos 5 minutos que são dela.
+func TestPostgresRecoveredAttemptKeepsAlreadySentLinkValid(t *testing.T) {
+	db := newEarlySlotPostgres(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	slotStart := now.Add(24 * time.Hour)
+	slotEnd := slotStart.Add(time.Hour)
+
+	cancelledID := seedEarlySlotTenant(t, db, slotStart, slotEnd)
+	roundID := insertRound(t, db, cancelledID, slotStart, slotEnd)
+
+	candStart := now.Add(72 * time.Hour)
+	candEnd := candStart.Add(45 * time.Minute)
+	candidateID := addCandidate(t, db, "00000000000e", candStart, candEnd)
+	entregue := insertOffer(t, db, roundID, candidateID, 1, candStart, candEnd, now.Add(5*time.Minute))
+	// Estado deixado por uma queda depois do envio: lease vencido, orçamento
+	// de tentativas ainda disponível.
+	if _, err := db.Exec(`UPDATE ofertas_antecipacao
+		SET proxima_tentativa_em=$2, tentativas_envio=0 WHERE rodada_id=$1`,
+		roundID, now.Add(-time.Second)); err != nil {
+		t.Fatalf("vencer o lease de envio: %v", err)
+	}
+
+	svc := newEarlySlotServiceForPostgres(db, now)
+	retried, err := svc.ProcessSendRetries(context.Background(), 50)
+	if err != nil {
+		t.Fatalf("varredura de reenvio: %v", err)
+	}
+	if retried != 1 {
+		t.Fatalf("tentativas recuperadas = %d, esperado 1", retried)
+	}
+
+	var guardou bool
+	if err := db.Get(&guardou,
+		`SELECT token_hash_anterior IS NOT NULL FROM ofertas_antecipacao`); err != nil {
+		t.Fatalf("reler oferta: %v", err)
+	}
+	if !guardou {
+		t.Fatal("a reemissão do link deve guardar o hash do que já foi enviado")
+	}
+
+	result, err := svc.Accept(context.Background(), entregue, "WEB")
+	if err != nil {
+		t.Fatalf("o link da mensagem já entregue deve continuar aceitando: %v", err)
+	}
+	if result.Status != "ACEITA" || !result.NewStart.UTC().Equal(slotStart) {
+		t.Fatalf("aceite pelo link anterior fora do contrato: %#v", result)
 	}
 }
