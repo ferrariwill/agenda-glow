@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/agendaglow/agendaglow/internal/service"
 )
@@ -15,6 +16,62 @@ type PublicAppointmentsHandler struct {
 
 func NewPublicAppointmentsHandler(agenda *service.AgendaService) *PublicAppointmentsHandler {
 	return &PublicAppointmentsHandler{agenda: agenda}
+}
+
+func (h *PublicAppointmentsHandler) Manage(w http.ResponseWriter, r *http.Request) {
+	view, err := h.agenda.GetAppointmentManagement(r.Context(), r.PathValue("token"), time.Now())
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrAgendamentoNaoEncontrado):
+			writeJSONError(w, http.StatusNotFound, "appointment_not_found")
+		case errors.Is(err, service.ErrManagementTokenExpired):
+			writeJSONError(w, http.StatusGone, "management_token_expired")
+		default:
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+	writePublicJSON(w, http.StatusOK, view)
+}
+
+func (h *PublicAppointmentsHandler) CancelByManagementToken(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Reason string `json:"motivo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	result, err := h.agenda.CancelAppointmentByManagementToken(
+		r.Context(), r.PathValue("token"), body.Reason, time.Now(),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrAgendamentoNaoEncontrado):
+			writeJSONError(w, http.StatusNotFound, "appointment_not_found")
+		case errors.Is(err, service.ErrManagementTokenExpired):
+			writeJSONError(w, http.StatusGone, "management_token_expired")
+		case errors.Is(err, service.ErrCancellationReasonRequired):
+			writeJSONError(w, http.StatusBadRequest, "reason_required")
+		case errors.Is(err, service.ErrAppointmentNotCancellable):
+			writeJSONError(w, http.StatusConflict, "appointment_not_cancellable")
+		case errors.Is(err, service.ErrCancellationWindowClosed):
+			var detail *service.CancellationWindowError
+			if errors.As(err, &detail) {
+				writePublicJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":                "cancellation_window_closed",
+					"minimum_notice_hours": detail.MinimumNoticeHours,
+					"contact_phone":        detail.ContactPhone,
+				})
+			} else {
+				writeJSONError(w, http.StatusUnprocessableEntity, "cancellation_window_closed")
+			}
+		default:
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+	writePublicJSON(w, http.StatusOK, result)
 }
 
 // Approve confirma encaixe: POST /api/v1/public/appointments/{id}/approve
@@ -71,4 +128,10 @@ func respondAppointmentAction(w http.ResponseWriter, status, message string) {
 		"status":  status,
 		"message": message,
 	})
+}
+
+func writePublicJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }

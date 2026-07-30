@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"regexp"
 	"testing"
 	"time"
 
@@ -11,217 +11,151 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func TestProcessWhatsAppCallbackBlocksConfirmWhilePendingApproval(t *testing.T) {
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer rawDB.Close()
+func TestProcessWhatsAppCallbackConfirmPreservesOperationalStatus(t *testing.T) {
+	for _, status := range []string{"AGENDADO", "EM_APROVACAO"} {
+		t.Run(status, func(t *testing.T) {
+			db, mock, closeDB := callbackTestDB(t)
+			defer closeDB()
+			mock.ExpectBegin()
+			expectCallbackLookup(mock, status, "PENDENTE")
+			mock.ExpectExec("UPDATE agendamentos[\\s\\S]+confirmacao_cliente = 'CONFIRMADO_CLIENTE'").
+				WithArgs("appointment-a", "tenant-a").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectCommit()
 
-	db := sqlx.NewDb(rawDB, "sqlmock")
-	svc := NewAgendaService(db)
-	expectWhatsAppAppointmentLookup(mock, "appointment-a", "tenant-a", "5511999999999", "EM_APROVACAO")
-
-	status, err := svc.ProcessWhatsAppCallback(context.Background(), WhatsAppCallbackPayload{
-		SistemaOrigem: WhatsAppSistemaBeleza,
-		TenantID:      "tenant-a",
-		PhoneNumber:   "5511999999999",
-		Text:          "APPT_CONFIRM",
-		Action:        WhatsAppActionConfirm,
-		AppointmentID: "appointment-a",
-	})
-	if status != "" {
-		t.Fatalf("status: got %q, want empty", status)
-	}
-	if !errors.Is(err, ErrAgendamentoAguardandoAprovacaoProfissional) {
-		t.Fatalf("erro: got %v, want ErrAgendamentoAguardandoAprovacaoProfissional", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectativas SQL (nenhum UPDATE esperado): %v", err)
+			got, err := NewAgendaService(db).ProcessWhatsAppCallback(context.Background(), callbackPayload(WhatsAppActionConfirm))
+			if err != nil {
+				t.Fatalf("ProcessWhatsAppCallback: %v", err)
+			}
+			if got != status {
+				t.Fatalf("status operacional alterado: got %q, want %q", got, status)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
-func TestProcessWhatsAppCallbackAllowsCancelWhilePendingApproval(t *testing.T) {
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer rawDB.Close()
+func TestProcessWhatsAppCallbackConfirmIsIdempotent(t *testing.T) {
+	db, mock, closeDB := callbackTestDB(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	expectCallbackLookup(mock, "AGENDADO", "CONFIRMADO_CLIENTE")
+	mock.ExpectCommit()
 
-	db := sqlx.NewDb(rawDB, "sqlmock")
-	svc := NewAgendaService(db)
-	expectWhatsAppAppointmentLookup(mock, "appointment-a", "tenant-a", "5511999999999", "EM_APROVACAO")
-	mock.ExpectExec(regexp.QuoteMeta(`
-UPDATE agendamentos
-SET status = $2
-WHERE id = $1
-  AND estabelecimento_id = $3
-`)).
-		WithArgs("appointment-a", "CANCELADO", "tenant-a").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	status, err := svc.ProcessWhatsAppCallback(context.Background(), WhatsAppCallbackPayload{
-		SistemaOrigem: WhatsAppSistemaBeleza,
-		TenantID:      "tenant-a",
-		PhoneNumber:   "5511999999999",
-		Text:          "APPT_CANCEL",
-		Action:        WhatsAppActionCancel,
-		AppointmentID: "appointment-a",
-	})
-	if err != nil {
-		t.Fatalf("ProcessWhatsAppCallback: %v", err)
-	}
-	if status != "CANCELADO" {
-		t.Fatalf("status: got %q, want CANCELADO", status)
+	got, err := NewAgendaService(db).ProcessWhatsAppCallback(context.Background(), callbackPayload(WhatsAppActionConfirm))
+	if err != nil || got != "AGENDADO" {
+		t.Fatalf("got status=%q err=%v", got, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectativas SQL: %v", err)
+		t.Fatal(err)
 	}
 }
 
-func TestProcessWhatsAppCallbackConfirmScheduledStillWorks(t *testing.T) {
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer rawDB.Close()
+func TestProcessWhatsAppCallbackRejectsCrossTenantAppointment(t *testing.T) {
+	db, mock, closeDB := callbackTestDB(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	mock.ExpectQuery("(?s)SELECT.+FROM agendamentos a.+FOR UPDATE OF a").
+		WithArgs("tenant-a", "5511999999999", "appointment-a").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("appointment-a").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectRollback()
 
-	db := sqlx.NewDb(rawDB, "sqlmock")
-	svc := NewAgendaService(db)
-	expectWhatsAppAppointmentLookup(mock, "appointment-a", "tenant-a", "5511999999999", "AGENDADO")
-	mock.ExpectExec(regexp.QuoteMeta(`
-UPDATE agendamentos
-SET status = $2
-WHERE id = $1
-  AND estabelecimento_id = $3
-`)).
-		WithArgs("appointment-a", "CONFIRMADO", "tenant-a").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	status, err := svc.ProcessWhatsAppCallback(context.Background(), WhatsAppCallbackPayload{
-		SistemaOrigem: WhatsAppSistemaBeleza,
-		TenantID:      "tenant-a",
-		PhoneNumber:   "5511999999999",
-		Text:          "APPT_CONFIRM",
-		Action:        WhatsAppActionConfirm,
-		AppointmentID: "appointment-a",
-	})
-	if err != nil {
-		t.Fatalf("ProcessWhatsAppCallback: %v", err)
-	}
-	if status != "CONFIRMADO" {
-		t.Fatalf("status: got %q, want CONFIRMADO", status)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectativas SQL: %v", err)
-	}
-}
-
-func TestProcessWhatsAppCallbackRejectsTenantMismatch(t *testing.T) {
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer rawDB.Close()
-
-	db := sqlx.NewDb(rawDB, "sqlmock")
-	svc := NewAgendaService(db)
-	expectWhatsAppAppointmentLookup(mock, "appointment-a", "tenant-a", "5511999999999", "AGENDADO")
-
-	_, err = svc.ProcessWhatsAppCallback(context.Background(), WhatsAppCallbackPayload{
-		SistemaOrigem: WhatsAppSistemaBeleza,
-		TenantID:      "tenant-b",
-		PhoneNumber:   "5511999999999",
-		Action:        WhatsAppActionConfirm,
-		AppointmentID: "appointment-a",
-	})
+	payload := callbackPayload(WhatsAppActionConfirm)
+	payload.TenantID = "tenant-a"
+	_, err := NewAgendaService(db).ProcessWhatsAppCallback(context.Background(), payload)
 	if !errors.Is(err, ErrAgendamentoEscopoInvalido) {
 		t.Fatalf("erro: got %v, want ErrAgendamentoEscopoInvalido", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectativas SQL (sem UPDATE): %v", err)
+		t.Fatal(err)
 	}
 }
 
 func TestProcessWhatsAppCallbackRejectsPhoneMismatch(t *testing.T) {
-	rawDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer rawDB.Close()
+	db, mock, closeDB := callbackTestDB(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	mock.ExpectQuery("(?s)SELECT.+FROM agendamentos a.+FOR UPDATE OF a").
+		WithArgs("tenant-a", "5511888888888", "appointment-a").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("appointment-a").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectRollback()
 
-	db := sqlx.NewDb(rawDB, "sqlmock")
-	svc := NewAgendaService(db)
-	expectWhatsAppAppointmentLookup(mock, "appointment-a", "tenant-a", "5511999999999", "AGENDADO")
-
-	_, err = svc.ProcessWhatsAppCallback(context.Background(), WhatsAppCallbackPayload{
-		SistemaOrigem: WhatsAppSistemaBeleza,
-		TenantID:      "tenant-a",
-		PhoneNumber:   "5511888888888",
-		Action:        WhatsAppActionConfirm,
-		AppointmentID: "appointment-a",
-	})
+	payload := callbackPayload(WhatsAppActionConfirm)
+	payload.PhoneNumber = "5511888888888"
+	_, err := NewAgendaService(db).ProcessWhatsAppCallback(context.Background(), payload)
 	if !errors.Is(err, ErrAgendamentoEscopoInvalido) {
 		t.Fatalf("erro: got %v, want ErrAgendamentoEscopoInvalido", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectativas SQL (sem UPDATE): %v", err)
+		t.Fatal(err)
 	}
 }
 
-func expectWhatsAppAppointmentLookup(
-	mock sqlmock.Sqlmock,
-	appointmentID, tenantID, phone, status string,
-) {
-	inicio := time.Date(2026, 7, 30, 15, 0, 0, 0, time.UTC)
-	fim := inicio.Add(45 * time.Minute)
+func TestProcessWhatsAppCallbackCancelUpdatesBothStatesAndAudits(t *testing.T) {
+	db, mock, closeDB := callbackTestDB(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	expectCallbackLookup(mock, "EM_APROVACAO", "PENDENTE")
+	mock.ExpectExec("UPDATE agendamentos[\\s\\S]+status = 'CANCELADO'").
+		WithArgs("appointment-a", "tenant-a", "Imprevisto").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
+		WithArgs("tenant-a", "appointment-a", NotificationTypeCancellationByCustomer,
+			NotificationStatusRecorded, sqlmock.AnyArg(),
+			safeAuditSummary{reason: "Imprevisto", origin: CancellationOriginWhatsApp}).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
+		WithArgs("tenant-a", "appointment-a", NotificationTypeCancellationConfirmed,
+			NotificationStatusPending).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	payload := callbackPayload(WhatsAppActionCancel)
+	payload.Reason = "Imprevisto"
+	got, err := NewAgendaService(db).ProcessWhatsAppCallback(context.Background(), payload)
+	if err != nil || got != "CANCELADO" {
+		t.Fatalf("got status=%q err=%v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func callbackTestDB(t *testing.T) (*sqlx.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	raw, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sqlx.NewDb(raw, "sqlmock"), mock, func() { _ = raw.Close() }
+}
+
+func callbackPayload(action string) WhatsAppCallbackPayload {
+	return WhatsAppCallbackPayload{
+		SistemaOrigem: WhatsAppSistemaBeleza,
+		TenantID:      "tenant-a",
+		PhoneNumber:   "5511999999999",
+		Action:        action,
+		AppointmentID: "appointment-a",
+	}
+}
+
+func expectCallbackLookup(mock sqlmock.Sqlmock, status, confirmation string) {
+	startsAt := time.Now().Add(24 * time.Hour)
 	rows := sqlmock.NewRows([]string{
-		"id",
-		"estabelecimento_id",
-		"profissional_id",
-		"servico_id",
-		"data_hora_inicio",
-		"data_hora_fim",
-		"status",
-		"cliente_nome",
-		"cliente_telefone",
-		"servico_nome",
-		"profissional_nome",
-		"profissional_email",
-	}).AddRow(
-		appointmentID,
-		tenantID,
-		"prof-a",
-		"servico-a",
-		inicio,
-		fim,
-		status,
-		"Cliente Teste",
-		phone,
-		"Corte",
-		"Profissional",
-		nil,
-	)
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT
-    a.id,
-    a.estabelecimento_id,
-    a.profissional_id,
-    a.servico_id,
-    a.data_hora_inicio,
-    a.data_hora_fim,
-    a.status,
-    c.nome AS cliente_nome,
-    c.telefone AS cliente_telefone,
-    s.nome AS servico_nome,
-    p.nome AS profissional_nome,
-    p.email AS profissional_email
-FROM agendamentos a
-INNER JOIN clientes c ON c.id = a.cliente_id
-INNER JOIN servicos s ON s.id = a.servico_id
-INNER JOIN profissionais p ON p.id = a.profissional_id
-WHERE a.id = $1
-`)).
-		WithArgs(appointmentID).
+		"id", "estabelecimento_id", "data_hora_inicio", "status",
+		"confirmacao_cliente", "janela_minima_cancelamento_horas",
+		"motivo_cancelamento_obrigatorio", "telefone_contato",
+	}).AddRow("appointment-a", "tenant-a", startsAt, status, confirmation, 2, false, "5511000000000")
+	mock.ExpectQuery("(?s)SELECT.+FROM agendamentos a.+FOR UPDATE OF a").
+		WithArgs("tenant-a", "5511999999999", "appointment-a").
 		WillReturnRows(rows)
 }

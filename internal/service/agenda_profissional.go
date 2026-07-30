@@ -15,22 +15,24 @@ var ErrAgendamentoNaoPertenceProfissional = errors.New("agendamento não pertenc
 var ErrAgendamentoStatusInvalido = errors.New("agendamento não está confirmado para conclusão")
 
 type ResumoSemanaProfissional struct {
-	ComissaoPendente  float64 `json:"comissao_pendente"`
-	ServicosRealizados int    `json:"servicos_realizados"`
-	PeriodoLabel      string  `json:"periodo_label"`
-	StartDate         string  `json:"start_date"`
-	EndDate           string  `json:"end_date"`
+	ComissaoPendente   float64 `json:"comissao_pendente"`
+	ServicosRealizados int     `json:"servicos_realizados"`
+	PeriodoLabel       string  `json:"periodo_label"`
+	StartDate          string  `json:"start_date"`
+	EndDate            string  `json:"end_date"`
 }
 
 type AgendamentoTimelineItem struct {
-	ID            string    `json:"id"`
-	HorarioInicio string    `json:"horario_inicio"`
-	HorarioFim    string    `json:"horario_fim"`
-	Status        string    `json:"status"`
-	ClienteNome   string    `json:"cliente_nome"`
-	ServicoNome   string    `json:"servico_nome"`
-	Adicionais    []string  `json:"adicionais"`
-	DataHoraInicio time.Time `json:"-"`
+	ID                      string     `json:"id"`
+	HorarioInicio           string     `json:"horario_inicio"`
+	HorarioFim              string     `json:"horario_fim"`
+	Status                  string     `json:"status"`
+	ClienteNome             string     `json:"cliente_nome"`
+	ServicoNome             string     `json:"servico_nome"`
+	Adicionais              []string   `json:"adicionais"`
+	ConfirmacaoCliente      string     `json:"confirmacao_cliente"`
+	UltimoLembreteEnviadoEm *time.Time `json:"ultimo_lembrete_enviado_em,omitempty"`
+	DataHoraInicio          time.Time  `json:"-"`
 }
 
 type DashboardProfissional struct {
@@ -145,6 +147,15 @@ SELECT
     a.data_hora_inicio,
     a.data_hora_fim,
     a.status,
+    a.confirmacao_cliente,
+    (
+        SELECT MAX(n.enviado_em)
+        FROM agendamento_notificacoes n
+        WHERE n.estabelecimento_id = a.estabelecimento_id
+          AND n.agendamento_id = a.id
+          AND n.tipo = 'LEMBRETE'
+          AND n.status_envio = 'ENVIADO'
+    ) AS ultimo_lembrete_enviado_em,
     c.nome AS cliente_nome,
     s.nome AS servico_nome,
     COALESCE(
@@ -160,7 +171,7 @@ WHERE a.estabelecimento_id = $1
   AND a.profissional_id = $2
   AND a.data_hora_inicio >= $3
   AND a.data_hora_inicio < $4
-GROUP BY a.id, a.data_hora_inicio, a.data_hora_fim, a.status, c.nome, s.nome
+GROUP BY a.id, a.data_hora_inicio, a.data_hora_fim, a.status, a.confirmacao_cliente, c.nome, s.nome
 ORDER BY a.data_hora_inicio ASC
 `
 	rows, err := s.db.QueryxContext(ctx, query, establishmentID, professionalID, inicioDia, fimDia)
@@ -172,16 +183,18 @@ ORDER BY a.data_hora_inicio ASC
 	items := make([]AgendamentoTimelineItem, 0, 8)
 	for rows.Next() {
 		var (
-			item        AgendamentoTimelineItem
-			adicionais  pq.StringArray
-			inicio      time.Time
-			fim         time.Time
+			item       AgendamentoTimelineItem
+			adicionais pq.StringArray
+			inicio     time.Time
+			fim        time.Time
 		)
 		if err := rows.Scan(
 			&item.ID,
 			&inicio,
 			&fim,
 			&item.Status,
+			&item.ConfirmacaoCliente,
+			&item.UltimoLembreteEnviadoEm,
 			&item.ClienteNome,
 			&item.ServicoNome,
 			&adicionais,
