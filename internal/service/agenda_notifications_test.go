@@ -193,9 +193,9 @@ func TestEligibleAppointmentStatusesExcludeEmAprovacao(t *testing.T) {
 
 func TestBuildManagementURL(t *testing.T) {
 	cases := map[string]string{
-		"http://localhost:8081":  "http://localhost:8081/api/v1/public/appointments/manage/tok",
-		"http://localhost:8081/": "http://localhost:8081/api/v1/public/appointments/manage/tok",
-		"":                       "/api/v1/public/appointments/manage/tok",
+		"http://localhost:8081":  "http://localhost:8081/p/agendamento/tok",
+		"http://localhost:8081/": "http://localhost:8081/p/agendamento/tok",
+		"":                       "/p/agendamento/tok",
 	}
 	for base, want := range cases {
 		if got := BuildManagementURL(base, "tok"); got != want {
@@ -239,11 +239,12 @@ func TestAgendaNotificationWorkerRunOnceTwiceDoesNotDuplicate(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "estabelecimento_id", "agendamento_id", "tipo", "tentativas",
 			"telefone", "nome_salao", "servico", "profissional", "data_hora_inicio",
-			"endereco", "gestao_token",
+			"endereco", "gestao_token", "template_confirmacao", "template_lembrete",
 		}).AddRow(
 			"notification-a", "tenant-a", "appointment-a", NotificationTypeReminder, 0,
 			"5511999999999", "Studio Glow", "Corte", "Ana", startsAt,
 			"Rua Um, São Paulo, SP", "management-token-a",
+			"Confirme {{servico}}", "Personalizado: {{servico}} com {{profissional}} em {{data_hora}} — {{link_gestao}}",
 		))
 	mock.ExpectExec("UPDATE agendamento_notificacoes[\\s\\S]+status_envio = 'ENVIANDO'").
 		WithArgs("notification-a", now).
@@ -284,6 +285,10 @@ func TestAgendaNotificationWorkerRunOnceTwiceDoesNotDuplicate(t *testing.T) {
 	}
 	if payload.TemplateName != whatsappTemplateLembrete || payload.PhoneNumber != "5511999999999" {
 		t.Fatalf("payload gateway inesperado: %+v", payload)
+	}
+	wantMessage := "Personalizado: Corte com Ana em 02/08/2026 10:00 — https://app.example/p/agendamento/management-token-a"
+	if !reflect.DeepEqual(payload.Variables, []string{wantMessage}) {
+		t.Fatalf("template persistido não aplicado: got %v, want [%q]", payload.Variables, wantMessage)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

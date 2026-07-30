@@ -31,6 +31,9 @@ func TestMapWhatsAppWebhookErrorKeepsDistinctConflictCodes(t *testing.T) {
 		service.ErrAgendamentoEscopoInvalido:                  {http.StatusForbidden, "appointment_scope_mismatch"},
 		service.ErrAgendamentoNaoEncontrado:                   {http.StatusNotFound, "appointment_not_found"},
 		service.ErrAcaoWhatsAppInvalida:                       {http.StatusBadRequest, "invalid_payload"},
+		service.ErrCancellationReasonRequired:                 {http.StatusBadRequest, "reason_required"},
+		service.ErrCancellationWindowClosed:                   {http.StatusUnprocessableEntity, "cancellation_window_closed"},
+		service.ErrAppointmentNotCancellable:                  {http.StatusConflict, "appointment_not_cancellable"},
 	}
 	for err, want := range cases {
 		recorder := httptest.NewRecorder()
@@ -40,6 +43,53 @@ func TestMapWhatsAppWebhookErrorKeepsDistinctConflictCodes(t *testing.T) {
 		}
 		if got := decodeField(t, recorder.Body.String(), "error"); got != want.code {
 			t.Fatalf("%v: error got %q, want %q", err, got, want.code)
+		}
+	}
+}
+
+func TestWhatsAppWebhookCancelMapsDomainErrorsOnCallbackAndGateway(t *testing.T) {
+	cases := []struct {
+		name           string
+		status         string
+		startsAt       time.Time
+		reasonRequired bool
+		wantStatus     int
+		wantCode       string
+	}{
+		{
+			name: "reason_required", status: "AGENDADO", startsAt: time.Now().Add(24 * time.Hour),
+			reasonRequired: true, wantStatus: http.StatusBadRequest, wantCode: "reason_required",
+		},
+		{
+			name: "window_closed", status: "AGENDADO", startsAt: time.Now().Add(time.Hour),
+			wantStatus: http.StatusUnprocessableEntity, wantCode: "cancellation_window_closed",
+		},
+		{
+			name: "not_cancellable", status: "CONCLUIDO", startsAt: time.Now().Add(24 * time.Hour),
+			wantStatus: http.StatusConflict, wantCode: "appointment_not_cancellable",
+		},
+	}
+	for _, route := range []string{callbackRoute, gatewayRoute} {
+		for _, tc := range cases {
+			t.Run(route+"_"+tc.name, func(t *testing.T) {
+				mux, mock, cleanup := newWhatsAppWebhookTestServer(t)
+				defer cleanup()
+				mock.ExpectBegin()
+				expectAppointmentLookupWithPolicy(mock, tc.status, "PENDENTE", tc.startsAt, tc.reasonRequired)
+				mock.ExpectRollback()
+
+				code, body := postWhatsAppWebhook(t, mux, route, map[string]any{
+					"sistema_origem": "beleza", "tenant_id": testTenantID,
+					"phone_number": testPhone, "event_type": "button_reply",
+					"action": "CANCEL", "appointment_id": testAppointmentID,
+				})
+				if code != tc.wantStatus || decodeField(t, body, "error") != tc.wantCode {
+					t.Fatalf("status=%d body=%s", code, body)
+				}
+				if err := mock.ExpectationsWereMet(); err != nil {
+					t.Fatal(err)
+				}
+			})
 		}
 	}
 }
@@ -133,12 +183,21 @@ func decodeField(t *testing.T, body, field string) string {
 }
 
 func expectAppointmentLookup(mock sqlmock.Sqlmock, status, confirmation string) {
+	expectAppointmentLookupWithPolicy(mock, status, confirmation, time.Now().Add(24*time.Hour), false)
+}
+
+func expectAppointmentLookupWithPolicy(
+	mock sqlmock.Sqlmock,
+	status, confirmation string,
+	startsAt time.Time,
+	reasonRequired bool,
+) {
 	rows := sqlmock.NewRows([]string{
 		"id", "estabelecimento_id", "data_hora_inicio", "status",
 		"confirmacao_cliente", "janela_minima_cancelamento_horas",
 		"motivo_cancelamento_obrigatorio", "telefone_contato",
-	}).AddRow(testAppointmentID, testTenantID, time.Now().Add(24*time.Hour), status,
-		confirmation, 2, false, "5511000000000")
+	}).AddRow(testAppointmentID, testTenantID, startsAt, status,
+		confirmation, 2, reasonRequired, "5511000000000")
 	mock.ExpectQuery("(?s)SELECT.+FROM agendamentos a.+FOR UPDATE OF a").
 		WithArgs(testTenantID, testPhone, testAppointmentID).
 		WillReturnRows(rows)

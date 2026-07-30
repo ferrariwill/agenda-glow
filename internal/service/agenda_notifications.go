@@ -53,10 +53,10 @@ func EligibleAppointmentStatuses(notificationType string) []string {
 	return append([]string(nil), statusesForScheduledNotifications...)
 }
 
-// BuildManagementURL monta a URL pública de gestão; com base vazia devolve caminho
-// relativo em vez de uma URL malformada iniciada por "/api".
+// BuildManagementURL monta a URL navegável do frontend. Os endpoints JSON de
+// consulta/cancelamento permanecem sob /api/v1/public/appointments/manage.
 func BuildManagementURL(baseURL, token string) string {
-	path := "/api/v1/public/appointments/manage/" + strings.TrimSpace(token)
+	path := "/p/agendamento/" + strings.TrimSpace(token)
 	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + path
 }
 
@@ -119,6 +119,17 @@ func validNotificationTemplate(value string) bool {
 	}
 	withoutKnown := placeholderPattern.ReplaceAllString(value, "")
 	return !strings.Contains(withoutKnown, "{{") && !strings.Contains(withoutKnown, "}}")
+}
+
+func renderNotificationTemplate(template string, values map[string]string) (string, error) {
+	if !validNotificationTemplate(template) {
+		return "", ErrInvalidNotificationSettings
+	}
+	rendered := placeholderPattern.ReplaceAllStringFunc(template, func(placeholder string) string {
+		match := placeholderPattern.FindStringSubmatch(placeholder)
+		return values[match[1]]
+	})
+	return rendered, nil
 }
 
 func (s *AgendaService) GetNotificationAgendaConfig(ctx context.Context, establishmentID string) (*NotificationAgendaConfig, error) {
@@ -490,13 +501,15 @@ WHERE status_envio = 'ENVIANDO' AND atualizado_em < $1 - INTERVAL '15 minutes'
 		if job == nil {
 			return nil
 		}
-		externalID, sendErr := w.sender.Send(ctx, WhatsAppNotificationInput{
-			TenantID: job.EstablishmentID, PhoneNumber: job.Phone,
-			TemplateName: templateNameForType(job.Type), AppointmentID: job.AppointmentID,
-			Variables: []string{job.EstablishmentName, job.Service, job.Professional,
-				job.StartsAt.Format("02/01/2006 15:04"), job.Address,
-				BuildManagementURL(w.baseURL, job.ManagementToken)},
-		})
+		var externalID string
+		variables, sendErr := w.notificationVariables(job)
+		if sendErr == nil {
+			externalID, sendErr = w.sender.Send(ctx, WhatsAppNotificationInput{
+				TenantID: job.EstablishmentID, PhoneNumber: job.Phone,
+				TemplateName: templateNameForType(job.Type), AppointmentID: job.AppointmentID,
+				Variables: variables,
+			})
+		}
 		if err := w.finish(ctx, job, externalID, sendErr, now); err != nil {
 			return err
 		}
@@ -547,6 +560,39 @@ type notificationJob struct {
 	StartsAt          time.Time `db:"data_hora_inicio"`
 	Address           string    `db:"endereco"`
 	ManagementToken   string    `db:"gestao_token"`
+	TemplateConfirm   string    `db:"template_confirmacao"`
+	TemplateReminder  string    `db:"template_lembrete"`
+}
+
+func (w *AgendaNotificationWorker) notificationVariables(job *notificationJob) ([]string, error) {
+	dateTime := job.StartsAt.Format("02/01/2006 15:04")
+	managementURL := BuildManagementURL(w.baseURL, job.ManagementToken)
+	values := map[string]string{
+		"nome_salao":   job.EstablishmentName,
+		"servico":      job.Service,
+		"profissional": job.Professional,
+		"data_hora":    dateTime,
+		"endereco":     job.Address,
+		"link_gestao":  managementURL,
+	}
+	var configuredTemplate string
+	switch job.Type {
+	case NotificationTypeReservationConfirmation, NotificationTypeConfirmationRequest:
+		configuredTemplate = job.TemplateConfirm
+	case NotificationTypeReminder:
+		configuredTemplate = job.TemplateReminder
+	}
+	if configuredTemplate != "" {
+		rendered, err := renderNotificationTemplate(configuredTemplate, values)
+		if err != nil {
+			return nil, err
+		}
+		return []string{rendered}, nil
+	}
+	return []string{
+		job.EstablishmentName, job.Service, job.Professional,
+		dateTime, job.Address, managementURL,
+	}, nil
 }
 
 func (w *AgendaNotificationWorker) reserveNext(ctx context.Context, now time.Time) (*notificationJob, error) {
@@ -560,7 +606,8 @@ SELECT n.id, n.estabelecimento_id, n.agendamento_id, n.tipo, n.tentativas,
        c.telefone, e.nome_comercial AS nome_salao, s.nome AS servico,
        p.nome AS profissional, a.data_hora_inicio,
        CONCAT_WS(', ', NULLIF(e.logradouro, ''), NULLIF(e.cidade, ''), NULLIF(e.uf, '')) AS endereco,
-       a.gestao_token::text AS gestao_token
+       a.gestao_token::text AS gestao_token,
+       cfg.template_confirmacao, cfg.template_lembrete
 FROM agendamento_notificacoes n
 JOIN agendamentos a ON a.id = n.agendamento_id AND a.estabelecimento_id = n.estabelecimento_id
 JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
