@@ -1,37 +1,40 @@
 import { useState } from 'react'
 import { Alert } from '../ui/Alert'
-import {
-  updateEarlySlotPreference,
-  type EarlySlotPreferenceResponse,
-} from '../../services/earlySlotOfferService'
-import { ApiError } from '../../lib/api'
+import { EarlySlotPreferenceToggle } from './EarlySlotPreferenceToggle'
+import { earlySlotErrorMessage, patchEarlySlotPreference } from '../../services/earlySlotOfferApi'
 
 interface GestaoEarlySlotPreferenceProps {
   gestaoToken: string
+  /** Preferência atual devolvida pelo GET de gestão. */
   aceitaAdiantar: boolean
-  /** Elegibilidade vem da API de gestão; o client não decide. */
+  /** Elegibilidade é decisão da API (AGENDADO/CONFIRMADO e futuro), nunca do client. */
   elegivel?: boolean
-  notificationsAvailable?: boolean
   profissionalNome?: string
-  onChange?: (result: EarlySlotPreferenceResponse) => void
+  /** Canonical channel signal from manage GET / PATCH echo. */
+  notificationsAvailable?: boolean
+  onChange?: (
+    aceitaAdiantar: boolean,
+    aceitaAdiantarEm?: string,
+    notificationsAvailable?: boolean,
+  ) => void
 }
 
 /**
- * Preferência de antecipação pronta para embed em `/p/agendamento/:token` (DEV-84).
- * Controla loading, reverte em erro (inclui 422) e ecoa o sinal canônico do PATCH.
+ * Bloco de preferência de antecipação para a página pública de gestão do
+ * atendimento (`/p/agendamento/:token`, DEV-82/84). Reverte a UI se a API recusar.
  */
 export function GestaoEarlySlotPreference({
   gestaoToken,
   aceitaAdiantar,
   elegivel = true,
-  notificationsAvailable,
   profissionalNome,
+  notificationsAvailable,
   onChange,
 }: GestaoEarlySlotPreferenceProps) {
   const [checked, setChecked] = useState(aceitaAdiantar)
+  const [channelAvailable, setChannelAvailable] = useState(notificationsAvailable)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [available, setAvailable] = useState(notificationsAvailable)
 
   const alterar = async (value: boolean) => {
     const anterior = checked
@@ -39,19 +42,19 @@ export function GestaoEarlySlotPreference({
     setSaving(true)
     setError('')
     try {
-      const result = await updateEarlySlotPreference(gestaoToken, value)
+      const result = await patchEarlySlotPreference(gestaoToken, value)
       setChecked(result.aceita_adiantar)
-      if (result.early_slot_notifications_available !== undefined) {
-        setAvailable(result.early_slot_notifications_available)
+      if (typeof result.early_slot_notifications_available === 'boolean') {
+        setChannelAvailable(result.early_slot_notifications_available)
       }
-      onChange?.(result)
+      onChange?.(
+        result.aceita_adiantar,
+        result.aceita_adiantar_em,
+        result.early_slot_notifications_available,
+      )
     } catch (err) {
       setChecked(anterior)
-      if (err instanceof ApiError && (err.status === 422 || err.code === 'appointment_no_longer_eligible')) {
-        setError('Este atendimento não aceita mais alterações de preferência.')
-      } else {
-        setError('Não foi possível atualizar a preferência. Tente novamente.')
-      }
+      setError(earlySlotErrorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -59,32 +62,15 @@ export function GestaoEarlySlotPreference({
 
   return (
     <div className="space-y-3">
-      <label htmlFor="gestao-aceita-adiantar" className="flex cursor-pointer items-start gap-3">
-        <input
-          id="gestao-aceita-adiantar"
-          type="checkbox"
-          checked={checked}
-          disabled={!elegivel || saving}
-          onChange={(e) => void alterar(e.target.checked)}
-          className="mt-1 rounded border-[#d6c2bd] text-[#7d5141]"
-        />
-        <span>
-          <span className="block text-sm font-medium text-[#1a1c1c]">
-            Quero ser avisado pelo WhatsApp se surgir um horário mais cedo
-            {profissionalNome ? ` com ${profissionalNome}` : ''}.
-          </span>
-          <span className="mt-0.5 block text-xs text-[#514440]">
-            A oferta é opcional e exclusiva por 5 minutos. Seu horário atual só muda se você aceitar.
-          </span>
-          {available === false && (
-            <span className="mt-1 block text-xs font-medium text-amber-800">
-              Os avisos começarão quando o salão reativar o WhatsApp.
-            </span>
-          )}
-        </span>
-      </label>
+      <EarlySlotPreferenceToggle
+        checked={checked}
+        onChange={(value) => void alterar(value)}
+        disabled={!elegivel || saving}
+        profissionalNome={profissionalNome}
+        notificationsAvailable={channelAvailable}
+      />
       {!elegivel && (
-        <p className="text-xs text-[#514440]">
+        <p className="text-xs text-aura-muted">
           Este atendimento não aceita mais alterações de preferência.
         </p>
       )}
