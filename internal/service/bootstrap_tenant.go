@@ -50,24 +50,26 @@ type ClienteBootstrap struct {
 }
 
 type AgendamentoBootstrap struct {
-	ID               string                 `json:"id"`
-	TenantID         string                 `json:"tenant_id"`
-	ProfissionalID   string                 `json:"profissional_id"`
-	ServicoID        string                 `json:"servico_id"`
-	ServicoIDs       []string               `json:"servico_ids"`
-	AdicionalIDs     []string               `json:"adicional_ids"`
-	ClienteNome      string                 `json:"cliente_nome"`
-	ClienteTelefone  string                 `json:"cliente_telefone"`
-	Data             string                 `json:"data"`
-	HoraInicio       string                 `json:"hora_inicio"`
-	Status           string                 `json:"status"`
-	MinutosInvadidos int                    `json:"minutos_invadidos,omitempty"`
-	AceitaAdiantar   bool                   `json:"aceita_adiantar,omitempty"`
-	AceitaAdiantarEm *string                `json:"aceita_adiantar_em,omitempty"`
-	EarlySlotOffer   *EarlySlotOfferSummary `json:"early_slot_offer"`
-	ValorCobrado     *float64               `json:"valor_cobrado,omitempty"`
-	MetodoPagamento  *string                `json:"metodo_pagamento,omitempty"`
-	CobradoEm        *string                `json:"cobrado_em,omitempty"`
+	ID                      string                 `json:"id"`
+	TenantID                string                 `json:"tenant_id"`
+	ProfissionalID          string                 `json:"profissional_id"`
+	ServicoID               string                 `json:"servico_id"`
+	ServicoIDs              []string               `json:"servico_ids"`
+	AdicionalIDs            []string               `json:"adicional_ids"`
+	ClienteNome             string                 `json:"cliente_nome"`
+	ClienteTelefone         string                 `json:"cliente_telefone"`
+	Data                    string                 `json:"data"`
+	HoraInicio              string                 `json:"hora_inicio"`
+	Status                  string                 `json:"status"`
+	MinutosInvadidos        int                    `json:"minutos_invadidos,omitempty"`
+	AceitaAdiantar          bool                   `json:"aceita_adiantar,omitempty"`
+	AceitaAdiantarEm        *string                `json:"aceita_adiantar_em,omitempty"`
+	EarlySlotOffer          *EarlySlotOfferSummary `json:"early_slot_offer"`
+	ValorCobrado            *float64               `json:"valor_cobrado,omitempty"`
+	MetodoPagamento         *string                `json:"metodo_pagamento,omitempty"`
+	CobradoEm               *string                `json:"cobrado_em,omitempty"`
+	ConfirmacaoCliente      string                 `json:"confirmacao_cliente"`
+	UltimoLembreteEnviadoEm *string                `json:"ultimo_lembrete_enviado_em,omitempty"`
 }
 
 type EarlySlotOfferSummary struct {
@@ -323,6 +325,15 @@ SELECT
     a.valor_cobrado,
     a.metodo_pagamento,
     a.cobrado_em,
+    a.confirmacao_cliente,
+    (
+        SELECT MAX(n.enviado_em)
+        FROM agendamento_notificacoes n
+        WHERE n.estabelecimento_id = a.estabelecimento_id
+          AND n.agendamento_id = a.id
+          AND n.tipo = 'LEMBRETE'
+          AND n.status_envio = 'ENVIADO'
+    ) AS ultimo_lembrete_enviado_em,
     c.nome AS cliente_nome,
     c.telefone AS cliente_telefone,
     eo.rodada_id AS early_round_id,
@@ -340,23 +351,25 @@ WHERE a.estabelecimento_id = $1
 ORDER BY a.data_hora_inicio
 `
 	type row struct {
-		ID                  string     `db:"id"`
-		EstabelecimentoID   string     `db:"estabelecimento_id"`
-		ProfissionalID      string     `db:"profissional_id"`
-		ServicoID           string     `db:"servico_id"`
-		Status              string     `db:"status"`
-		DataHoraInicio      time.Time  `db:"data_hora_inicio"`
-		MinutosInvadidos    int        `db:"minutos_invadidos"`
-		AceitaAdiantar      bool       `db:"aceita_adiantar"`
-		AceitaAdiantarEm    *time.Time `db:"aceita_adiantar_em"`
-		ValorCobrado        *float64   `db:"valor_cobrado"`
-		MetodoPagamento     *string    `db:"metodo_pagamento"`
-		CobradoEm           *time.Time `db:"cobrado_em"`
-		ClienteNome         string     `db:"cliente_nome"`
-		ClienteTelefone     string     `db:"cliente_telefone"`
-		EarlyRoundID        *string    `db:"early_round_id"`
-		EarlyOfferStatus    *string    `db:"early_offer_status"`
-		EarlyOfferExpiresAt *time.Time `db:"early_offer_expires_at"`
+		ID                      string     `db:"id"`
+		EstabelecimentoID       string     `db:"estabelecimento_id"`
+		ProfissionalID          string     `db:"profissional_id"`
+		ServicoID               string     `db:"servico_id"`
+		Status                  string     `db:"status"`
+		DataHoraInicio          time.Time  `db:"data_hora_inicio"`
+		MinutosInvadidos        int        `db:"minutos_invadidos"`
+		AceitaAdiantar          bool       `db:"aceita_adiantar"`
+		AceitaAdiantarEm        *time.Time `db:"aceita_adiantar_em"`
+		ValorCobrado            *float64   `db:"valor_cobrado"`
+		MetodoPagamento         *string    `db:"metodo_pagamento"`
+		CobradoEm               *time.Time `db:"cobrado_em"`
+		ConfirmacaoCliente      string     `db:"confirmacao_cliente"`
+		UltimoLembreteEnviadoEm *time.Time `db:"ultimo_lembrete_enviado_em"`
+		ClienteNome             string     `db:"cliente_nome"`
+		ClienteTelefone         string     `db:"cliente_telefone"`
+		EarlyRoundID            *string    `db:"early_round_id"`
+		EarlyOfferStatus        *string    `db:"early_offer_status"`
+		EarlyOfferExpiresAt     *time.Time `db:"early_offer_expires_at"`
 	}
 	var rows []row
 	if err := s.db.SelectContext(ctx, &rows, query, establishmentID); err != nil {
@@ -366,21 +379,22 @@ ORDER BY a.data_hora_inicio
 	out := make([]AgendamentoBootstrap, 0, len(rows))
 	for _, r := range rows {
 		item := AgendamentoBootstrap{
-			ID:               r.ID,
-			TenantID:         r.EstabelecimentoID,
-			ProfissionalID:   r.ProfissionalID,
-			ServicoID:        r.ServicoID,
-			ServicoIDs:       []string{r.ServicoID},
-			AdicionalIDs:     []string{},
-			ClienteNome:      r.ClienteNome,
-			ClienteTelefone:  r.ClienteTelefone,
-			Data:             r.DataHoraInicio.Format("2006-01-02"),
-			HoraInicio:       r.DataHoraInicio.Format("15:04"),
-			Status:           r.Status,
-			MinutosInvadidos: r.MinutosInvadidos,
-			AceitaAdiantar:   r.AceitaAdiantar,
-			ValorCobrado:     r.ValorCobrado,
-			MetodoPagamento:  r.MetodoPagamento,
+			ID:                 r.ID,
+			TenantID:           r.EstabelecimentoID,
+			ProfissionalID:     r.ProfissionalID,
+			ServicoID:          r.ServicoID,
+			ServicoIDs:         []string{r.ServicoID},
+			AdicionalIDs:       []string{},
+			ClienteNome:        r.ClienteNome,
+			ClienteTelefone:    r.ClienteTelefone,
+			Data:               r.DataHoraInicio.Format("2006-01-02"),
+			HoraInicio:         r.DataHoraInicio.Format("15:04"),
+			Status:             r.Status,
+			MinutosInvadidos:   r.MinutosInvadidos,
+			AceitaAdiantar:     r.AceitaAdiantar,
+			ValorCobrado:       r.ValorCobrado,
+			MetodoPagamento:    r.MetodoPagamento,
+			ConfirmacaoCliente: r.ConfirmacaoCliente,
 		}
 		if r.AceitaAdiantarEm != nil {
 			formatted := r.AceitaAdiantarEm.Format(time.RFC3339)
@@ -394,6 +408,10 @@ ORDER BY a.data_hora_inicio
 		if r.CobradoEm != nil {
 			s := r.CobradoEm.Format("2006-01-02")
 			item.CobradoEm = &s
+		}
+		if r.UltimoLembreteEnviadoEm != nil {
+			s := r.UltimoLembreteEnviadoEm.Format(time.RFC3339)
+			item.UltimoLembreteEnviadoEm = &s
 		}
 		out = append(out, item)
 	}

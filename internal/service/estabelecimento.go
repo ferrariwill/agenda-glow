@@ -128,9 +128,15 @@ func (s *EstabelecimentoService) RegisterEstablishment(
 		return "", "", err
 	}
 
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("iniciar cadastro do estabelecimento: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	const verificarSlug = `SELECT id FROM estabelecimentos WHERE slug = $1 LIMIT 1`
 	var existente string
-	err = s.db.GetContext(ctx, &existente, verificarSlug, slug)
+	err = tx.GetContext(ctx, &existente, verificarSlug, slug)
 	if err == nil {
 		return "", "", ErrSlugAlreadyExists
 	}
@@ -143,8 +149,20 @@ INSERT INTO estabelecimentos (nome_comercial, slug, ativo)
 VALUES ($1, $2, TRUE)
 RETURNING id
 `
-	if err := s.db.GetContext(ctx, &id, insert, nome, slug); err != nil {
+	if err := tx.GetContext(ctx, &id, insert, nome, slug); err != nil {
 		return "", "", fmt.Errorf("cadastrar estabelecimento: %w", err)
+	}
+
+	const insertNotificationConfig = `
+INSERT INTO configuracoes_notificacoes_agenda (estabelecimento_id)
+VALUES ($1)
+`
+	if _, err := tx.ExecContext(ctx, insertNotificationConfig, id); err != nil {
+		return "", "", fmt.Errorf("criar configuração padrão de notificações: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", "", fmt.Errorf("confirmar cadastro do estabelecimento: %w", err)
 	}
 
 	return id, slug, nil

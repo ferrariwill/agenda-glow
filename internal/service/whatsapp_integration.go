@@ -272,6 +272,7 @@ func (s *EstabelecimentoService) MarkWhatsAppConnected(ctx context.Context, payl
 	payload.EstabelecimentoID = strings.TrimSpace(payload.EstabelecimentoID)
 	payload.WabaID = strings.TrimSpace(payload.WabaID)
 	payload.PhoneNumberID = strings.TrimSpace(payload.PhoneNumberID)
+	payload.WhatsAppPhoneNumber = strings.TrimSpace(payload.WhatsAppPhoneNumber)
 	payload.Status = strings.ToLower(strings.TrimSpace(payload.Status))
 
 	if payload.Event != "" && payload.Event != "whatsapp_connection_completed" {
@@ -326,6 +327,7 @@ UPDATE estabelecimentos
 SET whatsapp_status = $2,
     whatsapp_waba_id = NULLIF($3, ''),
     whatsapp_phone_number_id = NULLIF($4, ''),
+    whatsapp_phone_number = NULLIF($5, ''),
     whatsapp_connected_at = NOW()
 WHERE id = $1
 RETURNING id
@@ -338,6 +340,7 @@ RETURNING id
 		WhatsAppStatusConectado,
 		payload.WabaID,
 		payload.PhoneNumberID,
+		payload.WhatsAppPhoneNumber,
 	).Scan(&updated)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

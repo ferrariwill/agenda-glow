@@ -142,7 +142,7 @@ func (s *AgendaService) CriarAgendamento(
 		return resultado, err
 	}
 
-	agendamentoID, err := s.inserirAgendamento(
+	agendamentoID, gestaoToken, err := s.inserirAgendamento(
 		ctx, tx,
 		estabelecimentoID,
 		clienteID,
@@ -164,6 +164,10 @@ func (s *AgendaService) CriarAgendamento(
 		}
 	}
 
+	if err := enqueueNotification(ctx, tx, estabelecimentoID, agendamentoID, NotificationTypeReservationConfirmation); err != nil {
+		return resultado, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return resultado, fmt.Errorf("confirmar transação: %w", err)
 	}
@@ -173,12 +177,13 @@ func (s *AgendaService) CriarAgendamento(
 		Status:           status,
 		MinutosInvadidos: minutosInvadidos,
 	}
+	if origem == OrigemExterno {
+		resultado.ManagementURL = BuildManagementURL(s.baseURL, gestaoToken)
+	}
 
 	if status == "EM_APROVACAO" {
 		go s.dispararEmailAprovacaoEncaixe(agendamentoID, minutosInvadidos)
 	}
-
-	go s.dispararLembreteWhatsAppAgendamento(agendamentoID)
 
 	return resultado, nil
 }
@@ -267,7 +272,7 @@ func (s *AgendaService) inserirAgendamento(
 	origem OrigemAgendamento,
 	minutosInvadidos int,
 	aceitaAdiantar bool,
-) (string, error) {
+) (string, string, error) {
 	const insert = `
 INSERT INTO agendamentos (
     estabelecimento_id,
@@ -280,14 +285,18 @@ INSERT INTO agendamentos (
     via_clube_assinatura,
     origem_agendamento,
     minutos_invadidos,
-    aceita_adiantar
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id
+    aceita_adiantar,
+    gestao_token_expires_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, gestao_token::text
 `
-	var agendamentoID string
+	var created struct {
+		ID    string `db:"id"`
+		Token string `db:"gestao_token"`
+	}
 	if err := tx.GetContext(
 		ctx,
-		&agendamentoID,
+		&created,
 		insert,
 		estabelecimentoID,
 		clienteID,
@@ -300,11 +309,12 @@ RETURNING id
 		string(origem),
 		minutosInvadidos,
 		aceitaAdiantar,
+		fim.Add(24*time.Hour),
 	); err != nil {
-		return "", fmt.Errorf("criar agendamento: %w", err)
+		return "", "", fmt.Errorf("criar agendamento: %w", err)
 	}
 
-	return agendamentoID, nil
+	return created.ID, created.Token, nil
 }
 
 func (s *AgendaService) inserirAdicionaisAgendamento(

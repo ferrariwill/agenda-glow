@@ -117,8 +117,27 @@ func TestGetWhatsAppIntegrationHidesSignupWhenDisabled(t *testing.T) {
 	}
 }
 
+// A varredura de lembretes é a única porta de saída do fluxo agendado, então o
+// gate de DEV-6 vive no SQL de descoberta: um salão com o recurso desligado não
+// pode sequer enfileirar notificação.
+func TestReminderDiscoveryRequiresWhatsAppFeatureEnabled(t *testing.T) {
+	if !regexp.MustCompile(`COALESCE\(e\.whatsapp_enabled, FALSE\) = TRUE`).
+		MatchString(agendaNotificationDiscoverySQL) {
+		t.Fatal("descoberta de notificações não filtra por whatsapp_enabled")
+	}
+	if !regexp.MustCompile(`e\.whatsapp_status = 'CONECTADO'`).
+		MatchString(agendaNotificationDiscoverySQL) {
+		t.Fatal("descoberta de notificações não filtra por whatsapp_status")
+	}
+}
+
 func TestReminderDoesNotSendWhenWhatsAppFeatureIsDisabled(t *testing.T) {
-	svc, mock := newWhatsAppTestService(t)
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("criar mock: %v", err)
+	}
+	defer rawDB.Close() //nolint:errcheck
+
 	requests := 0
 	gateway := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		requests++
@@ -127,27 +146,33 @@ func TestReminderDoesNotSendWhenWhatsAppFeatureIsDisabled(t *testing.T) {
 	t.Setenv("WHATSAPP_GATEWAY_URL", gateway.URL)
 	t.Setenv("WHATSAPP_GATEWAY_KEY", "test-key")
 
-	mock.ExpectQuery("FROM agendamentos a").
-		WithArgs("appointment-1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "estabelecimento_id", "profissional_id", "servico_id",
-			"data_hora_inicio", "data_hora_fim", "status", "cliente_nome",
-			"cliente_telefone", "servico_nome", "profissional_nome", "profissional_email",
-		}).AddRow(
-			"appointment-1", "tenant-1", "professional-1", "service-1",
-			time.Now(), time.Now().Add(time.Hour), "AGENDADO", "Cliente",
-			"5511999999999", "Corte", "Profissional", nil,
-		))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(whatsapp_enabled, FALSE)")).
-		WithArgs("tenant-1").
-		WillReturnRows(sqlmock.NewRows([]string{"whatsapp_enabled"}).AddRow(false))
+	db := sqlx.NewDb(rawDB, "sqlmock")
+	now := time.Now()
+	worker := NewAgendaNotificationWorker(db, &recordingNotificationSender{},
+		AgendaNotificationWorkerOptions{Now: func() time.Time { return now }})
 
-	agenda := NewAgendaService(svc.db)
-	agenda.dispararLembreteWhatsAppAgendamento("appointment-1")
+	mock.ExpectExec("UPDATE agendamento_notificacoes").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// O salão está com o recurso desligado: a descoberta não insere nada e a
+	// reserva seguinte não encontra trabalho, então nada é enviado.
+	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectBegin()
+	mock.ExpectQuery("FROM agendamento_notificacoes").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
 	if requests != 0 {
 		t.Fatalf("gateway recebeu %d requisição(ões)", requests)
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
+}
+
+type recordingNotificationSender struct{ calls int }
+
+func (s *recordingNotificationSender) Send(context.Context, WhatsAppNotificationInput) (string, error) {
+	s.calls++
+	return "", nil
 }

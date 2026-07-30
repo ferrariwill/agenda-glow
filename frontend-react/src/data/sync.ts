@@ -17,7 +17,13 @@ export async function syncAdminBootstrap(): Promise<void> {
 
 export async function syncPublicCatalog(slug: string): Promise<void> {
   const catalog = await apiFetch<{
-    estabelecimento: { id: string; nome_comercial: string; slug: string; logo_url?: string }
+    estabelecimento: {
+      id: string
+      nome_comercial: string
+      slug: string
+      logo_url?: string
+      early_slot_notifications_available?: boolean
+    }
     profissionais: { id: string; nome: string; especialidade: string }[]
     servicos: {
       id: string
@@ -36,6 +42,8 @@ export async function syncPublicCatalog(slug: string): Promise<void> {
     slug: catalog.estabelecimento.slug,
     status: 'ATIVO' as const,
     logo_url: catalog.estabelecimento.logo_url,
+    early_slot_notifications_available:
+      catalog.estabelecimento.early_slot_notifications_available,
     plano_id: '',
     data_vencimento: '',
     criado_em: '',

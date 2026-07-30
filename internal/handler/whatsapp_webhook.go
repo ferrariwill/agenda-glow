@@ -199,6 +199,12 @@ func mapWhatsAppWebhookError(w http.ResponseWriter, err error) {
 		writeJSONError(w, http.StatusForbidden, "appointment_scope_mismatch")
 	case errors.Is(err, service.ErrAgendamentoAguardandoAprovacaoProfissional):
 		writeJSONError(w, http.StatusConflict, "appointment_pending_professional_approval")
+	case errors.Is(err, service.ErrCancellationReasonRequired):
+		writeJSONError(w, http.StatusBadRequest, "reason_required")
+	case errors.Is(err, service.ErrCancellationWindowClosed):
+		writeJSONError(w, http.StatusUnprocessableEntity, "cancellation_window_closed")
+	case errors.Is(err, service.ErrAppointmentNotCancellable):
+		writeJSONError(w, http.StatusConflict, "appointment_not_cancellable")
 	case errors.Is(err, service.ErrAgendamentoCancelado),
 		errors.Is(err, service.ErrAgendamentoStatusFinal),
 		errors.Is(err, service.ErrAgendamentoJaConcluido):
