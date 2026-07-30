@@ -3,7 +3,7 @@ import { Badge, confirmacaoClienteBadge } from '../../ui/Badge'
 import { Card } from '../../ui/Card'
 import type { PublicAppointmentManageResponse } from '../../../types'
 
-export function GestaoAgendamentoResumo({
+export function GestaoAgendamentoDetalhe({
   data,
 }: {
   data: PublicAppointmentManageResponse

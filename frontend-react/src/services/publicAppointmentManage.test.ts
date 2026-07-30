@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { cancelManage, getManage } from './publicAppointmentManageApi'
+import { cancelManage, getManage } from './publicAppointmentManage'
 
-describe('publicAppointmentManageApi mock contract', () => {
+describe('publicAppointmentManage mock contract', () => {
   it('returns the backend-shaped management payload', async () => {
     const response = await getManage('mock-valid')
 

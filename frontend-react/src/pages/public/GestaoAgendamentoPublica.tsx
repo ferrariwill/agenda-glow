@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { useParams } from 'react-router-dom'
-import { GestaoAgendamentoResumo } from '../../components/public/gestao/GestaoAgendamentoResumo'
-import { GestaoCancelarDialog } from '../../components/public/gestao/GestaoCancelarDialog'
-import { GestaoEstadoErro } from '../../components/public/gestao/GestaoEstadoErro'
+import { GestaoAgendamentoDetalhe } from '../../components/public/gestao/GestaoAgendamentoDetalhe'
+import { GestaoCancelamentoPainel } from '../../components/public/gestao/GestaoCancelamentoPainel'
+import { GestaoEstadoMensagem } from '../../components/public/gestao/GestaoEstadoMensagem'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { ApiError } from '../../lib/api'
-import { cancelManage, getManage } from '../../services/publicAppointmentManageApi'
+import { cancelManage, getManage } from '../../services/publicAppointmentManage'
 import type { PublicAppointmentManageResponse } from '../../types'
 
 type ViewState =
@@ -34,7 +34,7 @@ function denialMessage(reason?: string | null) {
   return reason ?? undefined
 }
 
-export function GestaoAgendamentoPublico() {
+export function GestaoAgendamentoPublica() {
   const { token = '' } = useParams<{ token: string }>()
   const [state, setState] = useState<ViewState>({ kind: 'loading' })
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -105,10 +105,10 @@ export function GestaoAgendamentoPublico() {
         )}
 
         {(state.kind === 'not_found' || state.kind === 'expired' || state.kind === 'unexpected') && (
-          <GestaoEstadoErro kind={state.kind} message={state.message} />
+          <GestaoEstadoMensagem kind={state.kind} message={state.message} />
         )}
 
-        {data && <GestaoAgendamentoResumo data={data} />}
+        {data && <GestaoAgendamentoDetalhe data={data} />}
 
         {state.kind === 'ready' && (
           <Card>
@@ -122,9 +122,10 @@ export function GestaoAgendamentoPublico() {
         )}
 
         {(state.kind === 'window_closed' || state.kind === 'terminal') && (
-          <GestaoEstadoErro
+          <GestaoEstadoMensagem
             kind={state.kind}
             message={denialMessage(state.data.cancellation.denial_reason)}
+            minimumNoticeHours={state.data.cancellation.minimum_notice_hours}
             contactPhone={state.data.establishment.contact_phone}
           />
         )}
@@ -141,7 +142,7 @@ export function GestaoAgendamentoPublico() {
           </Card>
         )}
 
-        <GestaoCancelarDialog
+        <GestaoCancelamentoPainel
           open={dialogOpen}
           reasonRequired={state.kind === 'ready' && state.data.cancellation.reason_required}
           motivo={motivo}

@@ -44,7 +44,10 @@ function adminPayload(
   }
 }
 
-function tenantPayload(status: TenantStatus): TenantPayload {
+function tenantPayload(
+  status: TenantStatus,
+  agendamentos: TenantPayload['agendamentos'] = [],
+): TenantPayload {
   return {
     tenant: {
       id: 'tenant-1',
@@ -56,8 +59,32 @@ function tenantPayload(status: TenantStatus): TenantPayload {
     profissionais: [],
     servicos: [],
     clientes: [],
-    agendamentos: [],
+    agendamentos,
     lancamentos: [],
+  }
+}
+
+function agendamentoPayload(
+  extra: Partial<TenantPayload['agendamentos'][number]>,
+): TenantPayload {
+  return {
+    ...tenantPayload('ATIVO'),
+    agendamentos: [
+      {
+        id: 'ag-1',
+        tenant_id: 'tenant-1',
+        profissional_id: 'prof-1',
+        servico_id: 'srv-1',
+        servico_ids: ['srv-1'],
+        adicional_ids: [],
+        cliente_nome: 'Maria',
+        cliente_telefone: '11999999999',
+        data: '2026-08-01',
+        hora_inicio: '16:00',
+        status: 'CONFIRMADO',
+        ...extra,
+      },
+    ],
   }
 }
 
@@ -102,30 +129,6 @@ describe('mapAdminBootstrap', () => {
     expect(db.tenants[0].status).toBe('ATIVO')
   })
 })
-
-function agendamentoPayload(
-  extra: Partial<TenantPayload['agendamentos'][number]>,
-): TenantPayload {
-  return {
-    ...tenantPayload('ATIVO'),
-    agendamentos: [
-      {
-        id: 'ag-1',
-        tenant_id: 'tenant-1',
-        profissional_id: 'prof-1',
-        servico_id: 'srv-1',
-        servico_ids: ['srv-1'],
-        adicional_ids: [],
-        cliente_nome: 'Maria',
-        cliente_telefone: '11999999999',
-        data: '2026-08-01',
-        hora_inicio: '16:00',
-        status: 'CONFIRMADO',
-        ...extra,
-      },
-    ],
-  }
-}
 
 describe('mapTenantBootstrap', () => {
   it('preserva os três estados sem colapsar SUSPENSO em ATIVO', () => {
@@ -189,5 +192,29 @@ describe('mapTenantBootstrap', () => {
     }
     const db = mapTenantBootstrap(payload, emptyDb())
     expect(db.tenants[0].early_slot_queue_active).toBe(false)
+  })
+
+  it('mapeia confirmacao_cliente e ultimo_lembrete_enviado_em quando a API envia', () => {
+    const db = mapTenantBootstrap(
+      agendamentoPayload({
+        confirmacao_cliente: 'CONFIRMADO_CLIENTE',
+        ultimo_lembrete_enviado_em: '2026-08-01T13:00:00-03:00',
+      }),
+      emptyDb(),
+    )
+
+    expect(db.agendamentos[0]).toMatchObject({
+      confirmacao_cliente: 'CONFIRMADO_CLIENTE',
+      ultimo_lembrete_enviado_em: '2026-08-01T13:00:00-03:00',
+    })
+  })
+
+  it('assume PENDENTE e lembrete nulo quando a API ainda não envia os campos', () => {
+    const db = mapTenantBootstrap(agendamentoPayload({}), emptyDb())
+
+    expect(db.agendamentos[0]).toMatchObject({
+      confirmacao_cliente: 'PENDENTE',
+      ultimo_lembrete_enviado_em: null,
+    })
   })
 })
