@@ -237,8 +237,8 @@ func TestFirstSendFailureSchedulesRetryInsteadOfFailing(t *testing.T) {
 		return errors.New("gateway indisponível")
 	}
 
-	mock.ExpectExec(regexp.QuoteMeta(`SET proxima_tentativa_em=$3`)).
-		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay)).
+	mock.ExpectExec(regexp.QuoteMeta(`SET tentativas_envio=$4, proxima_tentativa_em=$3`)).
+		WithArgs("oferta-1", "tenant-1", now.Add(earlySlotSendRetryDelay), 1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	delivery := failingDelivery("oferta-1")
@@ -312,11 +312,13 @@ func TestSendRetryRotatesTokenAndResends(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(now, earlySlotMaxSendAttempts).
 		WillReturnRows(pendingRetryRow(currentStart, slotStart))
-	mock.ExpectExec(regexp.QuoteMeta(`SET token_hash=$3, tentativas_envio=tentativas_envio+1`)).
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET token_hash=$3`)).
 		WithArgs("oferta-1", "tenant-1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	// Segunda iteração do laço: não há mais nada para reenviar.
+	mock.ExpectExec(regexp.QuoteMeta(`SET proxima_tentativa_em=NULL`)).
+		WithArgs("oferta-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
 		WithArgs(now, earlySlotMaxSendAttempts).

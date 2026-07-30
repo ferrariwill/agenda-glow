@@ -19,7 +19,7 @@ const (
 )
 
 type detalheSobreposicao struct {
-	ProximoInicio time.Time
+	ProximoInicio    time.Time
 	MinutosInvadidos int
 }
 
@@ -119,6 +119,25 @@ func calcularMinutosInvadidos(fim, proximoInicio time.Time) int {
 		minutos = 1
 	}
 	return minutos
+}
+
+// lockAgendaProfissional serializa escritas de agenda do mesmo profissional no
+// tenant. FOR UPDATE em conflitos já existentes não impede um INSERT concorrente
+// no mesmo slot; sem este lock, aceite e nova reserva podem ambos commitar.
+func lockAgendaProfissional(ctx context.Context, tx *sqlx.Tx, tenantID, professionalID string) error {
+	const query = `
+SELECT id FROM profissionais
+WHERE id = $1 AND estabelecimento_id = $2
+FOR UPDATE`
+	var id string
+	err := tx.GetContext(ctx, &id, query, professionalID, tenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrProfissionalNaoEncontrado
+	}
+	if err != nil {
+		return fmt.Errorf("bloquear agenda do profissional: %w", err)
+	}
+	return nil
 }
 
 // intervaloTotalmenteLivre garante que o procedimento cabe sem nenhuma sobreposição.

@@ -316,6 +316,9 @@ func TestAcceptCommitsRescheduleBeforeSendingWhatsAppConfirmation(t *testing.T) 
 			slotStart, slotEnd, currentStart, currentEnd,
 			"Maria", "5511999999999", "Ana", "Corte", true,
 		))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM profissionais`)).
+		WithArgs("prof-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
 		WithArgs("tenant-1", "prof-1", "agendamento-1", slotStart, slotStart.Add(45*time.Minute)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
