@@ -5,176 +5,143 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/jmoiron/sqlx"
-
 	"github.com/agendaglow/agendaglow/internal/service"
+	"github.com/jmoiron/sqlx"
 )
 
 const (
 	testAppointmentID = "appointment-a"
 	testTenantID      = "tenant-a"
 	testPhone         = "5511999999999"
-
-	callbackRoute = "/api/v1/webhook/whatsapp-callback"
-	gatewayRoute  = "/api/v1/webhook/whatsapp-gateway"
+	callbackRoute     = "/api/v1/webhook/whatsapp-callback"
+	gatewayRoute      = "/api/v1/webhook/whatsapp-gateway"
 )
 
-func TestMapWhatsAppWebhookErrorPendingProfessionalApproval(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	mapWhatsAppWebhookError(recorder, service.ErrAgendamentoAguardandoAprovacaoProfissional)
-
-	if recorder.Code != http.StatusConflict {
-		t.Fatalf("status: got %d, want 409", recorder.Code)
+func TestMapWhatsAppWebhookErrorKeepsDistinctConflictCodes(t *testing.T) {
+	cases := map[error]struct {
+		status int
+		code   string
+	}{
+		service.ErrAgendamentoAguardandoAprovacaoProfissional: {http.StatusConflict, "appointment_pending_professional_approval"},
+		service.ErrAgendamentoStatusFinal:                     {http.StatusConflict, "appointment_not_updatable"},
+		service.ErrAgendamentoEscopoInvalido:                  {http.StatusForbidden, "appointment_scope_mismatch"},
+		service.ErrAgendamentoNaoEncontrado:                   {http.StatusNotFound, "appointment_not_found"},
+		service.ErrAcaoWhatsAppInvalida:                       {http.StatusBadRequest, "invalid_payload"},
+		service.ErrCancellationReasonRequired:                 {http.StatusBadRequest, "reason_required"},
+		service.ErrCancellationWindowClosed:                   {http.StatusUnprocessableEntity, "cancellation_window_closed"},
+		service.ErrAppointmentNotCancellable:                  {http.StatusConflict, "appointment_not_cancellable"},
 	}
-	var body map[string]string
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decodificar resposta: %v", err)
-	}
-	if body["error"] != "appointment_pending_professional_approval" {
-		t.Fatalf("error: got %q, want appointment_pending_professional_approval", body["error"])
+	for err, want := range cases {
+		recorder := httptest.NewRecorder()
+		mapWhatsAppWebhookError(recorder, err)
+		if recorder.Code != want.status {
+			t.Fatalf("%v: status got %d, want %d", err, recorder.Code, want.status)
+		}
+		if got := decodeField(t, recorder.Body.String(), "error"); got != want.code {
+			t.Fatalf("%v: error got %q, want %q", err, got, want.code)
+		}
 	}
 }
 
-// TestWhatsAppWebhookRoutesConflictOnPendingEncaixe exercita a rota HTTP inteira — mux, decode do
-// corpo, serviço e mapeamento de erro — para as duas URLs que despacham handleCallbackBody.
-// O teste isolado de mapWhatsAppWebhookError não pega desvio de fluxo antes do mapper nem perda da
-// distinção entre "aguarda aprovação da profissional" e "não atualizável".
-func TestWhatsAppWebhookRoutesConflictOnPendingEncaixe(t *testing.T) {
+func TestWhatsAppWebhookCancelMapsDomainErrorsOnCallbackAndGateway(t *testing.T) {
 	cases := []struct {
-		nome   string
-		rota   string
-		acao   string
-		evento string
+		name           string
+		status         string
+		startsAt       time.Time
+		reasonRequired bool
+		wantStatus     int
+		wantCode       string
 	}{
-		{nome: "callback com action CONFIRM", rota: callbackRoute, acao: "CONFIRM"},
-		{nome: "gateway com action CONFIRM", rota: gatewayRoute, acao: "CONFIRM"},
-		{nome: "callback com action minuscula", rota: callbackRoute, acao: "confirm"},
-		{nome: "gateway com action minuscula", rota: gatewayRoute, acao: "confirm"},
-		{nome: "callback com espacos ao redor", rota: callbackRoute, acao: "  CONFIRM  "},
-		{nome: "gateway com espacos ao redor", rota: gatewayRoute, acao: "  confirm  "},
-		{nome: "gateway despachado por button_reply", rota: gatewayRoute, acao: "CONFIRM", evento: "button_reply"},
+		{
+			name: "reason_required", status: "AGENDADO", startsAt: time.Now().Add(24 * time.Hour),
+			reasonRequired: true, wantStatus: http.StatusBadRequest, wantCode: "reason_required",
+		},
+		{
+			name: "window_closed", status: "AGENDADO", startsAt: time.Now().Add(time.Hour),
+			wantStatus: http.StatusUnprocessableEntity, wantCode: "cancellation_window_closed",
+		},
+		{
+			name: "not_cancellable", status: "CONCLUIDO", startsAt: time.Now().Add(24 * time.Hour),
+			wantStatus: http.StatusConflict, wantCode: "appointment_not_cancellable",
+		},
 	}
+	for _, route := range []string{callbackRoute, gatewayRoute} {
+		for _, tc := range cases {
+			t.Run(route+"_"+tc.name, func(t *testing.T) {
+				mux, mock, cleanup := newWhatsAppWebhookTestServer(t)
+				defer cleanup()
+				mock.ExpectBegin()
+				expectAppointmentLookupWithPolicy(mock, tc.status, "PENDENTE", tc.startsAt, tc.reasonRequired)
+				mock.ExpectRollback()
 
-	for _, tc := range cases {
-		t.Run(tc.nome, func(t *testing.T) {
-			mux, mock, cleanup := newWhatsAppWebhookTestServer(t)
-			defer cleanup()
-
-			expectAppointmentLookup(mock, "EM_APROVACAO")
-
-			code, body := postWhatsAppWebhook(t, mux, tc.rota, map[string]any{
-				"sistema_origem": "beleza",
-				"tenant_id":      testTenantID,
-				"phone_number":   testPhone,
-				"event_type":     tc.evento,
-				"text":           "APPT_CONFIRM",
-				"action":         tc.acao,
-				"appointment_id": testAppointmentID,
+				code, body := postWhatsAppWebhook(t, mux, route, map[string]any{
+					"sistema_origem": "beleza", "tenant_id": testTenantID,
+					"phone_number": testPhone, "event_type": "button_reply",
+					"action": "CANCEL", "appointment_id": testAppointmentID,
+				})
+				if code != tc.wantStatus || decodeField(t, body, "error") != tc.wantCode {
+					t.Fatalf("status=%d body=%s", code, body)
+				}
+				if err := mock.ExpectationsWereMet(); err != nil {
+					t.Fatal(err)
+				}
 			})
-
-			if code != http.StatusConflict {
-				t.Fatalf("status HTTP: got %d, want 409 (corpo: %s)", code, body)
-			}
-			if got := decodeField(t, body, "error"); got != "appointment_pending_professional_approval" {
-				t.Fatalf("error: got %q, want appointment_pending_professional_approval", got)
-			}
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Fatalf("expectativas SQL (nenhum UPDATE esperado): %v", err)
-			}
-		})
+		}
 	}
 }
 
-// TestWhatsAppWebhookRoutesStatusMatrix fixa, na fronteira HTTP, que cada status de agendamento
-// tem sua própria resposta. Sem isso, colapsar o encaixe pendente dentro de appointment_not_updatable
-// passaria despercebido: os dois são 409.
-func TestWhatsAppWebhookRoutesStatusMatrix(t *testing.T) {
-	cases := []struct {
-		nome              string
-		statusAgendamento string
-		acao              string
-		esperaUpdatePara  string
-		wantHTTP          int
-		wantErro          string
-		wantStatusFinal   string
-	}{
-		{
-			nome:              "encaixe pendente bloqueia CONFIRM",
-			statusAgendamento: "EM_APROVACAO",
-			acao:              "CONFIRM",
-			wantHTTP:          http.StatusConflict,
-			wantErro:          "appointment_pending_professional_approval",
-		},
-		{
-			nome:              "encaixe pendente aceita CANCEL",
-			statusAgendamento: "EM_APROVACAO",
-			acao:              "CANCEL",
-			esperaUpdatePara:  "CANCELADO",
-			wantHTTP:          http.StatusOK,
-			wantStatusFinal:   "CANCELADO",
-		},
-		{
-			nome:              "cancelado nao volta com CONFIRM",
-			statusAgendamento: "CANCELADO",
-			acao:              "CONFIRM",
-			wantHTTP:          http.StatusConflict,
-			wantErro:          "appointment_not_updatable",
-		},
-		{
-			nome:              "concluido nao aceita CONFIRM",
-			statusAgendamento: "CONCLUIDO",
-			acao:              "CONFIRM",
-			wantHTTP:          http.StatusConflict,
-			wantErro:          "appointment_not_updatable",
-		},
-		{
-			nome:              "agendado confirma normalmente",
-			statusAgendamento: "AGENDADO",
-			acao:              "CONFIRM",
-			esperaUpdatePara:  "CONFIRMADO",
-			wantHTTP:          http.StatusOK,
-			wantStatusFinal:   "CONFIRMADO",
-		},
-	}
+func TestWhatsAppWebhookConfirmPreservesOperationalStatus(t *testing.T) {
+	for _, route := range []string{callbackRoute, gatewayRoute} {
+		for _, status := range []string{"AGENDADO", "EM_APROVACAO"} {
+			t.Run(route+"_"+status, func(t *testing.T) {
+				mux, mock, cleanup := newWhatsAppWebhookTestServer(t)
+				defer cleanup()
+				mock.ExpectBegin()
+				expectAppointmentLookup(mock, status, "PENDENTE")
+				mock.ExpectExec("UPDATE agendamentos[\\s\\S]+CONFIRMADO_CLIENTE").
+					WithArgs(testAppointmentID, testTenantID).
+					WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
 
-	for _, tc := range cases {
-		t.Run(tc.nome, func(t *testing.T) {
+				code, body := postWhatsAppWebhook(t, mux, route, map[string]any{
+					"sistema_origem": "beleza", "tenant_id": testTenantID,
+					"phone_number": testPhone, "event_type": "button_reply",
+					"action": "confirm", "appointment_id": testAppointmentID,
+				})
+				if code != http.StatusOK || decodeField(t, body, "appointment_status") != status {
+					t.Fatalf("status=%d body=%s", code, body)
+				}
+				if err := mock.ExpectationsWereMet(); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
+func TestWhatsAppWebhookFinalStatusesArePreserved(t *testing.T) {
+	for _, status := range []string{"CANCELADO", "CONCLUIDO"} {
+		t.Run(status, func(t *testing.T) {
 			mux, mock, cleanup := newWhatsAppWebhookTestServer(t)
 			defer cleanup()
-
-			expectAppointmentLookup(mock, tc.statusAgendamento)
-			if tc.esperaUpdatePara != "" {
-				expectAppointmentStatusUpdate(mock, tc.esperaUpdatePara)
-			}
+			mock.ExpectBegin()
+			expectAppointmentLookup(mock, status, "PENDENTE")
+			mock.ExpectRollback()
 
 			code, body := postWhatsAppWebhook(t, mux, callbackRoute, map[string]any{
-				"sistema_origem": "beleza",
-				"tenant_id":      testTenantID,
-				"phone_number":   testPhone,
-				"action":         tc.acao,
+				"sistema_origem": "beleza", "tenant_id": testTenantID,
+				"phone_number": testPhone, "action": "CONFIRM",
 				"appointment_id": testAppointmentID,
 			})
-
-			if code != tc.wantHTTP {
-				t.Fatalf("status HTTP: got %d, want %d (corpo: %s)", code, tc.wantHTTP, body)
-			}
-			if tc.wantErro != "" {
-				if got := decodeField(t, body, "error"); got != tc.wantErro {
-					t.Fatalf("error: got %q, want %q", got, tc.wantErro)
-				}
-			}
-			if tc.wantStatusFinal != "" {
-				if got := decodeField(t, body, "appointment_status"); got != tc.wantStatusFinal {
-					t.Fatalf("appointment_status: got %q, want %q", got, tc.wantStatusFinal)
-				}
+			if code != http.StatusConflict || decodeField(t, body, "error") != "appointment_not_updatable" {
+				t.Fatalf("status=%d body=%s", code, body)
 			}
 			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Fatalf("expectativas SQL: %v", err)
+				t.Fatal(err)
 			}
 		})
 	}
@@ -182,84 +149,56 @@ func TestWhatsAppWebhookRoutesStatusMatrix(t *testing.T) {
 
 func newWhatsAppWebhookTestServer(t *testing.T) (*http.ServeMux, sqlmock.Sqlmock, func()) {
 	t.Helper()
-	// O webhook aceita requisição sem chave, mas só quando a variável não impõe uma.
 	t.Setenv("WHATSAPP_GATEWAY_KEY", "")
-
 	rawDB, mock, err := sqlmock.New()
 	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
+		t.Fatal(err)
 	}
-
 	h := NewWhatsAppWebhookHandler(service.NewAgendaService(sqlx.NewDb(rawDB, "sqlmock")), nil)
-
-	// Mesmas rotas registradas em backend/cmd/api/main.go.
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+callbackRoute, h.Callback)
 	mux.HandleFunc("POST "+gatewayRoute, h.Gateway)
-
 	return mux, mock, func() { _ = rawDB.Close() }
 }
 
-func postWhatsAppWebhook(t *testing.T, mux *http.ServeMux, rota string, payload map[string]any) (int, string) {
+func postWhatsAppWebhook(t *testing.T, mux *http.ServeMux, route string, payload map[string]any) (int, string) {
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("serializar payload: %v", err)
+		t.Fatal(err)
 	}
-
-	req := httptest.NewRequest(http.MethodPost, rota, bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, route, bytes.NewReader(raw))
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, req)
-
 	return recorder.Code, recorder.Body.String()
 }
 
-func decodeField(t *testing.T, body, campo string) string {
+func decodeField(t *testing.T, body, field string) string {
 	t.Helper()
 	var out map[string]string
 	if err := json.Unmarshal([]byte(body), &out); err != nil {
-		t.Fatalf("decodificar resposta %q: %v", body, err)
+		t.Fatal(err)
 	}
-	return out[campo]
+	return out[field]
 }
 
-func expectAppointmentLookup(mock sqlmock.Sqlmock, status string) {
-	inicio := time.Date(2026, 7, 30, 15, 0, 0, 0, time.UTC)
+func expectAppointmentLookup(mock sqlmock.Sqlmock, status, confirmation string) {
+	expectAppointmentLookupWithPolicy(mock, status, confirmation, time.Now().Add(24*time.Hour), false)
+}
+
+func expectAppointmentLookupWithPolicy(
+	mock sqlmock.Sqlmock,
+	status, confirmation string,
+	startsAt time.Time,
+	reasonRequired bool,
+) {
 	rows := sqlmock.NewRows([]string{
-		"id",
-		"estabelecimento_id",
-		"profissional_id",
-		"servico_id",
-		"data_hora_inicio",
-		"data_hora_fim",
-		"status",
-		"cliente_nome",
-		"cliente_telefone",
-		"servico_nome",
-		"profissional_nome",
-		"profissional_email",
-	}).AddRow(
-		testAppointmentID,
-		testTenantID,
-		"prof-a",
-		"servico-a",
-		inicio,
-		inicio.Add(45*time.Minute),
-		status,
-		"Cliente Teste",
-		testPhone,
-		"Corte",
-		"Profissional",
-		nil,
-	)
-	mock.ExpectQuery(regexp.QuoteMeta(`FROM agendamentos a`)).
-		WithArgs(testAppointmentID).
+		"id", "estabelecimento_id", "data_hora_inicio", "status",
+		"confirmacao_cliente", "janela_minima_cancelamento_horas",
+		"motivo_cancelamento_obrigatorio", "telefone_contato",
+	}).AddRow(testAppointmentID, testTenantID, startsAt, status,
+		confirmation, 2, reasonRequired, "5511000000000")
+	mock.ExpectQuery("(?s)SELECT.+FROM agendamentos a.+FOR UPDATE OF a").
+		WithArgs(testTenantID, testPhone, testAppointmentID).
 		WillReturnRows(rows)
-}
-
-func expectAppointmentStatusUpdate(mock sqlmock.Sqlmock, statusAlvo string) {
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE agendamentos`)).
-		WithArgs(testAppointmentID, statusAlvo, testTenantID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 }

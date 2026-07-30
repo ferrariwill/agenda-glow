@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -14,11 +13,11 @@ import (
 )
 
 const (
-	whatsappSistemaOrigem      = "beleza"
-	whatsappTemplateLembrete   = "lembrete_agenda"
+	whatsappSistemaOrigem        = "beleza"
+	whatsappTemplateLembrete     = "lembrete_agenda"
 	whatsappSendNotificationPath = "/send-notification"
-	defaultWhatsAppHTTPTimeout = 15 * time.Second
-	defaultWhatsAppLanguage    = "pt_BR"
+	defaultWhatsAppHTTPTimeout   = 15 * time.Second
+	defaultWhatsAppLanguage      = "pt_BR"
 )
 
 // whatsAppSendNotificationRequest é o contrato Beleza → Gateway.
@@ -63,25 +62,44 @@ type WhatsAppNotificationInput struct {
 	Variables      []string
 }
 
+type GatewayNotificationSender struct {
+	BaseURL string
+	APIKey  string
+	Client  *http.Client
+}
+
+func NewGatewayNotificationSenderFromEnv() *GatewayNotificationSender {
+	return &GatewayNotificationSender{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_URL")), "/"),
+		APIKey:  strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_KEY")),
+		Client:  &http.Client{Timeout: defaultWhatsAppHTTPTimeout},
+	}
+}
+
 // EnviarNotificacaoWhatsApp chama o Gateway WhatsApp (cliente Beleza → Gateway).
 func EnviarNotificacaoWhatsApp(ctx context.Context, in WhatsAppNotificationInput) error {
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_URL")), "/")
-	apiKey := strings.TrimSpace(os.Getenv("WHATSAPP_GATEWAY_KEY"))
+	_, err := NewGatewayNotificationSenderFromEnv().Send(ctx, in)
+	return err
+}
+
+func (s *GatewayNotificationSender) Send(ctx context.Context, in WhatsAppNotificationInput) (string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(s.BaseURL), "/")
+	apiKey := strings.TrimSpace(s.APIKey)
 	if baseURL == "" || apiKey == "" {
-		return fmt.Errorf("whatsapp gateway não configurado (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_KEY)")
+		return "", fmt.Errorf("whatsapp gateway não configurado (WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_KEY)")
 	}
 
 	phone := strings.TrimSpace(in.PhoneNumber)
 	if phone == "" {
-		return fmt.Errorf("telefone do cliente vazio")
+		return "", fmt.Errorf("telefone do cliente vazio")
 	}
 	tenantID := strings.TrimSpace(in.TenantID)
 	if tenantID == "" {
-		return fmt.Errorf("tenant_id (salão) vazio")
+		return "", fmt.Errorf("tenant_id (salão) vazio")
 	}
 	template := strings.TrimSpace(in.TemplateName)
 	if template == "" {
-		return fmt.Errorf("template_name vazio")
+		return "", fmt.Errorf("template_name vazio")
 	}
 	lang := strings.TrimSpace(in.LanguageCode)
 	if lang == "" {
@@ -101,53 +119,44 @@ func EnviarNotificacaoWhatsApp(ctx context.Context, in WhatsAppNotificationInput
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("serializar payload whatsapp: %w", err)
+		return "", fmt.Errorf("serializar payload whatsapp: %w", err)
 	}
 
 	endpoint := baseURL + whatsappSendNotificationPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("montar requisição whatsapp: %w", err)
+		return "", fmt.Errorf("montar requisição whatsapp: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-API-Key", apiKey)
 
-	client := &http.Client{Timeout: defaultWhatsAppHTTPTimeout}
+	client := s.Client
+	if client == nil {
+		client = &http.Client{Timeout: defaultWhatsAppHTTPTimeout}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("chamar whatsapp gateway: %w", err)
+		return "", fmt.Errorf("chamar whatsapp gateway: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("whatsapp gateway status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return "", fmt.Errorf("whatsapp gateway status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
-	return nil
-}
-
-func (s *AgendaService) dispararLembreteWhatsAppAgendamento(agendamentoID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultWhatsAppHTTPTimeout)
-	defer cancel()
-
-	ag, err := s.buscarAgendamento(ctx, agendamentoID)
-	if err != nil {
-		log.Printf("whatsapp lembrete: buscar agendamento %s: %v", agendamentoID, err)
-		return
+	var response struct {
+		MessageID         string `json:"message_id"`
+		ExternalMessageID string `json:"external_message_id"`
+		ID                string `json:"id"`
 	}
-
-	horario := ag.DataHoraInicio.Format("02/01/2006 15:04")
-	if err := DispararLembreteWhatsApp(
-		ctx,
-		ag.ClienteTelefone,
-		ag.ClienteNome,
-		ag.ProfissionalNome,
-		ag.ServicoNome,
-		horario,
-		ag.ID,
-		ag.EstabelecimentoID,
-	); err != nil {
-		log.Printf("whatsapp lembrete: agendamento %s: %v", agendamentoID, err)
+	if len(respBody) > 0 {
+		_ = json.Unmarshal(respBody, &response)
 	}
+	for _, id := range []string{response.MessageID, response.ExternalMessageID, response.ID} {
+		if strings.TrimSpace(id) != "" {
+			return strings.TrimSpace(id), nil
+		}
+	}
+	return "", nil
 }

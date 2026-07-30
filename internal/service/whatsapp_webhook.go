@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 var (
@@ -33,6 +36,7 @@ type WhatsAppCallbackPayload struct {
 	EventType     string `json:"event_type"`
 	Action        string `json:"action"`
 	AppointmentID string `json:"appointment_id"`
+	Reason        string `json:"reason"`
 	// Legado (pré-contrato Gateway atual)
 	SystemID         string `json:"system_id"`
 	ExternalClientID string `json:"external_client_id"`
@@ -47,6 +51,7 @@ func (p *WhatsAppCallbackPayload) normalize() {
 	p.EventType = strings.TrimSpace(p.EventType)
 	p.Action = strings.ToUpper(strings.TrimSpace(p.Action))
 	p.AppointmentID = strings.TrimSpace(p.AppointmentID)
+	p.Reason = strings.TrimSpace(p.Reason)
 	p.SystemID = strings.TrimSpace(p.SystemID)
 	p.ExternalClientID = strings.TrimSpace(p.ExternalClientID)
 
@@ -70,8 +75,8 @@ func (p *WhatsAppCallbackPayload) validate() error {
 	if p.SistemaOrigem != "" && p.SistemaOrigem != WhatsAppSistemaBeleza {
 		return fmt.Errorf("%w: sistema_origem deve ser beleza", ErrWebhookPayloadInvalido)
 	}
-	if p.TenantID == "" && p.AppointmentID == "" {
-		return fmt.Errorf("%w: tenant_id ou appointment_id obrigatório", ErrWebhookPayloadInvalido)
+	if p.TenantID == "" {
+		return fmt.Errorf("%w: tenant_id obrigatório", ErrWebhookPayloadInvalido)
 	}
 	if p.PhoneNumber == "" {
 		return fmt.Errorf("%w: phone_number obrigatório", ErrWebhookPayloadInvalido)
@@ -93,117 +98,118 @@ func (p *WhatsAppCallbackPayload) validate() error {
 	return nil
 }
 
-// ProcessWhatsAppCallback atualiza o status do agendamento conforme a ação da cliente.
+// ProcessWhatsAppCallback separa confirmação do cliente do status operacional.
 func (s *AgendaService) ProcessWhatsAppCallback(ctx context.Context, payload WhatsAppCallbackPayload) (string, error) {
 	if err := payload.validate(); err != nil {
 		return "", err
 	}
 
-	ag, err := s.resolverAgendamentoWhatsApp(ctx, payload)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	ag, err := s.resolverAgendamentoWhatsApp(ctx, tx, payload)
 	if err != nil {
 		return "", err
 	}
 
-	if payload.TenantID != "" && ag.EstabelecimentoID != payload.TenantID {
-		return "", ErrAgendamentoEscopoInvalido
-	}
-
-	if normalizePhoneDigits(ag.ClienteTelefone) != "" &&
-		!phonesMatch(ag.ClienteTelefone, payload.PhoneNumber) {
-		return "", ErrAgendamentoEscopoInvalido
-	}
-
-	targetStatus := "CONFIRMADO"
-	if payload.Action == WhatsAppActionCancel {
-		targetStatus = "CANCELADO"
-	}
-
-	if ag.Status == targetStatus {
-		return targetStatus, nil
-	}
-
-	switch ag.Status {
-	case "CONCLUIDO":
-		return "", ErrAgendamentoStatusFinal
-	case "CANCELADO":
-		if payload.Action == WhatsAppActionConfirm {
+	if payload.Action == WhatsAppActionConfirm {
+		if ag.Status == "CONCLUIDO" {
+			return "", ErrAgendamentoStatusFinal
+		}
+		if ag.Status == "CANCELADO" {
 			return "", ErrAgendamentoCancelado
 		}
-		return targetStatus, nil
-	case "EM_APROVACAO":
-		// Cliente confirma presença; não autoriza o encaixe — só a profissional pode.
-		if payload.Action == WhatsAppActionConfirm {
-			return "", ErrAgendamentoAguardandoAprovacaoProfissional
-		}
-	}
-
-	const update = `
+		if ag.CustomerConfirmation != "CONFIRMADO_CLIENTE" {
+			if _, err := tx.ExecContext(ctx, `
 UPDATE agendamentos
-SET status = $2
-WHERE id = $1
-  AND estabelecimento_id = $3
-`
-	res, err := s.db.ExecContext(ctx, update, ag.ID, targetStatus, ag.EstabelecimentoID)
-	if err != nil {
-		return "", fmt.Errorf("atualizar status do agendamento: %w", err)
+SET confirmacao_cliente = 'CONFIRMADO_CLIENTE'
+WHERE id = $1 AND estabelecimento_id = $2
+`, ag.ID, ag.EstablishmentID); err != nil {
+				return "", fmt.Errorf("confirmar presença do cliente: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return "", err
+		}
+		return ag.Status, nil
 	}
 
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return "", fmt.Errorf("verificar linhas afetadas: %w", err)
+	management := &managementAppointment{
+		ID: ag.ID, EstablishmentID: ag.EstablishmentID, StartsAt: ag.StartsAt,
+		Status: ag.Status, CustomerConfirmation: ag.CustomerConfirmation,
+		MinimumCancellationNoticeHours: ag.MinimumCancellationNoticeHours,
+		ReasonRequired:                 ag.ReasonRequired, ContactPhone: ag.ContactPhone,
 	}
-	if rows == 0 {
-		return "", ErrAgendamentoNaoEncontrado
+	if _, err := cancelManagementAppointment(ctx, tx, management, payload.Reason, CancellationOriginWhatsApp, time.Now()); err != nil {
+		return "", err
 	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return "CANCELADO", nil
+}
 
-	return targetStatus, nil
+type callbackAppointment struct {
+	ID                             string    `db:"id"`
+	EstablishmentID                string    `db:"estabelecimento_id"`
+	StartsAt                       time.Time `db:"data_hora_inicio"`
+	Status                         string    `db:"status"`
+	CustomerConfirmation           string    `db:"confirmacao_cliente"`
+	MinimumCancellationNoticeHours int       `db:"janela_minima_cancelamento_horas"`
+	ReasonRequired                 bool      `db:"motivo_cancelamento_obrigatorio"`
+	ContactPhone                   string    `db:"telefone_contato"`
 }
 
 func (s *AgendaService) resolverAgendamentoWhatsApp(
 	ctx context.Context,
+	tx *sqlx.Tx,
 	payload WhatsAppCallbackPayload,
-) (*agendamentoPendente, error) {
-	if payload.AppointmentID != "" {
-		return s.buscarAgendamento(ctx, payload.AppointmentID)
-	}
-
+) (*callbackAppointment, error) {
 	phoneDigits := normalizePhoneDigits(payload.PhoneNumber)
-	if phoneDigits == "" || payload.TenantID == "" {
-		return nil, fmt.Errorf("%w: sem appointment_id, informe tenant_id e phone_number", ErrWebhookPayloadInvalido)
+	if phoneDigits == "" {
+		return nil, fmt.Errorf("%w: phone_number inválido", ErrWebhookPayloadInvalido)
 	}
 
-	const q = `
+	q := `
 SELECT
-    a.id,
-    a.estabelecimento_id,
-    a.profissional_id,
-    a.servico_id,
-    a.data_hora_inicio,
-    a.data_hora_fim,
-    a.status,
-    c.nome AS cliente_nome,
-    c.telefone AS cliente_telefone,
-    s.nome AS servico_nome,
-    p.nome AS profissional_nome,
-    p.email AS profissional_email
+    a.id, a.estabelecimento_id, a.data_hora_inicio, a.status,
+    a.confirmacao_cliente, cfg.janela_minima_cancelamento_horas,
+    cfg.motivo_cancelamento_obrigatorio,
+    COALESCE(e.whatsapp_phone_number, '') AS telefone_contato
 FROM agendamentos a
 INNER JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
-INNER JOIN servicos s ON s.id = a.servico_id
-INNER JOIN profissionais p ON p.id = a.profissional_id
+INNER JOIN configuracoes_notificacoes_agenda cfg ON cfg.estabelecimento_id = a.estabelecimento_id
+INNER JOIN estabelecimentos e ON e.id = a.estabelecimento_id
 WHERE a.estabelecimento_id = $1
-  AND a.status IN ('AGENDADO', 'CONFIRMADO', 'EM_APROVACAO')
+  AND ($3 <> '' OR (
+    a.status IN ('AGENDADO', 'CONFIRMADO', 'EM_APROVACAO')
+    AND a.data_hora_inicio >= NOW()
+  ))
+  AND ($3 = '' OR a.id::text = $3)
   AND (
     regexp_replace(c.telefone, '[^0-9]', '', 'g') = $2
     OR regexp_replace(c.telefone, '[^0-9]', '', 'g') = '55' || $2
     OR $2 LIKE '%' || regexp_replace(c.telefone, '[^0-9]', '', 'g')
     OR regexp_replace(c.telefone, '[^0-9]', '', 'g') LIKE '%' || RIGHT($2, 11)
   )
-ORDER BY a.data_hora_inicio DESC
+ORDER BY a.data_hora_inicio ASC
 LIMIT 1
+FOR UPDATE OF a
 `
-	var ag agendamentoPendente
-	if err := s.db.GetContext(ctx, &ag, q, payload.TenantID, phoneDigits); err != nil {
+	var ag callbackAppointment
+	if err := tx.GetContext(ctx, &ag, q, payload.TenantID, phoneDigits, payload.AppointmentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if payload.AppointmentID != "" {
+				var exists bool
+				if checkErr := tx.GetContext(ctx, &exists, `
+SELECT EXISTS(SELECT 1 FROM agendamentos WHERE id::text = $1)
+`, payload.AppointmentID); checkErr == nil && exists {
+					return nil, ErrAgendamentoEscopoInvalido
+				}
+			}
 			return nil, ErrAgendamentoNaoEncontrado
 		}
 		return nil, fmt.Errorf("resolver agendamento por telefone: %w", err)

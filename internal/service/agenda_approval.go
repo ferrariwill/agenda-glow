@@ -33,24 +33,25 @@ type AgendaOptions struct {
 }
 
 type agendamentoPendente struct {
-	ID                 string    `db:"id"`
-	EstabelecimentoID  string    `db:"estabelecimento_id"`
-	ProfissionalID     string    `db:"profissional_id"`
-	ServicoID          string    `db:"servico_id"`
-	DataHoraInicio     time.Time `db:"data_hora_inicio"`
-	DataHoraFim        time.Time `db:"data_hora_fim"`
-	Status             string    `db:"status"`
-	ClienteNome        string    `db:"cliente_nome"`
-	ClienteTelefone    string    `db:"cliente_telefone"`
-	ServicoNome        string    `db:"servico_nome"`
-	ProfissionalNome   string    `db:"profissional_nome"`
-	ProfissionalEmail  *string   `db:"profissional_email"`
+	ID                string    `db:"id"`
+	EstabelecimentoID string    `db:"estabelecimento_id"`
+	ProfissionalID    string    `db:"profissional_id"`
+	ServicoID         string    `db:"servico_id"`
+	DataHoraInicio    time.Time `db:"data_hora_inicio"`
+	DataHoraFim       time.Time `db:"data_hora_fim"`
+	Status            string    `db:"status"`
+	ClienteNome       string    `db:"cliente_nome"`
+	ClienteTelefone   string    `db:"cliente_telefone"`
+	ServicoNome       string    `db:"servico_nome"`
+	ProfissionalNome  string    `db:"profissional_nome"`
+	ProfissionalEmail *string   `db:"profissional_email"`
 }
 
 type ResultadoAgendamento struct {
 	ID               string `json:"id"`
 	Status           string `json:"status"`
 	MinutosInvadidos int    `json:"minutos_invadidos,omitempty"`
+	ManagementURL    string `json:"management_url,omitempty"`
 }
 
 // ApproveAppointment confirma um encaixe previamente marcado como EM_APROVACAO.

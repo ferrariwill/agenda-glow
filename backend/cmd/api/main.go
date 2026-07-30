@@ -1,16 +1,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	adminhandler "github.com/agendaglow/agendaglow/backend/internal/handler"
-	publichandler "github.com/agendaglow/agendaglow/internal/handler"
 	"github.com/agendaglow/agendaglow/internal/config"
+	publichandler "github.com/agendaglow/agendaglow/internal/handler"
 	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/agendaglow/agendaglow/internal/service"
 	"github.com/jmoiron/sqlx"
@@ -59,6 +64,7 @@ func main() {
 	whatsAppWebhookHandler := publichandler.NewWhatsAppWebhookHandler(agendaSvc, estabelecimentoSvc)
 	whatsAppIntegrationHandler := adminhandler.NewWhatsAppIntegrationHandler(estabelecimentoSvc)
 	configHandler := adminhandler.NewEstabelecimentoConfigHandler(estabelecimentoSvc)
+	agendaNotificationsHandler := adminhandler.NewAgendaNotificationsHandler(agendaSvc)
 	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
 	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc)
@@ -199,6 +205,8 @@ func main() {
 	mux.Handle("GET /api/v1/finance/professionals/{id}/pending", donaRoute(tenantFinanceHandler.GetProfessionalPending))
 	mux.Handle("POST /api/v1/finance/professionals/{id}/pay", donaRoute(tenantFinanceHandler.PayProfessionalCommissions))
 	mux.Handle("POST /v1/estabelecimentos/config", donaRoute(configHandler.ServeHTTP))
+	mux.Handle("GET /api/v1/estabelecimentos/{id}/notificacoes-agenda", donaRoute(agendaNotificationsHandler.Get))
+	mux.Handle("PUT /api/v1/estabelecimentos/{id}/notificacoes-agenda", donaRoute(agendaNotificationsHandler.Put))
 	mux.Handle("GET /admin/servicos", donaRoute(adminConfigHandler.Servicos))
 	mux.Handle("POST /admin/servicos", donaRoute(adminConfigHandler.CreateServico))
 	mux.Handle("POST /admin/servicos/{id}/adicionais", donaRoute(adminConfigHandler.CreateAdicional))
@@ -223,6 +231,8 @@ func main() {
 	mux.Handle("GET /api/v1/public/{slug}/slots", publicSlotsHandler)
 	mux.HandleFunc("POST /api/v1/public/appointments/{id}/approve", publicAppointmentsHandler.Approve)
 	mux.HandleFunc("POST /api/v1/public/appointments/{id}/reschedule", publicAppointmentsHandler.Reschedule)
+	mux.HandleFunc("GET /api/v1/public/appointments/manage/{token}", publicAppointmentsHandler.Manage)
+	mux.HandleFunc("POST /api/v1/public/appointments/manage/{token}/cancel", publicAppointmentsHandler.CancelByManagementToken)
 	mux.HandleFunc("POST /api/v1/webhook/whatsapp-callback", whatsAppWebhookHandler.Callback)
 	mux.HandleFunc("POST /api/v1/webhook/whatsapp-connected", whatsAppWebhookHandler.Connected)
 	mux.HandleFunc("POST /api/v1/webhook/whatsapp-gateway", whatsAppWebhookHandler.Gateway)
@@ -237,9 +247,42 @@ func main() {
 
 	log.Printf("AgendaGlow API ouvindo em %s (porta reservada %s — Gateway usa %s)",
 		addr, config.DefaultAPIPort, config.GatewayAPIPort)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("servidor encerrado: %v", err)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	worker := service.NewAgendaNotificationWorker(
+		db,
+		service.NewGatewayNotificationSenderFromEnv(),
+		service.AgendaNotificationWorkerOptions{
+			BaseURL:  envOrDefault("APP_BASE_URL", "http://localhost:8081"),
+			Interval: notificationWorkerInterval(),
+		},
+	)
+	var workerWG sync.WaitGroup
+	workerWG.Add(1)
+	go func() {
+		defer workerWG.Done()
+		worker.Start(ctx)
+	}()
+
+	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+	case err := <-serverErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("servidor encerrado: %v", err)
+		}
+		stop()
 	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = server.Shutdown(shutdownCtx)
+	workerWG.Wait()
 }
 
 func chainHandlers(first func(http.Handler) http.Handler, next http.Handler) http.Handler {
@@ -251,4 +294,16 @@ func envOrDefault(key, fallback string) string {
 		return strings.TrimSpace(v)
 	}
 	return fallback
+}
+
+func notificationWorkerInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("AGENDA_NOTIFICATION_WORKER_INTERVAL_SECONDS"))
+	if raw == "" {
+		return time.Minute
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds < 1 {
+		return time.Minute
+	}
+	return time.Duration(seconds) * time.Second
 }
