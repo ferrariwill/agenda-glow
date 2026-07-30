@@ -6,6 +6,8 @@ import { Clock, Sparkles } from 'lucide-react'
 
 import { ClienteSalaoLayout } from '../../components/public/ClienteSalaoLayout'
 
+import { EarlySlotPreferenceToggle } from '../../components/public/EarlySlotPreferenceToggle'
+
 import { Alert } from '../../components/ui/Alert'
 
 import { Button } from '../../components/ui/Button'
@@ -39,7 +41,6 @@ import {
 } from '../../utils/mockDb'
 
 import { formatBRL, formatDateTimeBR, formatTimeBR, initials, todayISO } from '../../utils/format'
-import { bookingWhatsAppCopy } from '../../utils/earlySlotAvailabilityCopy'
 
 
 
@@ -78,10 +79,6 @@ export function ClienteAgendar() {
   const [error, setError] = useState('')
 
   const [done, setDone] = useState(false)
-  const whatsAppCopy = bookingWhatsAppCopy(
-    tenant?.early_slot_notifications_available,
-    aceitaAdiantar,
-  )
 
 
 
@@ -327,17 +324,25 @@ export function ClienteAgendar() {
 
           </p>
 
-          {whatsAppCopy.earlySlot && (
+          {aceitaAdiantar && (
 
             <p className="mt-2 text-sm text-[#514440]">
 
-              {whatsAppCopy.earlySlot}
+              {tenant?.early_slot_notifications_available === false
+
+                ? 'Preferência de antecipação salva. Os avisos por WhatsApp começarão quando o salão reativar o canal.'
+
+                : 'Se surgir um horário mais cedo com este profissional, avisamos pelo WhatsApp. A oferta vale por 5 minutos e seu horário atual só muda se você aceitar.'}
 
             </p>
 
           )}
 
-          <p className="mt-1 text-sm text-[#514440]">{whatsAppCopy.confirmation}</p>
+          <p className="mt-1 text-sm text-[#514440]">{tenant?.early_slot_notifications_available === false
+
+                ? 'A confirmação por WhatsApp depende do canal do salão estar ativo.'
+
+                : 'Enviamos a confirmação por WhatsApp.'}</p>
 
           <div className="mt-5 flex flex-col gap-2">
 
@@ -661,43 +666,17 @@ export function ClienteAgendar() {
 
           <section className={GLASS + ' p-4'}>
 
-            <label htmlFor="aceita-adiantar" className="flex cursor-pointer items-start gap-3">
+            <EarlySlotPreferenceToggle
 
-              <input
+              checked={aceitaAdiantar}
 
-                id="aceita-adiantar"
-                type="checkbox"
+              onChange={setAceitaAdiantar}
 
-                checked={aceitaAdiantar}
+              profissionalNome={profissionais.find((p) => p.id === profId)?.nome}
 
-                onChange={(e) => setAceitaAdiantar(e.target.checked)}
+              notificationsAvailable={tenant?.early_slot_notifications_available}
 
-                className="mt-1 rounded border-[#d6c2bd] text-[#7d5141]"
-
-              />
-
-              <span>
-
-                <span className="block text-sm font-medium text-[#1a1c1c]">
-
-                  Quero ser avisado pelo WhatsApp se surgir um horário mais cedo com este profissional.
-
-                </span>
-
-                <span className="mt-0.5 block text-xs text-[#514440]">
-
-                  A oferta é opcional e exclusiva por 5 minutos. Seu horário atual só muda se você aceitar.
-
-                </span>
-                {tenant?.early_slot_notifications_available === false && (
-                  <span className="mt-1 block text-xs font-medium text-amber-800">
-                    Os avisos começarão quando o salão reativar o WhatsApp.
-                  </span>
-                )}
-
-              </span>
-
-            </label>
+            />
 
           </section>
 
@@ -711,7 +690,7 @@ export function ClienteAgendar() {
 
             Resumo: <strong>{formatDateTimeBR(data, hora)}</strong>
 
-            {aceitaAdiantar ? ' · com opção de adiantar' : ''}
+            {aceitaAdiantar ? ' · com aviso de horário mais cedo' : ''}
 
           </Alert>
 

@@ -42,8 +42,7 @@ export async function syncPublicCatalog(slug: string): Promise<void> {
     slug: catalog.estabelecimento.slug,
     status: 'ATIVO' as const,
     logo_url: catalog.estabelecimento.logo_url,
-    early_slot_notifications_available:
-      catalog.estabelecimento.early_slot_notifications_available,
+    early_slot_notifications_available: catalog.estabelecimento.early_slot_notifications_available,
     plano_id: '',
     data_vencimento: '',
     criado_em: '',

@@ -1,22 +1,21 @@
 import { Link } from 'react-router-dom'
 import { Alert } from '../ui/Alert'
 
-interface EarlySlotQueueInactiveBannerProps {
-  active?: boolean
-  /** Somente DONA acessa `/admin/whatsapp`; demais perfis recebem orientação textual. */
-  canReconnectWhatsApp?: boolean
-  className?: string
-}
-
+/**
+ * Banner persistente quando a API reporta fila inativa.
+ * Ausente/undefined = backend antigo — não tratar como inativo.
+ */
 export function EarlySlotQueueInactiveBanner({
-  active,
+  queueActive,
   canReconnectWhatsApp = false,
-  className = 'mb-4',
-}: EarlySlotQueueInactiveBannerProps) {
-  if (active !== false) return null
+}: {
+  queueActive?: boolean
+  canReconnectWhatsApp?: boolean
+}) {
+  if (queueActive !== false) return null
 
   return (
-    <Alert variant="warning" className={className}>
+    <Alert variant="warning" className="mb-4">
       A fila de antecipação está inativa porque o WhatsApp do salão está desconectado.{' '}
       {canReconnectWhatsApp ? (
         <>

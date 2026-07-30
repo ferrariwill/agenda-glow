@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -8,15 +8,18 @@ import {
   Edit,
   Plus,
 } from 'lucide-react'
+import { AceitaAntecipacaoBadge } from '../../components/agenda/AceitaAntecipacaoBadge'
+import { EarlySlotRoundIndicator } from '../../components/agenda/EarlySlotRoundIndicator'
+import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { NovoAgendamentoModal } from '../../components/dona/NovoAgendamentoModal'
 import { ProfissionalLayout, ProfissionalGLASS } from '../../components/profissional/ProfissionalLayout'
 import { Alert } from '../../components/ui/Alert'
 import { Badge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
-import { EarlySlotOfferIndicator, EarlySlotOptInBadge } from '../../components/agenda/EarlySlotBadges'
-import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { useAuth } from '../../contexts/AuthContext'
+import { refreshAfterMutation } from '../../data/sync'
 import { IS_MOCK } from '../../lib/config'
+import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
 import type { Agendamento } from '../../types'
 import {
   getAgendamentoDuration,
@@ -58,12 +61,23 @@ export function AgendaProfissional() {
   const [agModalOpen, setAgModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Agendamento | null>(null)
   const [success, setSuccess] = useState('')
-  const tenant = db.tenants.find((item) => item.id === tenantId)
 
   const days = useMemo(() => weekDays(weekAnchor), [weekAnchor])
   const hoje = todayISO()
+  const tenant = db.tenants.find((item) => item.id === tenantId)
 
-  const refresh = () => setDb(getDb())
+  const refresh = useCallback(() => setDb(getDb()), [])
+
+  // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
+  const handleOfferExpired = useCallback(() => {
+    if (IS_MOCK) {
+      refresh()
+      return
+    }
+    refreshAfterMutation(session?.user.role)
+      .then(refresh)
+      .catch(() => undefined)
+  }, [refresh, session?.user.role])
 
   const agendamentos = db.agendamentos.filter(
     (a) =>
@@ -73,13 +87,20 @@ export function AgendaProfissional() {
       a.status !== 'CANCELADO',
   )
 
-  const dayAgs = agendamentos
-    .filter((a) => a.data === selectedDay)
-    .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
+  useEarlySlotAgendaExpiry(
+    agendamentos
+      .filter((ag) => ag.early_slot_offer?.offer_status === 'PENDENTE')
+      .map((ag) => ag.early_slot_offer?.expires_at),
+    handleOfferExpired,
+  )
 
   if (isDonaAgenda && !profId) {
     return <Navigate to="/admin/configuracoes" replace />
   }
+
+  const dayAgs = agendamentos
+    .filter((a) => a.data === selectedDay)
+    .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
 
   const concluir = async (ag: Agendamento) => {
     await updateAgendamentoStatus(ag.id, 'CONCLUIDO', { role: 'PROFISSIONAL' })
@@ -119,7 +140,7 @@ export function AgendaProfissional() {
         </Alert>
       )}
       <EarlySlotQueueInactiveBanner
-        active={tenant?.early_slot_queue_active}
+        queueActive={tenant?.early_slot_queue_active}
         canReconnectWhatsApp={session?.user.role === 'DONA'}
       />
 
@@ -218,8 +239,10 @@ export function AgendaProfissional() {
                       <Badge variant={statusAgendamentoBadge(ag.status)}>
                         {ag.status}
                       </Badge>
-                      <EarlySlotOptInBadge enabled={ag.aceita_adiantar} />
-                      <EarlySlotOfferIndicator offer={ag.early_slot_offer} />
+                      <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
+                      <EarlySlotRoundIndicator
+                        offer={ag.early_slot_offer}
+                      />
                     </div>
                     <p className="mt-1 font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
                     <p className="text-sm text-[#514440]">

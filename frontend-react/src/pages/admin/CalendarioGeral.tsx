@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Banknote,
   CalendarPlus,
@@ -11,6 +11,9 @@ import {
   TrendingUp,
   XCircle,
 } from 'lucide-react'
+import { AceitaAntecipacaoBadge } from '../../components/agenda/AceitaAntecipacaoBadge'
+import { EarlySlotRoundIndicator } from '../../components/agenda/EarlySlotRoundIndicator'
+import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { SecretariaLayout } from '../../components/secretaria/SecretariaLayout'
 import { CobrancaAgendamentoModal } from '../../components/secretaria/CobrancaAgendamentoModal'
@@ -19,9 +22,10 @@ import { EditarAgendamentoProfModal } from '../profissional/EditarAgendamentoPro
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/Modal'
-import { EarlySlotOfferIndicator, EarlySlotOptInBadge } from '../../components/agenda/EarlySlotBadges'
-import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { useAuth } from '../../contexts/AuthContext'
+import { refreshAfterMutation } from '../../data/sync'
+import { IS_MOCK } from '../../lib/config'
+import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
 import {
@@ -155,7 +159,19 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const [editAg, setEditAg] = useState<Agendamento | null>(null)
   const [cobrancaAg, setCobrancaAg] = useState<Agendamento | null>(null)
 
-  const refresh = () => setDb(getDb())
+  const refresh = useCallback(() => setDb(getDb()), [])
+
+  // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
+  const handleOfferExpired = useCallback(() => {
+    if (IS_MOCK) {
+      refresh()
+      return
+    }
+    refreshAfterMutation(session?.user.role)
+      .then(refresh)
+      .catch(() => undefined)
+  }, [refresh, session?.user.role])
+
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
   const especialidades = db.especialidades.filter((e) => e.tenant_id === tenantId)
   const tenant = db.tenants.find((item) => item.id === tenantId)
@@ -177,6 +193,13 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
       )
       .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
   }, [db, tenantId, data, search])
+
+  useEarlySlotAgendaExpiry(
+    agendamentosDia
+      .filter((ag) => ag.early_slot_offer?.offer_status === 'PENDENTE')
+      .map((ag) => ag.early_slot_offer?.expires_at),
+    handleOfferExpired,
+  )
 
   const totalHoje = agendamentosDia.length
   const ocupacao = calcOcupacao(data, profissionais, agendamentosDia, db)
@@ -283,8 +306,8 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                 {appointmentEndTime(ag, db)}
               </p>
               <span className="flex shrink-0 items-center gap-1">
-                <EarlySlotOptInBadge enabled={ag.aceita_adiantar} compact />
-                <EarlySlotOfferIndicator offer={ag.early_slot_offer} compact />
+                <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} compact />
+                <EarlySlotRoundIndicator offer={ag.early_slot_offer} compact />
               </span>
             </div>
             <p className="truncate text-sm font-semibold text-aura-anthracite">{ag.cliente_nome}</p>
@@ -506,7 +529,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
         </Alert>
       )}
       <EarlySlotQueueInactiveBanner
-        active={tenant?.early_slot_queue_active}
+        queueActive={tenant?.early_slot_queue_active}
         canReconnectWhatsApp={session?.user.role === 'DONA'}
       />
 
@@ -571,10 +594,14 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                             <span className="text-xs font-medium text-emerald-700">· Pago</span>
                           )}
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          <EarlySlotOptInBadge enabled={ag.aceita_adiantar} />
-                          <EarlySlotOfferIndicator offer={ag.early_slot_offer} />
-                        </div>
+                        {(ag.aceita_adiantar || ag.early_slot_offer) && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
+                            <EarlySlotRoundIndicator
+                              offer={ag.early_slot_offer}
+                            />
+                          </div>
+                        )}
                       </button>
                       <div className="flex shrink-0 flex-col gap-1">
                         {isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO' && (

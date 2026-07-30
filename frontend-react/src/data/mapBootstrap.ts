@@ -9,7 +9,6 @@ import type {
   Servico,
   Tenant,
   TenantStatus,
-  WhatsAppIntegrationStatus,
 } from '../types'
 import { normalizeTenantStatus } from '../utils/tenantStatus'
 
@@ -22,11 +21,10 @@ interface TenantBootstrapApi {
     logo_url?: string
     plano_id?: string
     data_vencimento?: string
-    whatsapp_enabled?: boolean
-    whatsapp_status?: WhatsAppIntegrationStatus
     early_slot_queue_active?: boolean
     early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   }
+  /** Professional bootstrap/dashboard may expose the gate at the root. */
   early_slot_queue_active?: boolean
   early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   plano?: PlanoSaas
@@ -85,8 +83,9 @@ interface TenantBootstrapApi {
     aceita_adiantar?: boolean
     early_slot_offer?: {
       round_id: string
-      offer_status: import('../types').EarlySlotOfferStatus
-      expires_at: string
+      offer_status: string
+      expires_at?: string
+      posicao?: number
     } | null
     valor_cobrado?: number
     metodo_pagamento?: string
@@ -149,6 +148,10 @@ export function mapTenantBootstrap(
   prev: MockDatabase,
 ): MockDatabase {
   const tenantId = payload.tenant.id
+  const queueActive =
+    payload.tenant.early_slot_queue_active ?? payload.early_slot_queue_active
+  const queueInactiveReason =
+    payload.tenant.early_slot_queue_inactive_reason ?? payload.early_slot_queue_inactive_reason
   const tenant: Tenant = {
     id: tenantId,
     nome: payload.tenant.nome,
@@ -157,12 +160,8 @@ export function mapTenantBootstrap(
     logo_url: payload.tenant.logo_url,
     plano_id: payload.tenant.plano_id ?? '',
     data_vencimento: payload.tenant.data_vencimento ?? '',
-    whatsapp_enabled: payload.tenant.whatsapp_enabled,
-    whatsapp_status: payload.tenant.whatsapp_status,
-    early_slot_queue_active:
-      payload.tenant.early_slot_queue_active ?? payload.early_slot_queue_active,
-    early_slot_queue_inactive_reason:
-      payload.tenant.early_slot_queue_inactive_reason ?? payload.early_slot_queue_inactive_reason,
+    early_slot_queue_active: queueActive,
+    early_slot_queue_inactive_reason: queueInactiveReason,
     criado_em: prev.tenants.find((t) => t.id === tenantId)?.criado_em ?? '',
   }
 
@@ -233,7 +232,7 @@ export function mapTenantBootstrap(
     status: a.status as Agendamento['status'],
     minutos_invadidos: a.minutos_invadidos,
     aceita_adiantar: a.aceita_adiantar,
-    early_slot_offer: a.early_slot_offer,
+    early_slot_offer: a.early_slot_offer ?? null,
     valor_cobrado: a.valor_cobrado,
     metodo_pagamento: a.metodo_pagamento as Agendamento['metodo_pagamento'],
     cobrado_em: a.cobrado_em,
