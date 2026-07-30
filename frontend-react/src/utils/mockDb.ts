@@ -3621,7 +3621,7 @@ export async function suspendTenant(tenantId: string): Promise<Tenant> {
   const db = getDb()
   const idx = db.tenants.findIndex((t) => t.id === tenantId)
   if (idx < 0) throw new Error('Salão não encontrado')
-  db.tenants[idx] = { ...db.tenants[idx], status: 'VENCIDO' }
+  db.tenants[idx] = { ...db.tenants[idx], status: 'SUSPENSO' }
   persistDb(db)
   return db.tenants[idx]
 }

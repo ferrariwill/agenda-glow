@@ -1,8 +1,9 @@
 import { ExternalLink, MoreHorizontal, RefreshCw, Shield, UserPlus, Wallet } from 'lucide-react'
 import { ActionsDropdown } from '../ui/ActionsDropdown'
+import type { TenantStatus } from '../../types'
 
 interface TenantActionsMenuProps {
-  status: 'ATIVO' | 'VENCIDO'
+  status: TenantStatus
   slug: string
   onAssignPlan: () => void
   onRenew: () => void
