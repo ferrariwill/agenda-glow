@@ -6,6 +6,7 @@ interface AlertProps {
   children: React.ReactNode
   onDismiss?: () => void
   className?: string
+  role?: React.AriaRole
 }
 
 const variants = {
@@ -14,9 +15,19 @@ const variants = {
   info: 'border-aura-border bg-white text-aura-anthracite',
 }
 
-export function Alert({ variant = 'info', title, children, onDismiss, className = '' }: AlertProps) {
+export function Alert({
+  variant = 'info',
+  title,
+  children,
+  onDismiss,
+  className = '',
+  role,
+}: AlertProps) {
   return (
-    <div className={['flex gap-3 rounded-lg border p-4', variants[variant], className].join(' ')}>
+    <div
+      role={role ?? (variant === 'error' ? 'alert' : undefined)}
+      className={['flex gap-3 rounded-lg border p-4', variants[variant], className].join(' ')}
+    >
       <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 opacity-70" />
       <div className="flex-1 text-sm">
         {title && <p className="mb-1 font-semibold">{title}</p>}

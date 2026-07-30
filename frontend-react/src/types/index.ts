@@ -1,3 +1,5 @@
+import type { EarlySlotOfferResumo } from './earlySlot'
+
 export type TenantStatus = 'ATIVO' | 'VENCIDO' | 'SUSPENSO'
 export type WhatsAppIntegrationStatus = 'DESCONECTADO' | 'PENDENTE' | 'CONECTADO'
 export type AgendamentoStatus =
@@ -7,12 +9,6 @@ export type AgendamentoStatus =
   | 'CANCELADO'
   | 'CONCLUIDO'
 export type FilaStatus = 'AGUARDANDO' | 'NOTIFICADO'
-export type EarlySlotOfferStatus =
-  | 'PENDENTE'
-  | 'ACEITA'
-  | 'RECUSADA'
-  | 'EXPIRADA'
-  | 'INVALIDADA'
 export type UserRole = 'SUPER_ADMIN' | 'DONA' | 'PROFISSIONAL' | 'SECRETARIA' | 'CLIENTE'
 
 export interface PlanoSaas {
@@ -41,14 +37,15 @@ export interface Tenant {
   cidade?: string
   uf?: string
   dona_atua_como_profissional?: boolean
-  whatsapp_enabled?: boolean
   whatsapp_status?: WhatsAppIntegrationStatus
-  early_slot_queue_active?: boolean
-  early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
-  early_slot_notifications_available?: boolean
   whatsapp_waba_id?: string
   whatsapp_phone_number_id?: string
   whatsapp_connected_at?: string
+  /** Canonical staff signal — true only when the queue can fire offers. */
+  early_slot_queue_active?: boolean
+  early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
+  /** Canonical public/booking signal for opt-in helper copy. */
+  early_slot_notifications_available?: boolean
 }
 
 export interface CategoriaServico {
@@ -144,12 +141,6 @@ export interface AdicionalServico {
   preco: number
 }
 
-export interface EarlySlotOfferSummary {
-  round_id: string
-  offer_status: EarlySlotOfferStatus
-  expires_at: string
-}
-
 export interface Agendamento {
   id: string
   tenant_id: string
@@ -166,7 +157,8 @@ export interface Agendamento {
   minutos_invadidos?: number
   observacoes?: string
   aceita_adiantar?: boolean
-  early_slot_offer?: EarlySlotOfferSummary | null
+  /** Resumo da oferta de antecipação envolvendo este agendamento (DEV-85). */
+  early_slot_offer?: EarlySlotOfferResumo | null
   valor_cobrado?: number
   metodo_pagamento?: MetodoPagamento
   cobrado_em?: string

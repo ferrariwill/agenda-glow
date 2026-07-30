@@ -1,49 +1,53 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../lib/api'
-import { updateEarlySlotPreference } from '../../services/earlySlotOfferService'
+import {
+  resolvePreferenceFailure,
+  resolvePreferenceSuccess,
+} from './gestaoEarlySlotPreferenceState'
 
-afterEach(() => {
-  vi.unstubAllGlobals()
-  vi.restoreAllMocks()
-})
+describe('GestaoEarlySlotPreference state', () => {
+  it.each([
+    { echo: false, current: true },
+    { echo: true, current: false },
+  ])('aplica o eco $echo do canal e o propaga no onChange', ({ echo, current }) => {
+    const next = resolvePreferenceSuccess(current, {
+      aceita_adiantar: true,
+      aceita_adiantar_em: '2026-07-30T22:00:00Z',
+      early_slot_notifications_available: echo,
+    })
 
-describe('GestaoEarlySlotPreference behavior', () => {
-  it('ecoa early_slot_notifications_available no PATCH e envia só aceita_adiantar', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          aceita_adiantar: true,
-          aceita_adiantar_em: '2026-07-30T18:00:00Z',
-          early_slot_notifications_available: false,
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
-    )
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await updateEarlySlotPreference('gestao-token', true)
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/public/appointments/manage/gestao-token/early-slot-preference',
-      expect.objectContaining({
-        method: 'PATCH',
-        body: JSON.stringify({ aceita_adiantar: true }),
-      }),
-    )
-    expect(result.early_slot_notifications_available).toBe(false)
+    expect(next).toMatchObject({
+      checked: true,
+      channelAvailable: echo,
+      hasChannelEcho: true,
+      onChange: {
+        aceitaAdiantar: true,
+        aceitaAdiantarEm: '2026-07-30T22:00:00Z',
+        notificationsAvailable: echo,
+      },
+    })
   })
 
-  it('preserva ApiError 422 para o host reverter a UI', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: 'appointment_no_longer_eligible' }), {
-          status: 422,
-          headers: { 'content-type': 'application/json' },
-        }),
-      ),
+  it('preserva o estado do canal quando o PATCH não envia o campo', () => {
+    const next = resolvePreferenceSuccess(true, {
+      aceita_adiantar: false,
+      aceita_adiantar_em: '2026-07-30T22:00:00Z',
+    })
+
+    expect(next.channelAvailable).toBe(true)
+    expect(next.hasChannelEcho).toBe(false)
+    expect(next.onChange.notificationsAvailable).toBeUndefined()
+  })
+
+  it('reverte o toggle otimista e expõe a mensagem do ApiError 422', () => {
+    const next = resolvePreferenceFailure(
+      false,
+      new ApiError('x', 422, 'appointment_no_longer_eligible'),
     )
 
-    await expect(updateEarlySlotPreference('gestao-token', false)).rejects.toBeInstanceOf(ApiError)
+    expect(next).toEqual({
+      checked: false,
+      error: 'Este agendamento não está mais elegível para antecipação.',
+    })
   })
 })
