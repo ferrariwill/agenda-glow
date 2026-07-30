@@ -6,6 +6,8 @@ import { Clock, Sparkles } from 'lucide-react'
 
 import { ClienteSalaoLayout } from '../../components/public/ClienteSalaoLayout'
 
+import { EarlySlotPreferenceToggle } from '../../components/public/EarlySlotPreferenceToggle'
+
 import { Alert } from '../../components/ui/Alert'
 
 import { Button } from '../../components/ui/Button'
@@ -326,13 +328,21 @@ export function ClienteAgendar() {
 
             <p className="mt-2 text-sm text-[#514440]">
 
-              Você será avisada por WhatsApp se surgir um horário mais cedo.
+              {tenant?.early_slot_notifications_available === false
+
+                ? 'Preferência de antecipação salva. Os avisos por WhatsApp começarão quando o salão reativar o canal.'
+
+                : 'Se surgir um horário mais cedo com este profissional, avisamos pelo WhatsApp. A oferta vale por 5 minutos e seu horário atual só muda se você aceitar.'}
 
             </p>
 
           )}
 
-          <p className="mt-1 text-sm text-[#514440]">Enviamos a confirmação por WhatsApp.</p>
+          <p className="mt-1 text-sm text-[#514440]">{tenant?.early_slot_notifications_available === false
+
+                ? 'A confirmação por WhatsApp depende do canal do salão estar ativo.'
+
+                : 'Enviamos a confirmação por WhatsApp.'}</p>
 
           <div className="mt-5 flex flex-col gap-2">
 
@@ -656,39 +666,17 @@ export function ClienteAgendar() {
 
           <section className={GLASS + ' p-4'}>
 
-            <label className="flex cursor-pointer items-start gap-3">
+            <EarlySlotPreferenceToggle
 
-              <input
+              checked={aceitaAdiantar}
 
-                type="checkbox"
+              onChange={setAceitaAdiantar}
 
-                checked={aceitaAdiantar}
+              profissionalNome={profissionais.find((p) => p.id === profId)?.nome}
 
-                onChange={(e) => setAceitaAdiantar(e.target.checked)}
+              notificationsAvailable={tenant?.early_slot_notifications_available}
 
-                className="mt-1 rounded border-[#d6c2bd] text-[#7d5141]"
-
-              />
-
-              <span>
-
-                <span className="block text-sm font-medium text-[#1a1c1c]">
-
-                  Aceito adiantar meu horário se possível
-
-                </span>
-
-                <span className="mt-0.5 block text-xs text-[#514440]">
-
-                  Se surgir uma vaga mais cedo com {profissionais.find((p) => p.id === profId)?.nome}, avisamos
-
-                  pelo WhatsApp.
-
-                </span>
-
-              </span>
-
-            </label>
+            />
 
           </section>
 
@@ -702,7 +690,7 @@ export function ClienteAgendar() {
 
             Resumo: <strong>{formatDateTimeBR(data, hora)}</strong>
 
-            {aceitaAdiantar ? ' · com opção de adiantar' : ''}
+            {aceitaAdiantar ? ' · com aviso de horário mais cedo' : ''}
 
           </Alert>
 
