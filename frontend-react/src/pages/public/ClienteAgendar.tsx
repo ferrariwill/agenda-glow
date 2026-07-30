@@ -656,10 +656,11 @@ export function ClienteAgendar() {
 
           <section className={GLASS + ' p-4'}>
 
-            <label className="flex cursor-pointer items-start gap-3">
+            <label htmlFor="aceita-adiantar" className="flex cursor-pointer items-start gap-3">
 
               <input
 
+                id="aceita-adiantar"
                 type="checkbox"
 
                 checked={aceitaAdiantar}
@@ -674,17 +675,20 @@ export function ClienteAgendar() {
 
                 <span className="block text-sm font-medium text-[#1a1c1c]">
 
-                  Aceito adiantar meu horário se possível
+                  Quero ser avisado pelo WhatsApp se surgir um horário mais cedo com este profissional.
 
                 </span>
 
                 <span className="mt-0.5 block text-xs text-[#514440]">
 
-                  Se surgir uma vaga mais cedo com {profissionais.find((p) => p.id === profId)?.nome}, avisamos
-
-                  pelo WhatsApp.
+                  A oferta é opcional e exclusiva por 5 minutos. Seu horário atual só muda se você aceitar.
 
                 </span>
+                {(tenant?.whatsapp_enabled === false || tenant?.whatsapp_status === 'DESCONECTADO') && (
+                  <span className="mt-1 block text-xs font-medium text-amber-800">
+                    Os avisos começarão quando o salão reativar o WhatsApp.
+                  </span>
+                )}
 
               </span>
 

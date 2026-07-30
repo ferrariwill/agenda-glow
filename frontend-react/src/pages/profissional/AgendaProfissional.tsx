@@ -13,6 +13,7 @@ import { ProfissionalLayout, ProfissionalGLASS } from '../../components/profissi
 import { Alert } from '../../components/ui/Alert'
 import { Badge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { EarlySlotOfferIndicator, EarlySlotOptInBadge } from '../../components/agenda/EarlySlotBadges'
 import { useAuth } from '../../contexts/AuthContext'
 import { IS_MOCK } from '../../lib/config'
 import type { Agendamento } from '../../types'
@@ -211,6 +212,8 @@ export function AgendaProfissional() {
                       <Badge variant={statusAgendamentoBadge(ag.status)}>
                         {ag.status}
                       </Badge>
+                      <EarlySlotOptInBadge enabled={ag.aceita_adiantar} />
+                      <EarlySlotOfferIndicator offer={ag.early_slot_offer} />
                     </div>
                     <p className="mt-1 font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
                     <p className="text-sm text-[#514440]">

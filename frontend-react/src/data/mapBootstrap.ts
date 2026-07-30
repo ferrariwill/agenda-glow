@@ -9,6 +9,7 @@ import type {
   Servico,
   Tenant,
   TenantStatus,
+  WhatsAppIntegrationStatus,
 } from '../types'
 import { normalizeTenantStatus } from '../utils/tenantStatus'
 
@@ -21,6 +22,8 @@ interface TenantBootstrapApi {
     logo_url?: string
     plano_id?: string
     data_vencimento?: string
+    whatsapp_enabled?: boolean
+    whatsapp_status?: WhatsAppIntegrationStatus
   }
   plano?: PlanoSaas
   especialidades: { id: string; nome: string; ativo: boolean }[]
@@ -76,6 +79,11 @@ interface TenantBootstrapApi {
     status: string
     minutos_invadidos?: number
     aceita_adiantar?: boolean
+    early_slot_offer?: {
+      round_id: string
+      offer_status: import('../types').EarlySlotOfferStatus
+      expires_at: string
+    } | null
     valor_cobrado?: number
     metodo_pagamento?: string
     cobrado_em?: string
@@ -145,6 +153,8 @@ export function mapTenantBootstrap(
     logo_url: payload.tenant.logo_url,
     plano_id: payload.tenant.plano_id ?? '',
     data_vencimento: payload.tenant.data_vencimento ?? '',
+    whatsapp_enabled: payload.tenant.whatsapp_enabled,
+    whatsapp_status: payload.tenant.whatsapp_status,
     criado_em: prev.tenants.find((t) => t.id === tenantId)?.criado_em ?? '',
   }
 
@@ -215,6 +225,7 @@ export function mapTenantBootstrap(
     status: a.status as Agendamento['status'],
     minutos_invadidos: a.minutos_invadidos,
     aceita_adiantar: a.aceita_adiantar,
+    early_slot_offer: a.early_slot_offer,
     valor_cobrado: a.valor_cobrado,
     metodo_pagamento: a.metodo_pagamento as Agendamento['metodo_pagamento'],
     cobrado_em: a.cobrado_em,

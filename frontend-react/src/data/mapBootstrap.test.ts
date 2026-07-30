@@ -112,4 +112,33 @@ describe('mapTenantBootstrap', () => {
       expect(db.tenants[0].status).toBe(status)
     }
   })
+
+  it('preserva opt-in e resumo da oferta sem exigir os novos campos', () => {
+    const payload = tenantPayload('ATIVO')
+    payload.agendamentos = [{
+      id: 'ag-1',
+      tenant_id: 'tenant-1',
+      profissional_id: 'prof-1',
+      servico_id: 'serv-1',
+      servico_ids: ['serv-1'],
+      adicional_ids: [],
+      cliente_nome: 'Cliente',
+      cliente_telefone: '5511999999999',
+      data: '2026-08-01',
+      hora_inicio: '16:00',
+      status: 'AGENDADO',
+      aceita_adiantar: true,
+      early_slot_offer: {
+        round_id: 'round-1',
+        offer_status: 'PENDENTE',
+        expires_at: '2026-08-01T13:05:00-03:00',
+      },
+    }]
+
+    const mapped = mapTenantBootstrap(payload, emptyDb())
+
+    expect(mapped.agendamentos[0].aceita_adiantar).toBe(true)
+    expect(mapped.agendamentos[0].early_slot_offer?.round_id).toBe('round-1')
+    expect(mapTenantBootstrap(tenantPayload('ATIVO'), emptyDb()).agendamentos).toEqual([])
+  })
 })
