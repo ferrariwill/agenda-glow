@@ -8,16 +8,12 @@ import {
   Edit,
   Plus,
 } from 'lucide-react'
-import { AceitaAntecipacaoBadge } from '../../components/agenda/AceitaAntecipacaoBadge'
-import { EarlySlotRoundIndicator } from '../../components/agenda/EarlySlotRoundIndicator'
-import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { NovoAgendamentoModal } from '../../components/dona/NovoAgendamentoModal'
 import { ProfissionalLayout, ProfissionalGLASS } from '../../components/profissional/ProfissionalLayout'
 import { Alert } from '../../components/ui/Alert'
 import { Badge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { refreshAfterMutation } from '../../data/sync'
 import { IS_MOCK } from '../../lib/config'
 import type { Agendamento } from '../../types'
 import {
@@ -67,20 +63,8 @@ export function AgendaProfissional() {
 
   const days = useMemo(() => weekDays(weekAnchor), [weekAnchor])
   const hoje = todayISO()
-  const tenant = db.tenants.find((item) => item.id === tenantId)
 
   const refresh = () => setDb(getDb())
-
-  // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
-  const handleOfferExpired = () => {
-    if (IS_MOCK) {
-      refresh()
-      return
-    }
-    refreshAfterMutation(session?.user.role)
-      .then(refresh)
-      .catch(() => undefined)
-  }
 
   const agendamentos = db.agendamentos.filter(
     (a) =>
@@ -131,7 +115,6 @@ export function AgendaProfissional() {
           {success}
         </Alert>
       )}
-      <EarlySlotQueueInactiveBanner queueActive={tenant?.early_slot_queue_active} />
 
       {/* Navegação semanal */}
       <div className={`mb-6 flex flex-wrap items-center justify-between gap-4 p-4 ${ProfissionalGLASS}`}>
@@ -228,11 +211,6 @@ export function AgendaProfissional() {
                       <Badge variant={statusAgendamentoBadge(ag.status)}>
                         {ag.status}
                       </Badge>
-                      <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
-                      <EarlySlotRoundIndicator
-                        offer={ag.early_slot_offer}
-                        onExpire={handleOfferExpired}
-                      />
                     </div>
                     <p className="mt-1 font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
                     <p className="text-sm text-[#514440]">

@@ -2388,9 +2388,18 @@ export async function createAgendamento(
   draft.status = avaliacao.status
   if (avaliacao.minutos_invadidos) draft.minutos_invadidos = avaliacao.minutos_invadidos
 
-  // O opt-in de antecipação é só a flag do agendamento: a fila de ofertas é do
-  // backend (DEV-85) e não se confunde com a `fila_espera` manual legada.
   db.agendamentos.push(draft)
+  if (input.aceita_adiantar) {
+    inscreverFilaEspera({
+      tenant_id: input.tenant_id,
+      profissional_id: input.profissional_id,
+      cliente_nome: input.cliente_nome,
+      cliente_telefone: input.cliente_telefone,
+      agendamento_id: draft.id,
+      data: input.data,
+      hora: input.hora_inicio,
+    })
+  }
   persistDb(db)
   return draft
 }

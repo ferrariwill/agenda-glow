@@ -11,9 +11,6 @@ import {
   TrendingUp,
   XCircle,
 } from 'lucide-react'
-import { AceitaAntecipacaoBadge } from '../../components/agenda/AceitaAntecipacaoBadge'
-import { EarlySlotRoundIndicator } from '../../components/agenda/EarlySlotRoundIndicator'
-import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { SecretariaLayout } from '../../components/secretaria/SecretariaLayout'
 import { CobrancaAgendamentoModal } from '../../components/secretaria/CobrancaAgendamentoModal'
@@ -23,8 +20,6 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
-import { refreshAfterMutation } from '../../data/sync'
-import { IS_MOCK } from '../../lib/config'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
 import {
@@ -159,21 +154,8 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const [cobrancaAg, setCobrancaAg] = useState<Agendamento | null>(null)
 
   const refresh = () => setDb(getDb())
-
-  // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
-  const handleOfferExpired = () => {
-    if (IS_MOCK) {
-      refresh()
-      return
-    }
-    refreshAfterMutation(session?.user.role)
-      .then(refresh)
-      .catch(() => undefined)
-  }
-
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
   const especialidades = db.especialidades.filter((e) => e.tenant_id === tenantId)
-  const tenant = db.tenants.find((item) => item.id === tenantId)
   const hours = hourLabels()
   const dayOfWeek = new Date(`${data}T12:00:00`).getDay()
   const profMobileId = profMobile || profissionais[0]?.id || ''
@@ -305,16 +287,6 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                 <span className="text-[10px] font-medium text-emerald-700">· Pago</span>
               )}
             </div>
-            {(ag.aceita_adiantar || ag.early_slot_offer) && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
-                <EarlySlotRoundIndicator
-                  offer={ag.early_slot_offer}
-                  onExpire={handleOfferExpired}
-                  compact
-                />
-              </div>
-            )}
           </div>
           <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
             {isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO' && (
@@ -524,7 +496,6 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {success}
         </Alert>
       )}
-      <EarlySlotQueueInactiveBanner queueActive={tenant?.early_slot_queue_active} />
 
       {viewMode !== 'hoje' && (
         <div className="mb-4 rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] px-4 py-3 text-sm text-aura-muted">
@@ -587,15 +558,6 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                             <span className="text-xs font-medium text-emerald-700">· Pago</span>
                           )}
                         </div>
-                        {(ag.aceita_adiantar || ag.early_slot_offer) && (
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
-                            <EarlySlotRoundIndicator
-                              offer={ag.early_slot_offer}
-                              onExpire={handleOfferExpired}
-                            />
-                          </div>
-                        )}
                       </button>
                       <div className="flex shrink-0 flex-col gap-1">
                         {isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO' && (

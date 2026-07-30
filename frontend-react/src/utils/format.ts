@@ -119,22 +119,6 @@ export function formatDateTimeBR(iso: string, time?: string) {
   return `${datePart} às ${formatTimeBR(time)}`
 }
 
-/** Timestamp RFC3339 → DD/MM/AAAA às HH:mm (no fuso do navegador) */
-export function formatTimestampBR(timestamp: string) {
-  if (!timestamp) return ''
-  const d = new Date(timestamp)
-  if (Number.isNaN(d.getTime())) return timestamp
-  return `${d.toLocaleDateString(PT_BR_LOCALE, DATE_OPTS)} às ${d.toLocaleTimeString(PT_BR_LOCALE, TIME_OPTS)}`
-}
-
-/** Timestamp RFC3339 → HH:mm */
-export function formatTimestampTimeBR(timestamp: string) {
-  if (!timestamp) return ''
-  const d = new Date(timestamp)
-  if (Number.isNaN(d.getTime())) return timestamp
-  return d.toLocaleTimeString(PT_BR_LOCALE, TIME_OPTS)
-}
-
 /** segunda-feira, 21 de jun. */
 export function formatWeekdayDateBR(iso: string) {
   const d = new Date(iso.includes('T') ? iso : `${iso}T12:00:00`)
