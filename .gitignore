@@ -1,6 +1,78 @@
+# =============================================================================
+# AgendaGlow — .gitignore
+# =============================================================================
+
+# --- Variáveis de ambiente e segredos ---
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# --- Go ---
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
 agendaglow
+bin/
+dist/
+vendor/
+go.work
+go.work.sum
+
+# Utilitário local de geração de hash
 _hashgen.go
 cmd/hashgen/
+
+# --- Node / React (Vite) ---
+node_modules/
+.pnp
+.pnp.js
+.vite/
+.cache/
+coverage/
+*.tsbuildinfo
+.eslintcache
+.npm
+.yarn/cache
+.yarn/unplugged
+.yarn/install-state.gz
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Testes / relatórios ---
+playwright-report/
+test-results/
+.nyc_output/
+
+# --- Editores e IDEs ---
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Sistema operacional ---
+.DS_Store
+Thumbs.db
+desktop.ini
