@@ -200,6 +200,12 @@ func main() {
 	mux.HandleFunc("GET /api/v1/public/early-slot-offers/{token}", earlySlotHandler.GetOffer)
 	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/accept", earlySlotHandler.Accept)
 	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/decline", earlySlotHandler.Decline)
+	// Falta aqui o PATCH /api/v1/public/appointments/manage/{gestao_token}/early-slot-preference:
+	// ele depende do gestao_token, que nasce com o cancelamento público
+	// (DEV-82/DEV-83) e ainda não está em `develop`. Quando essa entrega
+	// integrar, a rota resolve o token para (tenant, agendamento) e chama o
+	// mesmo earlySlotHandler.SetPreference — a regra já está pronta e o eco já
+	// devolve early_slot_notifications_available.
 
 	mux.Handle("GET /superadmin/dashboard", superAdminRoute(superAdminUIHandler.Dashboard))
 	mux.Handle("POST /superadmin/establishments", superAdminRoute(superAdminUIHandler.CreateEstablishment))

@@ -22,7 +22,65 @@ const (
 	// Único motivo de encerramento não natural de uma rodada: o canal de saída
 	// caiu, então continuar ofertando prenderia o slot sem ninguém receber.
 	earlySlotMotivoCanalIndisponivel = "whatsapp_indisponivel"
+
+	// Uma oferta só é dada como não entregue depois de duas tentativas
+	// espaçadas. A segunda fica com o worker: no request ela bloquearia a
+	// resposta, e em memória se perderia num restart da API.
+	earlySlotMaxSendAttempts = 2
+	earlySlotSendRetryDelay  = 45 * time.Second
 )
+
+// earlySlotAcceptLookupQuery carrega a oferta, a rodada e o candidato sob lock.
+// Identidade do cliente vem de `clientes`: `agendamentos.cliente_nome` e
+// `cliente_telefone` foram removidos na migração 000004.
+const earlySlotAcceptLookupQuery = `
+SELECT o.id AS offer_id, o.status AS offer_status, o.expira_em, r.id AS rodada_id,
+       r.status AS round_status, o.estabelecimento_id, a.id AS agendamento_id,
+       a.profissional_id, r.slot_inicio, r.slot_fim,
+       a.data_hora_inicio AS current_start, a.data_hora_fim AS current_end,
+       c.nome AS cliente_nome, c.telefone AS cliente_telefone,
+       p.nome AS profissional_nome, sv.nome AS servico_nome,
+       (a.aceita_adiantar AND a.status IN ('AGENDADO','CONFIRMADO')
+        AND a.profissional_id = r.profissional_id
+        AND a.data_hora_inicio > r.slot_inicio
+        AND (a.data_hora_fim-a.data_hora_inicio) <= (r.slot_fim-r.slot_inicio)
+        AND EXISTS (
+            SELECT 1 FROM expedientes_profissionais ep
+            WHERE ep.profissional_id = r.profissional_id
+              AND ep.dia_semana = EXTRACT(DOW FROM r.slot_inicio)::int
+              AND r.slot_inicio::time >= ep.horario_entrada
+              AND (r.slot_inicio + (a.data_hora_fim - a.data_hora_inicio))::time <= ep.horario_saida
+              AND (ep.inicio_almoco IS NULL OR ep.fim_almoco IS NULL
+                   OR NOT (r.slot_inicio::time < ep.fim_almoco
+                           AND (r.slot_inicio + (a.data_hora_fim - a.data_hora_inicio))::time > ep.inicio_almoco)))
+       ) AS eligible
+FROM ofertas_antecipacao o
+JOIN rodadas_antecipacao r ON r.id=o.rodada_id AND r.estabelecimento_id=o.estabelecimento_id
+JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
+JOIN clientes c ON c.id=a.cliente_id AND c.estabelecimento_id=a.estabelecimento_id
+JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=a.estabelecimento_id
+JOIN servicos sv ON sv.id=a.servico_id AND sv.estabelecimento_id=a.estabelecimento_id
+WHERE o.token_hash=$1
+FOR UPDATE OF o, r, a`
+
+// earlySlotRetryLookupQuery reúne os dados da segunda tentativa de envio.
+const earlySlotRetryLookupQuery = `
+SELECT o.id, o.estabelecimento_id, o.agendamento_candidato_id, o.tentativas_envio,
+       c.nome AS cliente_nome, c.telefone AS cliente_telefone,
+       e.nome_comercial AS salon_name, p.nome AS professional_name,
+       a.data_hora_inicio, r.slot_inicio
+FROM ofertas_antecipacao o
+JOIN rodadas_antecipacao r ON r.id=o.rodada_id AND r.estabelecimento_id=o.estabelecimento_id
+JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
+JOIN clientes c ON c.id=a.cliente_id AND c.estabelecimento_id=a.estabelecimento_id
+JOIN estabelecimentos e ON e.id=o.estabelecimento_id
+JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=o.estabelecimento_id
+WHERE o.status='PENDENTE' AND r.status='ATIVA'
+  AND o.proxima_tentativa_em IS NOT NULL AND o.proxima_tentativa_em <= $1
+  AND o.tentativas_envio < $2 AND o.expira_em > $1
+ORDER BY o.proxima_tentativa_em
+LIMIT 1
+FOR UPDATE OF o SKIP LOCKED`
 
 var (
 	ErrEarlySlotOfferNotFound         = errors.New("offer_not_found")
@@ -97,6 +155,8 @@ type earlySlotDelivery struct {
 	CurrentStart  time.Time
 	OfferedStart  time.Time
 	Token         string
+	// Attempt é a tentativa que está sendo executada, contada a partir de 1.
+	Attempt int
 }
 
 func NewEarlySlotService(db *sqlx.DB, baseURL string) *EarlySlotService {
@@ -358,7 +418,7 @@ WHERE id = $1 AND estabelecimento_id = $2`, roundID, tenantID, candidate.ID)
 		OfferID: offerID, TenantID: tenantID, AppointmentID: candidate.ID,
 		Phone: candidate.Phone, ClientName: candidate.ClientName, SalonName: candidate.SalonName,
 		Professional: candidate.Professional, CurrentStart: candidate.CurrentStart,
-		OfferedStart: round.Start, Token: token,
+		OfferedStart: round.Start, Token: token, Attempt: 1,
 	}, nil
 }
 
@@ -387,7 +447,94 @@ func (s *EarlySlotService) deliverOrAdvance(ctx context.Context, d *earlySlotDel
 	if err == nil {
 		return
 	}
+	log.Printf("antecipacao: envio da oferta falhou tenant=%s oferta=%s tentativa=%d/%d: %v",
+		d.TenantID, d.OfferID, d.Attempt, earlySlotMaxSendAttempts, err)
+
+	if d.Attempt < earlySlotMaxSendAttempts {
+		if err := s.scheduleSendRetry(ctx, d.TenantID, d.OfferID); err != nil {
+			log.Printf("antecipacao: agendar reenvio falhou tenant=%s oferta=%s: %v",
+				d.TenantID, d.OfferID, err)
+		}
+		return
+	}
 	_ = s.failOfferAndAdvance(ctx, d.TenantID, d.OfferID)
+}
+
+// scheduleSendRetry mantém a oferta PENDENTE e deixa a segunda tentativa para o
+// worker. A janela de 5 minutos não é reiniciada: o slot fica exclusivo pelo
+// orçamento original, não pelo número de tentativas.
+func (s *EarlySlotService) scheduleSendRetry(ctx context.Context, tenantID, offerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+UPDATE ofertas_antecipacao SET proxima_tentativa_em=$3
+WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
+		offerID, tenantID, s.now().Add(earlySlotSendRetryDelay))
+	return err
+}
+
+// ProcessSendRetries executa a segunda tentativa das ofertas cujo primeiro
+// envio falhou. Só entram ofertas ainda PENDENTE e dentro do prazo.
+func (s *EarlySlotService) ProcessSendRetries(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	retried := 0
+	for retried < limit {
+		tx, err := s.db.BeginTxx(ctx, nil)
+		if err != nil {
+			return retried, err
+		}
+		var pending struct {
+			OfferID       string    `db:"id"`
+			TenantID      string    `db:"estabelecimento_id"`
+			AppointmentID string    `db:"agendamento_candidato_id"`
+			Attempts      int       `db:"tentativas_envio"`
+			ClientName    string    `db:"cliente_nome"`
+			Phone         string    `db:"cliente_telefone"`
+			SalonName     string    `db:"salon_name"`
+			Professional  string    `db:"professional_name"`
+			CurrentStart  time.Time `db:"data_hora_inicio"`
+			OfferedStart  time.Time `db:"slot_inicio"`
+		}
+		err = tx.GetContext(ctx, &pending, earlySlotRetryLookupQuery, s.now(), earlySlotMaxSendAttempts)
+		if errors.Is(err, sql.ErrNoRows) {
+			_ = tx.Rollback()
+			break
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return retried, err
+		}
+
+		// O token é rotacionado: a tentativa anterior não chegou a ninguém, e
+		// só o hash é persistido, então o link antigo não é recuperável.
+		token, tokenHash, err := newEarlySlotToken()
+		if err != nil {
+			_ = tx.Rollback()
+			return retried, err
+		}
+		if _, err = tx.ExecContext(ctx, `
+UPDATE ofertas_antecipacao
+SET token_hash=$3, tentativas_envio=tentativas_envio+1, proxima_tentativa_em=NULL
+WHERE id=$1 AND estabelecimento_id=$2 AND status='PENDENTE'`,
+			pending.OfferID, pending.TenantID, tokenHash[:]); err != nil {
+			_ = tx.Rollback()
+			return retried, err
+		}
+		if err := tx.Commit(); err != nil {
+			return retried, err
+		}
+
+		s.deliverOrAdvance(ctx, &earlySlotDelivery{
+			OfferID: pending.OfferID, TenantID: pending.TenantID,
+			AppointmentID: pending.AppointmentID, Phone: pending.Phone,
+			ClientName: pending.ClientName, SalonName: pending.SalonName,
+			Professional: pending.Professional, CurrentStart: pending.CurrentStart,
+			OfferedStart: pending.OfferedStart, Token: token,
+			Attempt: pending.Attempts + 1,
+		})
+		retried++
+	}
+	return retried, nil
 }
 
 func (s *EarlySlotService) failOfferAndAdvance(ctx context.Context, tenantID, offerID string) error {
@@ -482,23 +629,7 @@ func (s *EarlySlotService) Accept(ctx context.Context, token, origin string) (*E
 		Professional   string    `db:"profissional_nome"`
 		Service        string    `db:"servico_nome"`
 	}
-	err = tx.GetContext(ctx, &item, `
-SELECT o.id AS offer_id, o.status AS offer_status, o.expira_em, r.id AS rodada_id,
-       r.status AS round_status, o.estabelecimento_id, a.id AS agendamento_id,
-       a.profissional_id, r.slot_inicio, r.slot_fim,
-       a.data_hora_inicio AS current_start, a.data_hora_fim AS current_end,
-       a.cliente_nome, a.cliente_telefone,
-       p.nome AS profissional_nome, sv.nome AS servico_nome,
-       (a.aceita_adiantar AND a.status IN ('AGENDADO','CONFIRMADO')
-        AND a.data_hora_inicio > r.slot_inicio
-        AND (a.data_hora_fim-a.data_hora_inicio) <= (r.slot_fim-r.slot_inicio)) AS eligible
-FROM ofertas_antecipacao o
-JOIN rodadas_antecipacao r ON r.id=o.rodada_id AND r.estabelecimento_id=o.estabelecimento_id
-JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
-JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=a.estabelecimento_id
-JOIN servicos sv ON sv.id=a.servico_id AND sv.estabelecimento_id=a.estabelecimento_id
-WHERE o.token_hash=$1
-FOR UPDATE OF o, r, a`, hash[:])
+	err = tx.GetContext(ctx, &item, earlySlotAcceptLookupQuery, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrEarlySlotOfferNotFound
 	}
@@ -606,13 +737,14 @@ func (s *EarlySlotService) Decline(ctx context.Context, token, origin string) (s
 	}
 	defer tx.Rollback() //nolint:errcheck
 	var item struct {
-		ID       string `db:"id"`
-		Status   string `db:"status"`
-		TenantID string `db:"estabelecimento_id"`
-		RoundID  string `db:"rodada_id"`
+		ID        string    `db:"id"`
+		Status    string    `db:"status"`
+		TenantID  string    `db:"estabelecimento_id"`
+		RoundID   string    `db:"rodada_id"`
+		ExpiresAt time.Time `db:"expira_em"`
 	}
 	err = tx.GetContext(ctx, &item, `
-SELECT id,status,estabelecimento_id,rodada_id FROM ofertas_antecipacao
+SELECT id,status,estabelecimento_id,rodada_id,expira_em FROM ofertas_antecipacao
 WHERE token_hash=$1 FOR UPDATE`, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrEarlySlotOfferNotFound
@@ -622,6 +754,12 @@ WHERE token_hash=$1 FOR UPDATE`, hash[:])
 	}
 	if item.Status == "RECUSADA" {
 		return "RECUSADA", nil
+	}
+	// Fora da janela exclusiva a recusa não vale mais: quem avança a fila é o
+	// worker de expiração, e registrar RECUSADA aqui reescreveria o histórico.
+	if item.Status == "EXPIRADA" ||
+		(item.Status == "PENDENTE" && !s.now().Before(item.ExpiresAt)) {
+		return "", ErrEarlySlotOfferExpired
 	}
 	if item.Status != "PENDENTE" {
 		return "", ErrEarlySlotOfferUnavailable
@@ -826,6 +964,7 @@ func (s *EarlySlotService) RunExpirationWorker(ctx context.Context, interval tim
 			return
 		case <-ticker.C:
 			_, _ = s.ProcessExpired(ctx, 50)
+			_, _ = s.ProcessSendRetries(ctx, 50)
 			_, _ = s.ProcessChannelDrops(ctx, 50)
 		}
 	}
