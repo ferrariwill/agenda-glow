@@ -377,7 +377,7 @@ WHERE id = $1 AND estabelecimento_id = $2
 	if err := recordCancellationAudit(ctx, tx, ag.EstablishmentID, ag.ID, origin, reason != "", now); err != nil {
 		return nil, err
 	}
-	if err := enqueueNotification(ctx, tx, ag.EstablishmentID, ag.ID, NotificationTypeCancellationConfirmed); err != nil {
+	if err := enqueueNotification(ctx, tx, ag.EstablishmentID, ag.ID, NotificationTypeCancellationConfirmed, now); err != nil {
 		return nil, err
 	}
 	return cancelledResult(true), nil
@@ -398,12 +398,13 @@ func recordCancellationAudit(ctx context.Context, tx *sqlx.Tx, establishmentID, 
 	const insert = `
 INSERT INTO agendamento_notificacoes (
     estabelecimento_id, agendamento_id, tipo, status_envio,
-    proxima_tentativa_em, payload_resumido
-) VALUES ($1, $2, $3, $4, $5, $6)
+    proxima_tentativa_em, payload_resumido, criado_em, atualizado_em
+) VALUES ($1, $2, $3, $4, $5::timestamp, $6, $5::timestamp, $5::timestamp)
 ON CONFLICT (estabelecimento_id, agendamento_id, tipo) DO NOTHING
 `
 	if _, err := tx.ExecContext(ctx, insert, establishmentID, appointmentID,
-		NotificationTypeCancellationByCustomer, NotificationStatusRecorded, now, summary); err != nil {
+		NotificationTypeCancellationByCustomer, NotificationStatusRecorded,
+		queueClock(now), summary); err != nil {
 		return fmt.Errorf("registrar auditoria de cancelamento: %w", err)
 	}
 	return nil
@@ -418,14 +419,35 @@ func cancelledResult(slotReleased bool) *PublicCancellationResult {
 	}
 }
 
-func enqueueNotification(ctx context.Context, tx *sqlx.Tx, establishmentID, appointmentID, notificationType string) error {
+// queueClock normaliza todo instante gravado ou comparado nas colunas de controle de
+// `agendamento_notificacoes`, que são `timestamp without time zone`. Enquanto a fila
+// era escrita pelo NOW() do Postgres e lida pelo relógio do processo Go, uma linha
+// enfileirada ficava invisível pelo tamanho exato da diferença de fuso entre os dois
+// — e `CONFIRMACAO_RESERVA` e `CANCELAMENTO_CONFIRMADO`, os únicos tipos que nascem
+// por enfileiramento direto, nunca saíam.
+//
+// Normalizar em UTC, em vez de apenas passar o relógio do chamador adiante, mantém o
+// invariante mesmo quando um chamador entrega `time.Now()` local e outro entrega
+// `time.Now().UTC()`: o mesmo instante vira sempre o mesmo valor gravado.
+//
+// Só vale para as colunas da fila. Comparações contra `data_hora_inicio` seguem no
+// fuso do salão, que é o domínio daquela coluna.
+func queueClock(t time.Time) time.Time { return t.UTC() }
+
+// enqueueNotification recebe o relógio do chamador em vez de usar NOW(). A fila é
+// lida pelo worker comparando `proxima_tentativa_em` contra o relógio do processo Go;
+// gravar com o relógio do Postgres deixava a linha invisível pelo tamanho exato da
+// diferença de fuso entre os dois — ver queueClock.
+func enqueueNotification(ctx context.Context, tx *sqlx.Tx, establishmentID, appointmentID, notificationType string, now time.Time) error {
 	const insert = `
 INSERT INTO agendamento_notificacoes (
-    estabelecimento_id, agendamento_id, tipo, status_envio, proxima_tentativa_em
-) VALUES ($1, $2, $3, $4, NOW())
+    estabelecimento_id, agendamento_id, tipo, status_envio,
+    proxima_tentativa_em, criado_em, atualizado_em
+) VALUES ($1, $2, $3, $4, $5::timestamp, $5::timestamp, $5::timestamp)
 ON CONFLICT (estabelecimento_id, agendamento_id, tipo) DO NOTHING
 `
-	if _, err := tx.ExecContext(ctx, insert, establishmentID, appointmentID, notificationType, NotificationStatusPending); err != nil {
+	if _, err := tx.ExecContext(ctx, insert, establishmentID, appointmentID,
+		notificationType, NotificationStatusPending, queueClock(now)); err != nil {
 		return fmt.Errorf("enfileirar notificação %s: %w", notificationType, err)
 	}
 	return nil
@@ -504,7 +526,7 @@ SET status_envio = 'FALHOU', proxima_tentativa_em = $1::timestamp, atualizado_em
     ultimo_erro = 'reserva de envio expirada'
 WHERE status_envio = 'ENVIANDO'
   AND atualizado_em < $1::timestamp - INTERVAL '15 minutes'
-`, now); err != nil {
+`, queueClock(now)); err != nil {
 		return fmt.Errorf("recuperar notificações travadas: %w", err)
 	}
 	if err := w.discoverDue(ctx, now); err != nil {
@@ -533,12 +555,17 @@ WHERE status_envio = 'ENVIANDO'
 	}
 }
 
+// discoverDue usa dois relógios de propósito distinto: $1 é o relógio da fila, que
+// grava as colunas de controle, e $3 é o horário corrente do salão, comparado contra
+// `data_hora_inicio` (hora de parede do agendamento). Só o primeiro é normalizado.
 func (w *AgendaNotificationWorker) discoverDue(ctx context.Context, now time.Time) error {
 	const insert = `
 INSERT INTO agendamento_notificacoes (
-    estabelecimento_id, agendamento_id, tipo, status_envio, proxima_tentativa_em
+    estabelecimento_id, agendamento_id, tipo, status_envio,
+    proxima_tentativa_em, criado_em, atualizado_em
 )
-SELECT a.estabelecimento_id, a.id, due.tipo, 'PENDENTE', $1::timestamp
+SELECT a.estabelecimento_id, a.id, due.tipo, 'PENDENTE',
+       $1::timestamp, $1::timestamp, $1::timestamp
 FROM agendamentos a
 JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
 JOIN estabelecimentos e ON e.id = a.estabelecimento_id
@@ -546,19 +573,20 @@ JOIN configuracoes_notificacoes_agenda cfg ON cfg.estabelecimento_id = a.estabel
 CROSS JOIN LATERAL (
     SELECT 'PEDIDO_CONFIRMACAO'::varchar AS tipo
     WHERE a.confirmacao_cliente = 'PENDENTE'
-      AND a.data_hora_inicio <= $1::timestamp + make_interval(hours => cfg.antecedencia_confirmacao_horas)
+      AND a.data_hora_inicio <= $3::timestamp + make_interval(hours => cfg.antecedencia_confirmacao_horas)
     UNION ALL
     SELECT 'LEMBRETE'::varchar
-    WHERE a.data_hora_inicio <= $1::timestamp + make_interval(hours => cfg.antecedencia_lembrete_horas)
+    WHERE a.data_hora_inicio <= $3::timestamp + make_interval(hours => cfg.antecedencia_lembrete_horas)
 ) due
 WHERE e.ativo = TRUE AND e.whatsapp_status = 'CONECTADO'
   AND cfg.lembretes_ativos = TRUE
   AND a.status = ANY($2)
-  AND a.data_hora_inicio > $1::timestamp
+  AND a.data_hora_inicio > $3::timestamp
   AND BTRIM(c.telefone) <> ''
 ON CONFLICT (estabelecimento_id, agendamento_id, tipo) DO NOTHING
 `
-	if _, err := w.db.ExecContext(ctx, insert, now, pq.Array(statusesForScheduledNotifications)); err != nil {
+	if _, err := w.db.ExecContext(ctx, insert, queueClock(now),
+		pq.Array(statusesForScheduledNotifications), now); err != nil {
 		return fmt.Errorf("descobrir notificações vencendo: %w", err)
 	}
 	return nil
@@ -633,7 +661,7 @@ JOIN profissionais p ON p.id = a.profissional_id AND p.estabelecimento_id = a.es
 JOIN estabelecimentos e ON e.id = a.estabelecimento_id
 JOIN configuracoes_notificacoes_agenda cfg ON cfg.estabelecimento_id = a.estabelecimento_id
 WHERE n.status_envio IN ('PENDENTE', 'FALHOU')
-  AND n.proxima_tentativa_em <= $1 AND n.tentativas < $2
+  AND n.proxima_tentativa_em <= $1::timestamp AND n.tentativas < $2
   AND e.ativo = TRUE AND e.whatsapp_status = 'CONECTADO' AND cfg.lembretes_ativos = TRUE
   AND CASE WHEN n.tipo = ANY($3) THEN a.status = ANY($4) ELSE a.status = ANY($5) END
   AND BTRIM(c.telefone) <> ''
@@ -642,7 +670,7 @@ FOR UPDATE OF n SKIP LOCKED
 LIMIT 1
 `
 	var job notificationJob
-	if err := tx.GetContext(ctx, &job, query, now, w.maxRetries,
+	if err := tx.GetContext(ctx, &job, query, queueClock(now), w.maxRetries,
 		pq.Array(postCancellationNotificationTypes),
 		pq.Array(statusesForCancellationNotification),
 		pq.Array(statusesForScheduledNotifications)); err != nil {
@@ -653,9 +681,9 @@ LIMIT 1
 	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE agendamento_notificacoes
-SET status_envio = 'ENVIANDO', tentativas = tentativas + 1, atualizado_em = $2
+SET status_envio = 'ENVIANDO', tentativas = tentativas + 1, atualizado_em = $2::timestamp
 WHERE id = $1
-`, job.ID, now); err != nil {
+`, job.ID, queueClock(now)); err != nil {
 		return nil, fmt.Errorf("marcar notificação enviando: %w", err)
 	}
 	job.Attempts++
@@ -670,10 +698,10 @@ func (w *AgendaNotificationWorker) finish(ctx context.Context, job *notification
 		summary, _ := json.Marshal(map[string]any{"template": templateNameForType(job.Type), "attempt": job.Attempts})
 		_, err := w.db.ExecContext(ctx, `
 UPDATE agendamento_notificacoes
-SET status_envio = 'ENVIADO', enviado_em = $2, external_message_id = NULLIF($3, ''),
-    payload_resumido = $4, ultimo_erro = NULL, atualizado_em = $2
+SET status_envio = 'ENVIADO', enviado_em = $2::timestamp, external_message_id = NULLIF($3, ''),
+    payload_resumido = $4, ultimo_erro = NULL, atualizado_em = $2::timestamp
 WHERE id = $1 AND status_envio = 'ENVIANDO'
-`, job.ID, now, externalID, summary)
+`, job.ID, queueClock(now), externalID, summary)
 		return err
 	}
 	delay := retryBackoff(job.Attempts)
@@ -683,9 +711,10 @@ WHERE id = $1 AND status_envio = 'ENVIANDO'
 	}
 	_, err := w.db.ExecContext(ctx, `
 UPDATE agendamento_notificacoes
-SET status_envio = $2, proxima_tentativa_em = $3, ultimo_erro = $4, atualizado_em = $5
+SET status_envio = $2, proxima_tentativa_em = $3::timestamp, ultimo_erro = $4,
+    atualizado_em = $5::timestamp
 WHERE id = $1 AND status_envio = 'ENVIANDO'
-`, job.ID, status, now.Add(delay), truncateError(sendErr.Error()), now)
+`, job.ID, status, queueClock(now.Add(delay)), truncateError(sendErr.Error()), queueClock(now))
 	return err
 }
 

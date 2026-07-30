@@ -114,7 +114,7 @@ func TestProcessWhatsAppCallbackCancelUpdatesBothStatesAndAudits(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
 		WithArgs("tenant-a", "appointment-a", NotificationTypeCancellationConfirmed,
-			NotificationStatusPending).
+			NotificationStatusPending, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
