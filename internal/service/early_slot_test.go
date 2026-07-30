@@ -314,12 +314,15 @@ func TestAcceptCommitsRescheduleBeforeSendingWhatsAppConfirmation(t *testing.T) 
 			"offer_id", "offer_status", "expira_em", "rodada_id", "round_status",
 			"estabelecimento_id", "agendamento_id", "profissional_id",
 			"slot_inicio", "slot_fim", "current_start", "current_end",
+			"agendamento_inicio_original", "agendamento_fim_original",
 			"cliente_nome", "cliente_telefone", "profissional_nome", "servico_nome",
 			"eligible",
 		}).AddRow(
 			"oferta-1", "PENDENTE", now.Add(5*time.Minute), "rodada-1", "ATIVA",
 			"tenant-1", "agendamento-1", "prof-1",
 			slotStart, slotEnd, currentStart, currentEnd,
+			// Retrato igual ao estado atual: o candidato não foi reagendado.
+			currentStart, currentEnd,
 			"Maria", "5511999999999", "Ana", "Corte", true,
 		))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
