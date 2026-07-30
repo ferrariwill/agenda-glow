@@ -14,6 +14,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Badge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { EarlySlotOfferIndicator, EarlySlotOptInBadge } from '../../components/agenda/EarlySlotBadges'
+import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { useAuth } from '../../contexts/AuthContext'
 import { IS_MOCK } from '../../lib/config'
 import type { Agendamento } from '../../types'
@@ -51,16 +52,13 @@ export function AgendaProfissional() {
   const isProf = session?.user.role === 'PROFISSIONAL'
   const isDonaAgenda = session?.user.role === 'DONA'
 
-  if (isDonaAgenda && !profId) {
-    return <Navigate to="/admin/configuracoes" replace />
-  }
-
   const [db, setDb] = useState(getDb())
   const [weekAnchor, setWeekAnchor] = useState(weekStart(todayISO()))
   const [selectedDay, setSelectedDay] = useState(todayISO())
   const [agModalOpen, setAgModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Agendamento | null>(null)
   const [success, setSuccess] = useState('')
+  const tenant = db.tenants.find((item) => item.id === tenantId)
 
   const days = useMemo(() => weekDays(weekAnchor), [weekAnchor])
   const hoje = todayISO()
@@ -78,6 +76,10 @@ export function AgendaProfissional() {
   const dayAgs = agendamentos
     .filter((a) => a.data === selectedDay)
     .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
+
+  if (isDonaAgenda && !profId) {
+    return <Navigate to="/admin/configuracoes" replace />
+  }
 
   const concluir = async (ag: Agendamento) => {
     await updateAgendamentoStatus(ag.id, 'CONCLUIDO', { role: 'PROFISSIONAL' })
@@ -116,6 +118,7 @@ export function AgendaProfissional() {
           {success}
         </Alert>
       )}
+      <EarlySlotQueueInactiveBanner active={tenant?.early_slot_queue_active} />
 
       {/* Navegação semanal */}
       <div className={`mb-6 flex flex-wrap items-center justify-between gap-4 p-4 ${ProfissionalGLASS}`}>

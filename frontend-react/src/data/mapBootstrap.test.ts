@@ -141,4 +141,19 @@ describe('mapTenantBootstrap', () => {
     expect(mapped.agendamentos[0].early_slot_offer?.round_id).toBe('round-1')
     expect(mapTenantBootstrap(tenantPayload('ATIVO'), emptyDb()).agendamentos).toEqual([])
   })
+
+  it('mapeia apenas o sinal canônico da fila nos formatos staff', () => {
+    const staff = tenantPayload('ATIVO')
+    staff.tenant.early_slot_queue_active = false
+    staff.tenant.early_slot_queue_inactive_reason = 'whatsapp_indisponivel'
+
+    const professional = tenantPayload('ATIVO')
+    professional.early_slot_queue_active = true
+
+    expect(mapTenantBootstrap(staff, emptyDb()).tenants[0]).toMatchObject({
+      early_slot_queue_active: false,
+      early_slot_queue_inactive_reason: 'whatsapp_indisponivel',
+    })
+    expect(mapTenantBootstrap(professional, emptyDb()).tenants[0].early_slot_queue_active).toBe(true)
+  })
 })

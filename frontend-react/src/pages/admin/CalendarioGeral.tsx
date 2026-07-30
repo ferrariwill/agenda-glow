@@ -20,6 +20,7 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/Modal'
 import { EarlySlotOfferIndicator, EarlySlotOptInBadge } from '../../components/agenda/EarlySlotBadges'
+import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { useAuth } from '../../contexts/AuthContext'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
@@ -502,12 +503,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {success}
         </Alert>
       )}
-      {(tenant?.whatsapp_enabled === false || tenant?.whatsapp_status === 'DESCONECTADO') && (
-        <Alert variant="warning" className="mb-4">
-          A fila de antecipação está inativa porque o WhatsApp do salão está desconectado. Reconecte em{' '}
-          <a href="/admin/whatsapp" className="font-semibold underline">Integração WhatsApp</a>.
-        </Alert>
-      )}
+      <EarlySlotQueueInactiveBanner active={tenant?.early_slot_queue_active} />
 
       {viewMode !== 'hoje' && (
         <div className="mb-4 rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] px-4 py-3 text-sm text-aura-muted">

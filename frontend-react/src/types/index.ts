@@ -43,6 +43,9 @@ export interface Tenant {
   dona_atua_como_profissional?: boolean
   whatsapp_enabled?: boolean
   whatsapp_status?: WhatsAppIntegrationStatus
+  early_slot_queue_active?: boolean
+  early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
+  early_slot_notifications_available?: boolean
   whatsapp_waba_id?: string
   whatsapp_phone_number_id?: string
   whatsapp_connected_at?: string

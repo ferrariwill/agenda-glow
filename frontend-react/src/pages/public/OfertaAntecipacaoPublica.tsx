@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { ApiError } from '../../lib/api'
 import {
   acceptEarlySlotOffer,
   declineEarlySlotOffer,
@@ -8,43 +7,12 @@ import {
   type EarlySlotAcceptResponse,
   type EarlySlotOfferDetail,
 } from '../../services/earlySlotOfferService'
-
-type ViewState =
-  | 'loading'
-  | 'available'
-  | 'submitting_accept'
-  | 'submitting_decline'
-  | 'accepted'
-  | 'declined'
-  | 'expired'
-  | 'unavailable'
-  | 'ineligible'
-  | 'not_found'
-  | 'error'
-
-const terminalState = (status: EarlySlotOfferDetail['status']): ViewState => {
-  switch (status) {
-    case 'ACEITA':
-      return 'accepted'
-    case 'RECUSADA':
-      return 'declined'
-    case 'EXPIRADA':
-      return 'expired'
-    case 'INVALIDADA':
-      return 'unavailable'
-    default:
-      return 'available'
-  }
-}
-
-const errorState = (error: unknown): ViewState => {
-  if (!(error instanceof ApiError)) return 'error'
-  if (error.status === 404 || error.code === 'offer_not_found') return 'not_found'
-  if (error.status === 410 || error.code === 'offer_expired') return 'expired'
-  if (error.status === 409 || error.code === 'offer_no_longer_available') return 'unavailable'
-  if (error.status === 422 || error.code === 'appointment_no_longer_eligible') return 'ineligible'
-  return 'error'
-}
+import {
+  nextExpiryRefreshState,
+  offerErrorView,
+  terminalOfferView,
+  type EarlySlotOfferViewState as ViewState,
+} from './earlySlotOfferUi'
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat('pt-BR', {
@@ -82,11 +50,15 @@ export function OfertaAntecipacaoPublica() {
       const reconciledSeconds = Math.min(serverSeconds, expiresIn)
       deadlineRef.current = Date.now() + reconciledSeconds * 1000
       setSeconds(reconciledSeconds)
-      expiryRefreshRef.current = detail.status !== 'PENDENTE'
-      setView(terminalState(detail.status))
+      expiryRefreshRef.current = nextExpiryRefreshState(
+        expiryRefreshRef.current,
+        detail.status,
+        reconciledSeconds,
+      )
+      setView(terminalOfferView(detail.status))
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
-      if (mountedRef.current) setView(errorState(error))
+      if (mountedRef.current) setView(offerErrorView(error))
     }
   }, [token])
 
@@ -137,7 +109,7 @@ export function OfertaAntecipacaoPublica() {
         setView('declined')
       }
     } catch (error) {
-      const next = errorState(error)
+      const next = offerErrorView(error)
       if (next === 'unavailable') {
         setView('unavailable')
         await load()

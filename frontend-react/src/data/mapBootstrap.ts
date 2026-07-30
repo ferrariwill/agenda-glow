@@ -24,7 +24,11 @@ interface TenantBootstrapApi {
     data_vencimento?: string
     whatsapp_enabled?: boolean
     whatsapp_status?: WhatsAppIntegrationStatus
+    early_slot_queue_active?: boolean
+    early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   }
+  early_slot_queue_active?: boolean
+  early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   plano?: PlanoSaas
   especialidades: { id: string; nome: string; ativo: boolean }[]
   profissionais: {
@@ -155,6 +159,10 @@ export function mapTenantBootstrap(
     data_vencimento: payload.tenant.data_vencimento ?? '',
     whatsapp_enabled: payload.tenant.whatsapp_enabled,
     whatsapp_status: payload.tenant.whatsapp_status,
+    early_slot_queue_active:
+      payload.tenant.early_slot_queue_active ?? payload.early_slot_queue_active,
+    early_slot_queue_inactive_reason:
+      payload.tenant.early_slot_queue_inactive_reason ?? payload.early_slot_queue_inactive_reason,
     criado_em: prev.tenants.find((t) => t.id === tenantId)?.criado_em ?? '',
   }
 

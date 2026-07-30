@@ -39,6 +39,7 @@ import {
 } from '../../utils/mockDb'
 
 import { formatBRL, formatDateTimeBR, formatTimeBR, initials, todayISO } from '../../utils/format'
+import { bookingWhatsAppCopy } from '../../utils/earlySlotAvailabilityCopy'
 
 
 
@@ -77,6 +78,10 @@ export function ClienteAgendar() {
   const [error, setError] = useState('')
 
   const [done, setDone] = useState(false)
+  const whatsAppCopy = bookingWhatsAppCopy(
+    tenant?.early_slot_notifications_available,
+    aceitaAdiantar,
+  )
 
 
 
@@ -322,17 +327,17 @@ export function ClienteAgendar() {
 
           </p>
 
-          {aceitaAdiantar && (
+          {whatsAppCopy.earlySlot && (
 
             <p className="mt-2 text-sm text-[#514440]">
 
-              Você será avisada por WhatsApp se surgir um horário mais cedo.
+              {whatsAppCopy.earlySlot}
 
             </p>
 
           )}
 
-          <p className="mt-1 text-sm text-[#514440]">Enviamos a confirmação por WhatsApp.</p>
+          <p className="mt-1 text-sm text-[#514440]">{whatsAppCopy.confirmation}</p>
 
           <div className="mt-5 flex flex-col gap-2">
 
@@ -684,7 +689,7 @@ export function ClienteAgendar() {
                   A oferta é opcional e exclusiva por 5 minutos. Seu horário atual só muda se você aceitar.
 
                 </span>
-                {(tenant?.whatsapp_enabled === false || tenant?.whatsapp_status === 'DESCONECTADO') && (
+                {tenant?.early_slot_notifications_available === false && (
                   <span className="mt-1 block text-xs font-medium text-amber-800">
                     Os avisos começarão quando o salão reativar o WhatsApp.
                   </span>
