@@ -96,6 +96,8 @@ func (h *EarlySlotHandler) SetPreference(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response := map[string]any{"aceita_adiantar": *req.Enabled, "aceita_adiantar_em": nil}
+	response["early_slot_notifications_available"] =
+		h.service.NotificationsAvailable(r.Context(), tenantID)
 	if *req.Enabled {
 		response["aceita_adiantar_em"] = at
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -15,32 +16,33 @@ var ErrAgendamentoNaoPertenceProfissional = errors.New("agendamento não pertenc
 var ErrAgendamentoStatusInvalido = errors.New("agendamento não está confirmado para conclusão")
 
 type ResumoSemanaProfissional struct {
-	ComissaoPendente  float64 `json:"comissao_pendente"`
-	ServicosRealizados int    `json:"servicos_realizados"`
-	PeriodoLabel      string  `json:"periodo_label"`
-	StartDate         string  `json:"start_date"`
-	EndDate           string  `json:"end_date"`
+	ComissaoPendente   float64 `json:"comissao_pendente"`
+	ServicosRealizados int     `json:"servicos_realizados"`
+	PeriodoLabel       string  `json:"periodo_label"`
+	StartDate          string  `json:"start_date"`
+	EndDate            string  `json:"end_date"`
 }
 
 type AgendamentoTimelineItem struct {
-	ID            string    `json:"id"`
-	HorarioInicio string    `json:"horario_inicio"`
-	HorarioFim    string    `json:"horario_fim"`
-	Status        string    `json:"status"`
-	ClienteNome   string    `json:"cliente_nome"`
-	ServicoNome   string    `json:"servico_nome"`
-	Adicionais    []string  `json:"adicionais"`
+	ID             string    `json:"id"`
+	HorarioInicio  string    `json:"horario_inicio"`
+	HorarioFim     string    `json:"horario_fim"`
+	Status         string    `json:"status"`
+	ClienteNome    string    `json:"cliente_nome"`
+	ServicoNome    string    `json:"servico_nome"`
+	Adicionais     []string  `json:"adicionais"`
 	DataHoraInicio time.Time `json:"-"`
 }
 
 type DashboardProfissional struct {
-	ProfissionalNome string                    `json:"profissional_nome"`
-	DataSelecionada  string                    `json:"data_selecionada"`
-	DataLabel        string                    `json:"data_label"`
-	DataAnterior     string                    `json:"data_anterior"`
-	DataProxima      string                    `json:"data_proxima"`
-	ResumoSemana     ResumoSemanaProfissional  `json:"resumo_semana"`
-	Agenda           []AgendamentoTimelineItem `json:"agenda"`
+	ProfissionalNome     string                    `json:"profissional_nome"`
+	DataSelecionada      string                    `json:"data_selecionada"`
+	DataLabel            string                    `json:"data_label"`
+	DataAnterior         string                    `json:"data_anterior"`
+	DataProxima          string                    `json:"data_proxima"`
+	ResumoSemana         ResumoSemanaProfissional  `json:"resumo_semana"`
+	Agenda               []AgendamentoTimelineItem `json:"agenda"`
+	EarlySlotQueueActive bool                      `json:"early_slot_queue_active"`
 }
 
 // GetDashboardProfissional monta extrato semanal e timeline do dia para a profissional logada.
@@ -68,18 +70,25 @@ func (s *AgendaService) GetDashboardProfissional(
 	if err != nil {
 		return nil, err
 	}
+	earlySlotActive, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, establishmentID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do dashboard falhou tenant=%s: %v",
+			establishmentID, gateErr)
+		earlySlotActive = false
+	}
 
 	prevDay := selectedDate.AddDate(0, 0, -1)
 	nextDay := selectedDate.AddDate(0, 0, 1)
 
 	return &DashboardProfissional{
-		ProfissionalNome: nome,
-		DataSelecionada:  selectedDate.Format("2006-01-02"),
-		DataLabel:        formatarDataLabel(selectedDate),
-		DataAnterior:     prevDay.Format("2006-01-02"),
-		DataProxima:      nextDay.Format("2006-01-02"),
-		ResumoSemana:     *resumo,
-		Agenda:           agenda,
+		ProfissionalNome:     nome,
+		DataSelecionada:      selectedDate.Format("2006-01-02"),
+		DataLabel:            formatarDataLabel(selectedDate),
+		DataAnterior:         prevDay.Format("2006-01-02"),
+		DataProxima:          nextDay.Format("2006-01-02"),
+		ResumoSemana:         *resumo,
+		Agenda:               agenda,
+		EarlySlotQueueActive: earlySlotActive,
 	}, nil
 }
 
@@ -172,10 +181,10 @@ ORDER BY a.data_hora_inicio ASC
 	items := make([]AgendamentoTimelineItem, 0, 8)
 	for rows.Next() {
 		var (
-			item        AgendamentoTimelineItem
-			adicionais  pq.StringArray
-			inicio      time.Time
-			fim         time.Time
+			item       AgendamentoTimelineItem
+			adicionais pq.StringArray
+			inicio     time.Time
+			fim        time.Time
 		)
 		if err := rows.Scan(
 			&item.ID,

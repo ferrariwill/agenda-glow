@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"regexp"
 	"testing"
@@ -42,6 +43,15 @@ func expectCancelledAppointment(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "profissional_id", "data_hora_inicio", "data_hora_fim",
 		}).AddRow("agendamento-1", "prof-1", inicio, inicio.Add(45*time.Minute)))
+	mock.ExpectCommit()
+	// Só depois do commit o hook relê o cancelado e avalia o canal.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM agendamentos`)).
+		WithArgs("agendamento-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"profissional_id", "data_hora_inicio", "data_hora_fim",
+		}).AddRow("prof-1", inicio, inicio.Add(45*time.Minute)))
+	mock.ExpectCommit()
 }
 
 // Cenário 19: canal desligado no momento do cancelamento — o slot é liberado,
@@ -51,8 +61,6 @@ func TestCancelWithChannelOffReleasesSlotWithoutOpeningRound(t *testing.T) {
 		func(context.Context, sqlx.QueryerContext, string) (bool, error) { return false, nil })
 
 	expectCancelledAppointment(mock)
-	// Nenhum INSERT em rodadas_antecipacao é esperado entre o UPDATE e o COMMIT.
-	mock.ExpectCommit()
 
 	if err := svc.CancelAppointment(context.Background(), "tenant-1", "agendamento-1"); err != nil {
 		t.Fatalf("indisponibilidade de canal não pode falhar o cancelamento: %v", err)
@@ -71,10 +79,32 @@ func TestCancelWithChannelCheckFailureIsFailClosed(t *testing.T) {
 		})
 
 	expectCancelledAppointment(mock)
-	mock.ExpectCommit()
 
 	if err := svc.CancelAppointment(context.Background(), "tenant-1", "agendamento-1"); err != nil {
 		t.Fatalf("falha na checagem não pode falhar o cancelamento: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQueueHookFailureAfterCommitDoesNotRollbackCancellation(t *testing.T) {
+	svc, mock := newEarlySlotServiceForTest(t,
+		func(context.Context, sqlx.QueryerContext, string) (bool, error) { return true, nil })
+
+	inicio := time.Date(2026, 8, 3, 14, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE agendamentos`)).
+		WithArgs("agendamento-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "profissional_id", "data_hora_inicio", "data_hora_fim",
+		}).AddRow("agendamento-1", "prof-1", inicio, inicio.Add(45*time.Minute)))
+	mock.ExpectCommit()
+	// A fila falha ao iniciar uma nova transação, depois do commit acima.
+	mock.ExpectBegin().WillReturnError(errors.New("banco indisponível no hook"))
+
+	if err := svc.CancelAppointment(context.Background(), "tenant-1", "agendamento-1"); err != nil {
+		t.Fatalf("falha pós-commit da fila não pode alterar sucesso do cancelamento: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -251,6 +281,207 @@ func TestWhatsAppChannelReadyPropagatesQueryFailure(t *testing.T) {
 	}
 	if pronto {
 		t.Fatal("canal não pode ser considerado pronto após falha")
+	}
+}
+
+func TestAcceptCommitsRescheduleBeforeSendingWhatsAppConfirmation(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer rawDB.Close()
+
+	svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "http://localhost:8081")
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+
+	var sent *WhatsAppNotificationInput
+	svc.send = func(_ context.Context, in WhatsAppNotificationInput) error {
+		copy := in
+		sent = &copy
+		return nil
+	}
+
+	currentStart := now.Add(48 * time.Hour)
+	currentEnd := currentStart.Add(45 * time.Minute)
+	slotStart := now.Add(24 * time.Hour)
+	slotEnd := slotStart.Add(60 * time.Minute)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"offer_id", "offer_status", "expira_em", "rodada_id", "round_status",
+			"estabelecimento_id", "agendamento_id", "profissional_id",
+			"slot_inicio", "slot_fim", "current_start", "current_end",
+			"cliente_nome", "cliente_telefone", "profissional_nome", "servico_nome",
+			"eligible",
+		}).AddRow(
+			"oferta-1", "PENDENTE", now.Add(5*time.Minute), "rodada-1", "ATIVA",
+			"tenant-1", "agendamento-1", "prof-1",
+			slotStart, slotEnd, currentStart, currentEnd,
+			"Maria", "5511999999999", "Ana", "Corte", true,
+		))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
+		WithArgs("tenant-1", "prof-1", "agendamento-1", slotStart, slotStart.Add(45*time.Minute)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE agendamentos SET data_hora_inicio=$3`)).
+		WithArgs("agendamento-1", "tenant-1", slotStart, slotStart.Add(45*time.Minute)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='ACEITA'`)).
+		WithArgs("oferta-1", "tenant-1", "WEB").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='INVALIDADA'`)).
+		WithArgs("oferta-1", "tenant-1", "rodada-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE rodadas_antecipacao SET status='PREENCHIDA'`)).
+		WithArgs("rodada-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO antecipacao_auditoria`)).
+		WithArgs("tenant-1", "rodada-1", "oferta-1",
+			currentStart, currentEnd, slotStart, slotStart.Add(45*time.Minute), "WEB").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	result, err := svc.Accept(context.Background(), "token-opaco", "WEB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "ACEITA" || result.NewStart != slotStart {
+		t.Fatalf("resultado inesperado: %#v", result)
+	}
+	if sent == nil {
+		t.Fatal("aceite deve enviar confirmação WhatsApp após o commit")
+	}
+	if sent.TenantID != "tenant-1" ||
+		sent.AppointmentID != "agendamento-1" ||
+		sent.TemplateName != earlySlotConfirmationTemplate {
+		t.Fatalf("confirmação fora do escopo/contrato: %#v", sent)
+	}
+	// A lista estrita também comprova que o aceite não cria fluxo_caixa nem
+	// comissão: qualquer statement financeiro faria o sqlmock falhar.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAcceptanceConfirmationFailureDoesNotRevertCommittedReschedule(t *testing.T) {
+	svc := &EarlySlotService{
+		send: func(context.Context, WhatsAppNotificationInput) error {
+			return errors.New("gateway indisponível")
+		},
+	}
+	// O helper é deliberadamente best-effort e não retorna erro: ele só é
+	// chamado após o commit do aceite.
+	svc.sendAcceptanceConfirmation(
+		context.Background(),
+		"tenant-1", "agendamento-1", "5511999999999",
+		"Maria", "Ana", "Corte", time.Now(),
+	)
+}
+
+func TestExpiredOfferAdvancesAndExhaustsRoundAtomically(t *testing.T) {
+	svc, mock := newEarlySlotServiceForTest(t,
+		func(context.Context, sqlx.QueryerContext, string) (bool, error) { return true, nil })
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	slotStart := now.Add(time.Hour)
+	slotEnd := slotStart.Add(time.Hour)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao`)).
+		WithArgs(now).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "estabelecimento_id", "rodada_id"}).
+			AddRow("oferta-1", "tenant-1", "rodada-1"))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='EXPIRADA'`)).
+		WithArgs("oferta-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM rodadas_antecipacao`)).
+		WithArgs("rodada-1", "tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "profissional_id", "slot_inicio", "slot_fim",
+		}).AddRow("rodada-1", "prof-1", slotStart, slotEnd))
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM agendamentos a`)).
+		WithArgs("tenant-1", "rodada-1", "prof-1", slotStart, slotEnd).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE rodadas_antecipacao SET status = 'ESGOTADA'`)).
+		WithArgs("rodada-1", "tenant-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	// Próxima iteração não encontra outra oferta expirada.
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao`)).
+		WithArgs(now).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	processed, err := svc.ProcessExpired(context.Background(), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if processed != 1 {
+		t.Fatalf("ofertas processadas = %d, esperado 1", processed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCrossTenantRoundLookupReturnsNotFoundWithoutLeak(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer rawDB.Close()
+	svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`WHERE id=$1 AND estabelecimento_id=$2`)).
+		WithArgs("rodada-tenant-a", "tenant-b").
+		WillReturnError(sql.ErrNoRows)
+
+	_, err = svc.GetRound(context.Background(), "tenant-b", "rodada-tenant-a")
+	if !errors.Is(err, ErrEarlySlotOfferNotFound) {
+		t.Fatalf("lookup cruzado deve ser 404 estável, recebido: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompetitiveLoserCannotMutateFilledRound(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer rawDB.Close()
+	svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "")
+	now := time.Now()
+	svc.now = func() time.Time { return now }
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"offer_id", "offer_status", "expira_em", "rodada_id", "round_status",
+			"estabelecimento_id", "agendamento_id", "profissional_id",
+			"slot_inicio", "slot_fim", "current_start", "current_end",
+			"cliente_nome", "cliente_telefone", "profissional_nome", "servico_nome",
+			"eligible",
+		}).AddRow(
+			"oferta-2", "INVALIDADA", now.Add(time.Minute), "rodada-1", "PREENCHIDA",
+			"tenant-1", "agendamento-2", "prof-1",
+			now.Add(time.Hour), now.Add(2*time.Hour), now.Add(3*time.Hour), now.Add(4*time.Hour),
+			"Joana", "5511888888888", "Ana", "Corte", true,
+		))
+	mock.ExpectRollback()
+
+	_, err = svc.Accept(context.Background(), "token-perdedor", "WEB")
+	if !errors.Is(err, ErrEarlySlotOfferUnavailable) {
+		t.Fatalf("segundo competidor deve perder com 409 estável, recebido: %v", err)
+	}
+	// Nenhum UPDATE é esperado depois do lock revelar a rodada preenchida.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

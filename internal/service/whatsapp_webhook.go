@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -136,11 +137,8 @@ func (s *AgendaService) ProcessWhatsAppCallback(ctx context.Context, payload Wha
 	}
 
 	if ag.Status == targetStatus {
-		if targetStatus == "CANCELADO" && s.earlySlot != nil {
-			if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstabelecimentoID, ag.ID); err != nil {
-				return "", fmt.Errorf("abrir fila de antecipação após cancelamento: %w", err)
-			}
-		}
+		// Callback repetido é idempotente e não reabre fila antiga após uma
+		// eventual reconexão do canal.
 		return targetStatus, nil
 	}
 
@@ -179,7 +177,10 @@ WHERE id = $1
 	}
 	if targetStatus == "CANCELADO" && s.earlySlot != nil {
 		if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstabelecimentoID, ag.ID); err != nil {
-			return "", fmt.Errorf("abrir fila de antecipação após cancelamento: %w", err)
+			// O UPDATE do cancelamento já foi concluído. A fila é um hook
+			// pós-commit e sua falha não altera o contrato de sucesso.
+			log.Printf("antecipacao: hook pós-cancelamento whatsapp falhou tenant=%s agendamento_cancelado=%s: %v",
+				ag.EstabelecimentoID, ag.ID, err)
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -31,10 +32,11 @@ func NewEstabelecimentoService(db *sqlx.DB) *EstabelecimentoService {
 }
 
 type Estabelecimento struct {
-	ID            string  `db:"id" json:"id"`
-	NomeComercial string  `db:"nome_comercial" json:"nome_comercial"`
-	Slug          string  `db:"slug" json:"slug"`
-	LogoURL       *string `db:"logo_url" json:"logo_url,omitempty"`
+	ID                              string  `db:"id" json:"id"`
+	NomeComercial                   string  `db:"nome_comercial" json:"nome_comercial"`
+	Slug                            string  `db:"slug" json:"slug"`
+	LogoURL                         *string `db:"logo_url" json:"logo_url,omitempty"`
+	EarlySlotNotificationsAvailable bool    `db:"early_slot_notifications_available" json:"early_slot_notifications_available"`
 }
 
 type ConfigEstabelecimentoInput struct {
@@ -209,6 +211,12 @@ WHERE slug = $1 AND ativo = TRUE
 		return nil, fmt.Errorf("buscar estabelecimento por slug: %w", err)
 	}
 
+	ready, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, est.ID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do catálogo falhou tenant=%s: %v", est.ID, gateErr)
+		ready = false
+	}
+	est.EarlySlotNotificationsAvailable = ready
 	return &est, nil
 }
 
@@ -226,6 +234,12 @@ WHERE id = $1
 		}
 		return nil, fmt.Errorf("buscar estabelecimento por id: %w", err)
 	}
+	ready, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, est.ID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do estabelecimento falhou tenant=%s: %v", est.ID, gateErr)
+		ready = false
+	}
+	est.EarlySlotNotificationsAvailable = ready
 	return &est, nil
 }
 

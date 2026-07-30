@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -23,13 +24,15 @@ type TenantBootstrapPayload struct {
 }
 
 type TenantBootstrapView struct {
-	ID             string  `json:"id"`
-	Nome           string  `json:"nome"`
-	Slug           string  `json:"slug"`
-	Status         string  `json:"status"`
-	LogoURL        *string `json:"logo_url,omitempty"`
-	PlanoID        *string `json:"plano_id,omitempty"`
-	DataVencimento *string `json:"data_vencimento,omitempty"`
+	ID                           string  `json:"id"`
+	Nome                         string  `json:"nome"`
+	Slug                         string  `json:"slug"`
+	Status                       string  `json:"status"`
+	LogoURL                      *string `json:"logo_url,omitempty"`
+	PlanoID                      *string `json:"plano_id,omitempty"`
+	DataVencimento               *string `json:"data_vencimento,omitempty"`
+	EarlySlotQueueActive         bool    `json:"early_slot_queue_active"`
+	EarlySlotQueueInactiveReason *string `json:"early_slot_queue_inactive_reason"`
 }
 
 type ProfissionalBootstrap struct {
@@ -247,14 +250,27 @@ WHERE e.id = $1 AND e.ativo = TRUE
 		s := row.DataVencimento.Format("2006-01-02")
 		venc = &s
 	}
+	earlySlotActive, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, establishmentID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do bootstrap falhou tenant=%s: %v",
+			establishmentID, gateErr)
+		earlySlotActive = false
+	}
+	var inactiveReason *string
+	if !earlySlotActive {
+		reason := earlySlotMotivoCanalIndisponivel
+		inactiveReason = &reason
+	}
 	return &TenantBootstrapView{
-		ID:             row.ID,
-		Nome:           row.NomeComercial,
-		Slug:           row.Slug,
-		Status:         status,
-		LogoURL:        row.LogoURL,
-		PlanoID:        row.PlanoID,
-		DataVencimento: venc,
+		ID:                           row.ID,
+		Nome:                         row.NomeComercial,
+		Slug:                         row.Slug,
+		Status:                       status,
+		LogoURL:                      row.LogoURL,
+		PlanoID:                      row.PlanoID,
+		DataVencimento:               venc,
+		EarlySlotQueueActive:         earlySlotActive,
+		EarlySlotQueueInactiveReason: inactiveReason,
 	}, nil
 }
 

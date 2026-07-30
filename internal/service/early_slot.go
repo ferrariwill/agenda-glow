@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	earlySlotOfferTTL = 5 * time.Minute
-	earlySlotTemplate = "antecipacao_horario"
+	earlySlotOfferTTL             = 5 * time.Minute
+	earlySlotTemplate             = "antecipacao_horario"
+	earlySlotConfirmationTemplate = "confirmacao_antecipacao"
 
 	// Único motivo de encerramento não natural de uma rodada: o canal de saída
 	// caiu, então continuar ofertando prenderia o slot sem ninguém receber.
@@ -106,7 +107,18 @@ func NewEarlySlotService(db *sqlx.DB, baseURL string) *EarlySlotService {
 	}
 }
 
-// CancelAppointment cancela no escopo do tenant e abre a rodada na mesma transação.
+// NotificationsAvailable expõe o mesmo gate composto usado pela fila. Erros
+// são fail-closed para superfícies informativas: o payload continua válido.
+func (s *EarlySlotService) NotificationsAvailable(ctx context.Context, tenantID string) bool {
+	ready, err := s.channelReady(ctx, s.db, tenantID)
+	if err != nil {
+		log.Printf("antecipacao: checagem informativa de canal falhou tenant=%s: %v", tenantID, err)
+		return false
+	}
+	return ready
+}
+
+// CancelAppointment cancela no escopo do tenant e só então tenta abrir a rodada.
 // Repetições são idempotentes e nunca criam mais de uma rodada.
 func (s *EarlySlotService) CancelAppointment(ctx context.Context, tenantID, appointmentID string) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -144,14 +156,16 @@ RETURNING id, profissional_id, data_hora_inicio, data_hora_fim`
 		return fmt.Errorf("cancelar agendamento: %w", err)
 	}
 
-	delivery, err := s.openRoundTx(ctx, tx, tenantID, cancelled.ID, cancelled.ProfessionalID, cancelled.Start, cancelled.End)
-	if err != nil {
-		return err
-	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	s.deliverOrAdvance(ctx, delivery)
+
+	// Hook deliberadamente pós-commit: qualquer falha da fila (gate, banco ou
+	// envio) não pode desfazer o cancelamento que liberou o slot.
+	if err := s.OpenRoundForCancelledAppointment(ctx, tenantID, cancelled.ID); err != nil {
+		log.Printf("antecipacao: hook pós-cancelamento falhou tenant=%s agendamento_cancelado=%s: %v",
+			tenantID, cancelled.ID, err)
+	}
 	return nil
 }
 
@@ -463,18 +477,26 @@ func (s *EarlySlotService) Accept(ctx context.Context, token, origin string) (*E
 		CurrentStart   time.Time `db:"current_start"`
 		CurrentEnd     time.Time `db:"current_end"`
 		Eligible       bool      `db:"eligible"`
+		ClientName     string    `db:"cliente_nome"`
+		Phone          string    `db:"cliente_telefone"`
+		Professional   string    `db:"profissional_nome"`
+		Service        string    `db:"servico_nome"`
 	}
 	err = tx.GetContext(ctx, &item, `
 SELECT o.id AS offer_id, o.status AS offer_status, o.expira_em, r.id AS rodada_id,
        r.status AS round_status, o.estabelecimento_id, a.id AS agendamento_id,
        a.profissional_id, r.slot_inicio, r.slot_fim,
        a.data_hora_inicio AS current_start, a.data_hora_fim AS current_end,
+       a.cliente_nome, a.cliente_telefone,
+       p.nome AS profissional_nome, sv.nome AS servico_nome,
        (a.aceita_adiantar AND a.status IN ('AGENDADO','CONFIRMADO')
         AND a.data_hora_inicio > r.slot_inicio
         AND (a.data_hora_fim-a.data_hora_inicio) <= (r.slot_fim-r.slot_inicio)) AS eligible
 FROM ofertas_antecipacao o
 JOIN rodadas_antecipacao r ON r.id=o.rodada_id AND r.estabelecimento_id=o.estabelecimento_id
 JOIN agendamentos a ON a.id=o.agendamento_candidato_id AND a.estabelecimento_id=o.estabelecimento_id
+JOIN profissionais p ON p.id=a.profissional_id AND p.estabelecimento_id=a.estabelecimento_id
+JOIN servicos sv ON sv.id=a.servico_id AND sv.estabelecimento_id=a.estabelecimento_id
 WHERE o.token_hash=$1
 FOR UPDATE OF o, r, a`, hash[:])
 	if errors.Is(err, sql.ErrNoRows) {
@@ -547,7 +569,33 @@ VALUES ($1,$2,$3,'ACEITE',$4,$5,$6,$7,$8)`,
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	s.sendAcceptanceConfirmation(ctx, item.TenantID, item.AppointmentID, item.Phone,
+		item.ClientName, item.Professional, item.Service, item.SlotStart)
 	return &EarlySlotAcceptResult{Status: "ACEITA", AppointmentID: item.AppointmentID, NewStart: item.SlotStart, NewEnd: newEnd}, nil
+}
+
+// sendAcceptanceConfirmation é pós-commit: falha do Gateway não reverte o
+// reagendamento já aceito. O erro fica observável sem expor telefone ou token.
+func (s *EarlySlotService) sendAcceptanceConfirmation(
+	ctx context.Context,
+	tenantID, appointmentID, phone, clientName, professional, serviceName string,
+	newStart time.Time,
+) {
+	if err := s.send(ctx, WhatsAppNotificationInput{
+		TenantID:      tenantID,
+		PhoneNumber:   phone,
+		TemplateName:  earlySlotConfirmationTemplate,
+		AppointmentID: appointmentID,
+		Variables: []string{
+			clientName,
+			professional,
+			serviceName,
+			newStart.Format("02/01/2006 15:04"),
+		},
+	}); err != nil {
+		log.Printf("antecipacao: confirmação pós-aceite falhou tenant=%s agendamento=%s: %v",
+			tenantID, appointmentID, err)
+	}
 }
 
 func (s *EarlySlotService) Decline(ctx context.Context, token, origin string) (string, error) {
