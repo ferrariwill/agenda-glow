@@ -157,7 +157,8 @@ func (s *AgendaService) CriarAgendamento(
 		}
 	}
 
-	if err := enqueueNotification(ctx, tx, estabelecimentoID, agendamentoID, NotificationTypeReservationConfirmation); err != nil {
+	if err := enqueueNotification(ctx, tx, estabelecimentoID, agendamentoID,
+		NotificationTypeReservationConfirmation, time.Now()); err != nil {
 		return resultado, err
 	}
 

@@ -139,9 +139,10 @@ func expectCancellationWrites(mock sqlmock.Sqlmock, reason, origin string, now t
 		WithArgs("tenant-a", "appointment-a", NotificationTypeCancellationByCustomer,
 			NotificationStatusRecorded, now, safeAuditSummary{reason: reason, origin: origin}).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// A confirmação de saída é enfileirada com o relógio do chamador, nunca com NOW().
 	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
 		WithArgs("tenant-a", "appointment-a", NotificationTypeCancellationConfirmed,
-			NotificationStatusPending).
+			NotificationStatusPending, now).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
@@ -334,8 +335,10 @@ func expectWorkerRunPrelude(mock sqlmock.Sqlmock, now time.Time) {
 	mock.ExpectExec("UPDATE agendamento_notificacoes[\\s\\S]+reserva de envio expirada").
 		WithArgs(now).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	// $1 relógio da fila, $3 horário do salão: a descoberta grava com o mesmo relógio
+	// que o reserveNext usa para filtrar.
 	mock.ExpectExec("INSERT INTO agendamento_notificacoes[\\s\\S]+ON CONFLICT").
-		WithArgs(now, sqlmock.AnyArg()).
+		WithArgs(now, sqlmock.AnyArg(), now).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
