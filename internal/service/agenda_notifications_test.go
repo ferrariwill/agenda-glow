@@ -295,6 +295,41 @@ func TestAgendaNotificationWorkerRunOnceTwiceDoesNotDuplicate(t *testing.T) {
 	}
 }
 
+func TestAgendaNotificationWorkerStartReportsRunErrors(t *testing.T) {
+	raw, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+
+	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	runErr := errors.New("postgres unavailable")
+	mock.ExpectExec("UPDATE agendamento_notificacoes[\\s\\S]+reserva de envio expirada").
+		WithArgs(now).
+		WillReturnError(runErr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var reported error
+	worker := NewAgendaNotificationWorker(
+		sqlx.NewDb(raw, "sqlmock"),
+		nil,
+		AgendaNotificationWorkerOptions{
+			Now: func() time.Time { return now },
+			OnError: func(err error) {
+				reported = err
+				cancel()
+			},
+		},
+	)
+	worker.Start(ctx)
+	if !errors.Is(reported, runErr) {
+		t.Fatalf("erro reportado=%v, want %v", reported, runErr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func expectWorkerRunPrelude(mock sqlmock.Sqlmock, now time.Time) {
 	mock.ExpectExec("UPDATE agendamento_notificacoes[\\s\\S]+reserva de envio expirada").
 		WithArgs(now).

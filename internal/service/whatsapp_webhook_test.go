@@ -129,6 +129,44 @@ func TestProcessWhatsAppCallbackCancelUpdatesBothStatesAndAudits(t *testing.T) {
 	}
 }
 
+func TestProcessWhatsAppCallbackWithoutAppointmentIDTargetsNextActiveFutureAppointment(t *testing.T) {
+	db, mock, closeDB := callbackTestDB(t)
+	defer closeDB()
+	mock.ExpectBegin()
+	rows := sqlmock.NewRows([]string{
+		"id", "estabelecimento_id", "data_hora_inicio", "status",
+		"confirmacao_cliente", "janela_minima_cancelamento_horas",
+		"motivo_cancelamento_obrigatorio", "telefone_contato",
+	}).AddRow(
+		"appointment-next", "tenant-a", time.Now().Add(2*time.Hour), "AGENDADO",
+		"PENDENTE", 0, false, "5511000000000",
+	)
+	mock.ExpectQuery(
+		"(?s)SELECT.+FROM agendamentos a.+a.status IN \\('AGENDADO', 'CONFIRMADO', 'EM_APROVACAO'\\).+"+
+			"a.data_hora_inicio >= NOW\\(\\).+ORDER BY a.data_hora_inicio ASC.+FOR UPDATE OF a",
+	).
+		WithArgs("tenant-a", "5511999999999", "").
+		WillReturnRows(rows)
+	mock.ExpectExec("UPDATE agendamentos[\\s\\S]+status = 'CANCELADO'").
+		WithArgs("appointment-next", "tenant-a", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO agendamento_notificacoes").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	payload := callbackPayload(WhatsAppActionCancel)
+	payload.AppointmentID = ""
+	got, err := NewAgendaService(db).ProcessWhatsAppCallback(context.Background(), payload)
+	if err != nil || got != "CANCELADO" {
+		t.Fatalf("got status=%q err=%v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func callbackTestDB(t *testing.T) (*sqlx.DB, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	raw, mock, err := sqlmock.New()

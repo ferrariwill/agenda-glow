@@ -184,6 +184,10 @@ INNER JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabe
 INNER JOIN configuracoes_notificacoes_agenda cfg ON cfg.estabelecimento_id = a.estabelecimento_id
 INNER JOIN estabelecimentos e ON e.id = a.estabelecimento_id
 WHERE a.estabelecimento_id = $1
+  AND ($3 <> '' OR (
+    a.status IN ('AGENDADO', 'CONFIRMADO', 'EM_APROVACAO')
+    AND a.data_hora_inicio >= NOW()
+  ))
   AND ($3 = '' OR a.id::text = $3)
   AND (
     regexp_replace(c.telefone, '[^0-9]', '', 'g') = $2
@@ -191,7 +195,7 @@ WHERE a.estabelecimento_id = $1
     OR $2 LIKE '%' || regexp_replace(c.telefone, '[^0-9]', '', 'g')
     OR regexp_replace(c.telefone, '[^0-9]', '', 'g') LIKE '%' || RIGHT($2, 11)
   )
-ORDER BY a.data_hora_inicio DESC
+ORDER BY a.data_hora_inicio ASC
 LIMIT 1
 FOR UPDATE OF a
 `

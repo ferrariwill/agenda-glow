@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -72,7 +73,10 @@ var (
 	allowedNotificationVariables = []string{
 		"nome_salao", "servico", "profissional", "data_hora", "endereco", "link_gestao",
 	}
-	placeholderPattern = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_]+)\s*\}\}`)
+	placeholderPattern     = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_]+)\s*\}\}`)
+	managementTokenPattern = regexp.MustCompile(
+		`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
+	)
 )
 
 type NotificationAgendaConfig struct {
@@ -314,6 +318,10 @@ type sqlxGetter interface {
 }
 
 func (s *AgendaService) lookupManagementAppointment(ctx context.Context, db sqlxGetter, token string, lock bool) (*managementAppointment, error) {
+	token = strings.TrimSpace(token)
+	if !managementTokenPattern.MatchString(token) {
+		return nil, ErrAgendamentoNaoEncontrado
+	}
 	query := `
 SELECT a.id, a.estabelecimento_id, s.nome AS servico, p.nome AS profissional,
        a.data_hora_inicio, a.status, a.confirmacao_cliente, a.gestao_token_expires_at,
@@ -330,7 +338,7 @@ WHERE a.gestao_token = $1
 		query += " FOR UPDATE OF a"
 	}
 	var ag managementAppointment
-	if err := db.GetContext(ctx, &ag, query, strings.TrimSpace(token)); err != nil {
+	if err := db.GetContext(ctx, &ag, query, token); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrAgendamentoNaoEncontrado
 		}
@@ -434,6 +442,7 @@ type AgendaNotificationWorker struct {
 	interval   time.Duration
 	maxRetries int
 	now        func() time.Time
+	onError    func(error)
 }
 
 type AgendaNotificationWorkerOptions struct {
@@ -441,6 +450,7 @@ type AgendaNotificationWorkerOptions struct {
 	Interval   time.Duration
 	MaxRetries int
 	Now        func() time.Time
+	OnError    func(error)
 }
 
 func NewAgendaNotificationWorker(db *sqlx.DB, sender NotificationSender, opts AgendaNotificationWorkerOptions) *AgendaNotificationWorker {
@@ -453,9 +463,15 @@ func NewAgendaNotificationWorker(db *sqlx.DB, sender NotificationSender, opts Ag
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.OnError == nil {
+		opts.OnError = func(err error) {
+			log.Printf("agenda notification worker: %v", err)
+		}
+	}
 	return &AgendaNotificationWorker{
 		db: db, sender: sender, baseURL: strings.TrimRight(opts.BaseURL, "/"),
 		interval: opts.Interval, maxRetries: opts.MaxRetries, now: opts.Now,
+		onError: opts.OnError,
 	}
 }
 
@@ -476,7 +492,7 @@ func (w *AgendaNotificationWorker) Start(ctx context.Context) {
 func (w *AgendaNotificationWorker) runLogged(ctx context.Context) {
 	if err := w.RunOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		// No payload, phone or management token is logged.
-		fmt.Printf("agenda notification worker: %v\n", err)
+		w.onError(err)
 	}
 }
 
@@ -484,9 +500,10 @@ func (w *AgendaNotificationWorker) RunOnce(ctx context.Context) error {
 	now := w.now()
 	if _, err := w.db.ExecContext(ctx, `
 UPDATE agendamento_notificacoes
-SET status_envio = 'FALHOU', proxima_tentativa_em = $1, atualizado_em = $1,
+SET status_envio = 'FALHOU', proxima_tentativa_em = $1::timestamp, atualizado_em = $1::timestamp,
     ultimo_erro = 'reserva de envio expirada'
-WHERE status_envio = 'ENVIANDO' AND atualizado_em < $1 - INTERVAL '15 minutes'
+WHERE status_envio = 'ENVIANDO'
+  AND atualizado_em < $1::timestamp - INTERVAL '15 minutes'
 `, now); err != nil {
 		return fmt.Errorf("recuperar notificações travadas: %w", err)
 	}
@@ -521,7 +538,7 @@ func (w *AgendaNotificationWorker) discoverDue(ctx context.Context, now time.Tim
 INSERT INTO agendamento_notificacoes (
     estabelecimento_id, agendamento_id, tipo, status_envio, proxima_tentativa_em
 )
-SELECT a.estabelecimento_id, a.id, due.tipo, 'PENDENTE', $1
+SELECT a.estabelecimento_id, a.id, due.tipo, 'PENDENTE', $1::timestamp
 FROM agendamentos a
 JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
 JOIN estabelecimentos e ON e.id = a.estabelecimento_id
@@ -529,15 +546,15 @@ JOIN configuracoes_notificacoes_agenda cfg ON cfg.estabelecimento_id = a.estabel
 CROSS JOIN LATERAL (
     SELECT 'PEDIDO_CONFIRMACAO'::varchar AS tipo
     WHERE a.confirmacao_cliente = 'PENDENTE'
-      AND a.data_hora_inicio <= $1 + make_interval(hours => cfg.antecedencia_confirmacao_horas)
+      AND a.data_hora_inicio <= $1::timestamp + make_interval(hours => cfg.antecedencia_confirmacao_horas)
     UNION ALL
     SELECT 'LEMBRETE'::varchar
-    WHERE a.data_hora_inicio <= $1 + make_interval(hours => cfg.antecedencia_lembrete_horas)
+    WHERE a.data_hora_inicio <= $1::timestamp + make_interval(hours => cfg.antecedencia_lembrete_horas)
 ) due
 WHERE e.ativo = TRUE AND e.whatsapp_status = 'CONECTADO'
   AND cfg.lembretes_ativos = TRUE
   AND a.status = ANY($2)
-  AND a.data_hora_inicio > $1
+  AND a.data_hora_inicio > $1::timestamp
   AND BTRIM(c.telefone) <> ''
 ON CONFLICT (estabelecimento_id, agendamento_id, tipo) DO NOTHING
 `
