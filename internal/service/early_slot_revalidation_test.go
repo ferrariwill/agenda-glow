@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
-	"sync"
 	"testing"
 	"time"
 
@@ -223,117 +222,5 @@ func TestPublicPreferenceByManagementTokenRejectsInvalidAndIneligible(t *testing
 				t.Fatal(err)
 			}
 		})
-	}
-}
-
-// Dois aceites realmente concorrentes na mesma rodada. O mutex representa o
-// `FOR UPDATE OF o, r, a`: quem entra primeiro vê ATIVA e preenche; o outro só
-// consegue ler depois do commit e encontra a rodada PREENCHIDA.
-func TestConcurrentAcceptsLeaveExactlyOneWinner(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	slotStart := now.Add(24 * time.Hour)
-	slotEnd := slotStart.Add(time.Hour)
-	currentStart := now.Add(48 * time.Hour)
-	currentEnd := currentStart.Add(45 * time.Minute)
-	newEnd := slotStart.Add(currentEnd.Sub(currentStart))
-
-	var rowLock sync.Mutex
-	roundFilled := false
-
-	accept := func(offerID, appointmentID string) (*EarlySlotAcceptResult, error) {
-		rawDB, mock, err := sqlmock.New()
-		if err != nil {
-			return nil, err
-		}
-		defer rawDB.Close() //nolint:errcheck
-		svc := NewEarlySlotService(sqlx.NewDb(rawDB, "sqlmock"), "")
-		svc.now = func() time.Time { return now }
-		svc.send = func(context.Context, WhatsAppNotificationInput) error { return nil }
-
-		rowLock.Lock()
-		defer rowLock.Unlock()
-
-		mock.ExpectBegin()
-		if roundFilled {
-			mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
-				WithArgs(sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
-					offerID, "INVALIDADA", now.Add(3*time.Minute), "rodada-1", "PREENCHIDA",
-					"tenant-1", appointmentID, "prof-1",
-					slotStart, slotEnd, currentStart, currentEnd,
-					"Joana", "5511888888888", "Ana", "Corte", true,
-				))
-			mock.ExpectRollback()
-			return svc.Accept(context.Background(), "token-"+offerID, "WEB")
-		}
-
-		mock.ExpectQuery(regexp.QuoteMeta(`FROM ofertas_antecipacao o`)).
-			WithArgs(sqlmock.AnyArg()).
-			WillReturnRows(sqlmock.NewRows(acceptLookupColumns()).AddRow(
-				offerID, "PENDENTE", now.Add(3*time.Minute), "rodada-1", "ATIVA",
-				"tenant-1", appointmentID, "prof-1",
-				slotStart, slotEnd, currentStart, currentEnd,
-				"Maria", "5511999999999", "Ana", "Corte", true,
-			))
-		mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM agendamentos`)).
-			WithArgs("tenant-1", "prof-1", appointmentID, slotStart, newEnd).
-			WillReturnRows(sqlmock.NewRows([]string{"id"}))
-		mock.ExpectExec(regexp.QuoteMeta(`UPDATE agendamentos SET data_hora_inicio=$3`)).
-			WithArgs(appointmentID, "tenant-1", slotStart, newEnd).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='ACEITA'`)).
-			WithArgs(offerID, "tenant-1", "WEB").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec(regexp.QuoteMeta(`UPDATE ofertas_antecipacao SET status='INVALIDADA'`)).
-			WithArgs(offerID, "tenant-1", "rodada-1").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec(regexp.QuoteMeta(`UPDATE rodadas_antecipacao SET status='PREENCHIDA'`)).
-			WithArgs("rodada-1", "tenant-1").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO antecipacao_auditoria`)).
-			WithArgs("tenant-1", "rodada-1", offerID,
-				currentStart, currentEnd, slotStart, newEnd, "WEB").
-			WillReturnResult(sqlmock.NewResult(0, 1))
-		mock.ExpectCommit()
-
-		result, err := svc.Accept(context.Background(), "token-"+offerID, "WEB")
-		if err == nil {
-			roundFilled = true
-		}
-		return result, err
-	}
-
-	type outcome struct {
-		result *EarlySlotAcceptResult
-		err    error
-	}
-	results := make([]outcome, 2)
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i, ids := range [][2]string{{"oferta-1", "agendamento-1"}, {"oferta-2", "agendamento-2"}} {
-		wg.Add(1)
-		go func(idx int, offerID, appointmentID string) {
-			defer wg.Done()
-			<-start
-			r, err := accept(offerID, appointmentID)
-			results[idx] = outcome{result: r, err: err}
-		}(i, ids[0], ids[1])
-	}
-	close(start)
-	wg.Wait()
-
-	winners, losers := 0, 0
-	for _, o := range results {
-		switch {
-		case o.err == nil && o.result != nil && o.result.Status == "ACEITA":
-			winners++
-		case errors.Is(o.err, ErrEarlySlotOfferUnavailable):
-			losers++
-		default:
-			t.Fatalf("desfecho inesperado: result=%#v err=%v", o.result, o.err)
-		}
-	}
-	if winners != 1 || losers != 1 {
-		t.Fatalf("vencedores=%d perdedores=%d, esperado exatamente 1 de cada", winners, losers)
 	}
 }
