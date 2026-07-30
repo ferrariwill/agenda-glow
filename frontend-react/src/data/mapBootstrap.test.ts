@@ -103,6 +103,30 @@ describe('mapAdminBootstrap', () => {
   })
 })
 
+function agendamentoPayload(
+  extra: Partial<TenantPayload['agendamentos'][number]>,
+): TenantPayload {
+  return {
+    ...tenantPayload('ATIVO'),
+    agendamentos: [
+      {
+        id: 'ag-1',
+        tenant_id: 'tenant-1',
+        profissional_id: 'prof-1',
+        servico_id: 'srv-1',
+        servico_ids: ['srv-1'],
+        adicional_ids: [],
+        cliente_nome: 'Maria',
+        cliente_telefone: '11999999999',
+        data: '2026-08-01',
+        hora_inicio: '16:00',
+        status: 'CONFIRMADO',
+        ...extra,
+      },
+    ],
+  }
+}
+
 describe('mapTenantBootstrap', () => {
   it('preserva os três estados sem colapsar SUSPENSO em ATIVO', () => {
     const statuses: TenantStatus[] = ['ATIVO', 'VENCIDO', 'SUSPENSO']
@@ -111,5 +135,34 @@ describe('mapTenantBootstrap', () => {
       const db = mapTenantBootstrap(tenantPayload(status), emptyDb())
       expect(db.tenants[0].status).toBe(status)
     }
+  })
+
+  it('mapeia o opt-in e a oferta ativa de antecipação do agendamento', () => {
+    const db = mapTenantBootstrap(
+      agendamentoPayload({
+        aceita_adiantar: true,
+        early_slot_offer: {
+          round_id: 'rodada-1',
+          offer_status: 'PENDENTE',
+          expires_at: '2026-08-01T13:05:00-03:00',
+          posicao: 1,
+        },
+      }),
+      emptyDb(),
+    )
+
+    expect(db.agendamentos[0].aceita_adiantar).toBe(true)
+    expect(db.agendamentos[0].early_slot_offer).toEqual({
+      round_id: 'rodada-1',
+      offer_status: 'PENDENTE',
+      expires_at: '2026-08-01T13:05:00-03:00',
+      posicao: 1,
+    })
+  })
+
+  it('não quebra quando o backend ainda não envia early_slot_offer', () => {
+    const db = mapTenantBootstrap(agendamentoPayload({}), emptyDb())
+
+    expect(db.agendamentos[0].early_slot_offer).toBeNull()
   })
 })

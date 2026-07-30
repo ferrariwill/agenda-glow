@@ -76,6 +76,12 @@ interface TenantBootstrapApi {
     status: string
     minutos_invadidos?: number
     aceita_adiantar?: boolean
+    early_slot_offer?: {
+      round_id: string
+      offer_status: string
+      expires_at?: string
+      posicao?: number
+    } | null
     valor_cobrado?: number
     metodo_pagamento?: string
     cobrado_em?: string
@@ -215,6 +221,7 @@ export function mapTenantBootstrap(
     status: a.status as Agendamento['status'],
     minutos_invadidos: a.minutos_invadidos,
     aceita_adiantar: a.aceita_adiantar,
+    early_slot_offer: a.early_slot_offer ?? null,
     valor_cobrado: a.valor_cobrado,
     metodo_pagamento: a.metodo_pagamento as Agendamento['metodo_pagamento'],
     cobrado_em: a.cobrado_em,

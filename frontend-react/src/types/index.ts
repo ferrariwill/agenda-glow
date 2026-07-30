@@ -1,3 +1,5 @@
+import type { EarlySlotOfferResumo } from './earlySlot'
+
 export type TenantStatus = 'ATIVO' | 'VENCIDO' | 'SUSPENSO'
 export type WhatsAppIntegrationStatus = 'DESCONECTADO' | 'PENDENTE' | 'CONECTADO'
 export type AgendamentoStatus =
@@ -150,6 +152,8 @@ export interface Agendamento {
   minutos_invadidos?: number
   observacoes?: string
   aceita_adiantar?: boolean
+  /** Resumo da oferta de antecipação envolvendo este agendamento (DEV-85). */
+  early_slot_offer?: EarlySlotOfferResumo | null
   valor_cobrado?: number
   metodo_pagamento?: MetodoPagamento
   cobrado_em?: string
