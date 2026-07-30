@@ -4,6 +4,11 @@ interface EarlySlotPreferenceToggleProps {
   disabled?: boolean
   profissionalNome?: string
   className?: string
+  /**
+   * Canonical API signal. `false` shows the channel helper.
+   * `undefined` = older backend — do not treat as inactive.
+   */
+  notificationsAvailable?: boolean
 }
 
 /**
@@ -16,6 +21,7 @@ export function EarlySlotPreferenceToggle({
   disabled = false,
   profissionalNome,
   className = '',
+  notificationsAvailable,
 }: EarlySlotPreferenceToggleProps) {
   return (
     <label
@@ -39,6 +45,11 @@ export function EarlySlotPreferenceToggle({
         <span className="mt-0.5 block text-xs text-[#514440]">
           Oferta opcional e exclusiva por 5 minutos. Seu horário atual só muda se você aceitar.
         </span>
+        {notificationsAvailable === false && (
+          <span className="mt-1 block text-xs font-medium text-amber-800">
+            Os avisos começarão quando o salão reativar o WhatsApp.
+          </span>
+        )}
         {profissionalNome && (
           <span className="mt-0.5 block text-xs text-[#514440]/80">
             Profissional: {profissionalNome}

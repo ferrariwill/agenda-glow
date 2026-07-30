@@ -328,15 +328,21 @@ export function ClienteAgendar() {
 
             <p className="mt-2 text-sm text-[#514440]">
 
-              Se surgir um horário mais cedo com este profissional, avisamos pelo WhatsApp. A oferta
+              {tenant?.early_slot_notifications_available === false
 
-              vale por 5 minutos e seu horário atual só muda se você aceitar.
+                ? 'Preferência de antecipação salva. Os avisos por WhatsApp começarão quando o salão reativar o canal.'
+
+                : 'Se surgir um horário mais cedo com este profissional, avisamos pelo WhatsApp. A oferta vale por 5 minutos e seu horário atual só muda se você aceitar.'}
 
             </p>
 
           )}
 
-          <p className="mt-1 text-sm text-[#514440]">Enviamos a confirmação por WhatsApp.</p>
+          <p className="mt-1 text-sm text-[#514440]">{tenant?.early_slot_notifications_available === false
+
+                ? 'A confirmação por WhatsApp depende do canal do salão estar ativo.'
+
+                : 'Enviamos a confirmação por WhatsApp.'}</p>
 
           <div className="mt-5 flex flex-col gap-2">
 
@@ -667,6 +673,8 @@ export function ClienteAgendar() {
               onChange={setAceitaAdiantar}
 
               profissionalNome={profissionais.find((p) => p.id === profId)?.nome}
+
+              notificationsAvailable={tenant?.early_slot_notifications_available}
 
             />
 

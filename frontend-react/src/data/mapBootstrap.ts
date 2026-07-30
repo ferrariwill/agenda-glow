@@ -21,7 +21,12 @@ interface TenantBootstrapApi {
     logo_url?: string
     plano_id?: string
     data_vencimento?: string
+    early_slot_queue_active?: boolean
+    early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   }
+  /** Professional bootstrap/dashboard may expose the gate at the root. */
+  early_slot_queue_active?: boolean
+  early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   plano?: PlanoSaas
   especialidades: { id: string; nome: string; ativo: boolean }[]
   profissionais: {
@@ -143,6 +148,10 @@ export function mapTenantBootstrap(
   prev: MockDatabase,
 ): MockDatabase {
   const tenantId = payload.tenant.id
+  const queueActive =
+    payload.tenant.early_slot_queue_active ?? payload.early_slot_queue_active
+  const queueInactiveReason =
+    payload.tenant.early_slot_queue_inactive_reason ?? payload.early_slot_queue_inactive_reason
   const tenant: Tenant = {
     id: tenantId,
     nome: payload.tenant.nome,
@@ -151,6 +160,8 @@ export function mapTenantBootstrap(
     logo_url: payload.tenant.logo_url,
     plano_id: payload.tenant.plano_id ?? '',
     data_vencimento: payload.tenant.data_vencimento ?? '',
+    early_slot_queue_active: queueActive,
+    early_slot_queue_inactive_reason: queueInactiveReason,
     criado_em: prev.tenants.find((t) => t.id === tenantId)?.criado_em ?? '',
   }
 

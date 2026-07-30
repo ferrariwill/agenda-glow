@@ -165,4 +165,29 @@ describe('mapTenantBootstrap', () => {
 
     expect(db.agendamentos[0].early_slot_offer).toBeNull()
   })
+
+  it('mapeia o sinal canônico da fila sem derivar de flags brutas', () => {
+    const payload = tenantPayload('ATIVO') as TenantPayload & {
+      tenant: TenantPayload['tenant'] & {
+        early_slot_queue_active?: boolean
+        early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
+      }
+    }
+    payload.tenant.early_slot_queue_active = false
+    payload.tenant.early_slot_queue_inactive_reason = 'whatsapp_indisponivel'
+
+    const db = mapTenantBootstrap(payload, emptyDb())
+    expect(db.tenants[0].early_slot_queue_active).toBe(false)
+    expect(db.tenants[0].early_slot_queue_inactive_reason).toBe('whatsapp_indisponivel')
+  })
+
+  it('aceita early_slot_queue_active na raiz do bootstrap profissional', () => {
+    const payload = {
+      ...tenantPayload('ATIVO'),
+      early_slot_queue_active: false,
+      early_slot_queue_inactive_reason: 'whatsapp_indisponivel' as const,
+    }
+    const db = mapTenantBootstrap(payload, emptyDb())
+    expect(db.tenants[0].early_slot_queue_active).toBe(false)
+  })
 })

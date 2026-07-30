@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { CalendarClock, CheckCircle2, Loader2, Timer } from 'lucide-react'
 import { Alert } from '../../components/ui/Alert'
@@ -57,60 +57,77 @@ export function AntecipacaoOferta() {
   const [accepted, setAccepted] = useState<EarlySlotAcceptResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [revalidating, setRevalidating] = useState(false)
   const [error, setError] = useState('')
+  const mountedRef = useRef(true)
 
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (opts?: { soft?: boolean }) => {
     if (!token) {
       setError('Oferta não encontrada.')
       setLoading(false)
       return
     }
+    if (!opts?.soft) setLoading(true)
+    else setRevalidating(true)
     try {
       const data = await getOffer(token)
+      if (!mountedRef.current) return
       setOffer(data)
       setError('')
     } catch (err) {
+      if (!mountedRef.current) return
       setOffer(null)
       setError(earlySlotErrorMessage(err))
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+        setRevalidating(false)
+      }
     }
   }, [token])
 
   useEffect(() => {
+    mountedRef.current = true
+    // Sync da página com o recurso indicado pela rota.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount alinhado ao restante do app
     void carregar()
+    return () => {
+      mountedRef.current = false
+    }
   }, [carregar])
 
   const onCountdownZero = useCallback(() => {
-    void carregar()
+    void carregar({ soft: true })
   }, [carregar])
 
   const isPendente = offer?.status === 'PENDENTE'
-  const { label: countdownLabel, secondsRemaining } = useOfferCountdown(
+  const { label: countdownLabel, secondsRemaining, expired } = useOfferCountdown(
     isPendente ? offer?.expires_at : undefined,
     onCountdownZero,
+    isPendente ? offer?.seconds_remaining : undefined,
   )
 
   const acoes = offer?.actions_allowed ?? []
-  const podeAceitar = isPendente && acoes.includes('accept')
-  const podeRecusar = isPendente && acoes.includes('decline')
+  const actionsBlocked = submitting || revalidating || expired || secondsRemaining === 0
+  const podeAceitar = isPendente && acoes.includes('accept') && !actionsBlocked
+  const podeRecusar = isPendente && acoes.includes('decline') && !actionsBlocked
 
   const aceitar = async () => {
-    if (!token) return
+    if (!token || !podeAceitar) return
     setSubmitting(true)
     setError('')
     try {
       setAccepted(await acceptOffer(token))
     } catch (err) {
       setError(earlySlotErrorMessage(err))
-      await carregar()
+      await carregar({ soft: true })
     } finally {
       setSubmitting(false)
     }
   }
 
   const recusar = async () => {
-    if (!token) return
+    if (!token || !podeRecusar) return
     setSubmitting(true)
     setError('')
     try {
@@ -118,7 +135,7 @@ export function AntecipacaoOferta() {
       setOffer((prev) => (prev ? { ...prev, ...result, actions_allowed: [] } : prev))
     } catch (err) {
       setError(earlySlotErrorMessage(err))
-      await carregar()
+      await carregar({ soft: true })
     } finally {
       setSubmitting(false)
     }
@@ -136,23 +153,30 @@ export function AntecipacaoOferta() {
   }
 
   if (accepted) {
+    const confirmedStart = accepted.new_start
+    const confirmedEnd = accepted.new_end
     return (
       <Shell>
-        <div className="text-center">
+        <div className="text-center" aria-live="polite">
           <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-600" />
           <h1 className="font-display text-2xl font-semibold text-aura-anthracite">
             Horário antecipado!
           </h1>
-          <p className="mt-2 text-sm text-aura-muted">
-            Seu atendimento foi movido para:
-          </p>
-          <p className="mt-3 font-display text-xl font-semibold text-aura-primary-dark">
-            {formatTimestampBR(accepted.new_start ?? offer?.offered_start ?? '')}
-            {(accepted.new_end ?? offer?.offered_end) &&
-              ` – ${formatTimestampTimeBR(accepted.new_end ?? offer?.offered_end ?? '')}`}
-          </p>
+          {confirmedStart ? (
+            <>
+              <p className="mt-2 text-sm text-aura-muted">Seu atendimento foi movido para:</p>
+              <p className="mt-3 font-display text-xl font-semibold text-aura-primary-dark">
+                {formatTimestampBR(confirmedStart)}
+                {confirmedEnd && ` – ${formatTimestampTimeBR(confirmedEnd)}`}
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-aura-muted">
+              Seu atendimento foi antecipado. Confira o novo horário na confirmação do salão.
+            </p>
+          )}
           <p className="mt-4 text-sm text-aura-muted">
-            Enviamos a confirmação do novo horário pelo WhatsApp.
+            Se o WhatsApp do salão estiver ativo, você receberá a confirmação do novo horário.
           </p>
         </div>
       </Shell>
@@ -162,7 +186,7 @@ export function AntecipacaoOferta() {
   if (!offer) {
     return (
       <Shell>
-        <div className="text-center">
+        <div className="text-center" role="alert">
           <h1 className="font-display text-xl font-semibold text-aura-anthracite">
             Oferta indisponível
           </h1>
@@ -176,7 +200,7 @@ export function AntecipacaoOferta() {
     const final = statusFinalMessage(offer.status)
     return (
       <Shell>
-        <div className="text-center">
+        <div className="text-center" aria-live="polite">
           <h1 className="font-display text-xl font-semibold text-aura-anthracite">
             {final.titulo}
           </h1>
@@ -229,21 +253,27 @@ export function AntecipacaoOferta() {
         <div className="mt-5 flex items-center justify-center gap-2 rounded-xl border border-aura-warning-border bg-aura-warning px-4 py-3">
           <Timer className="h-4 w-4 text-amber-900" />
           <p className="text-sm text-amber-950">
-            Oferta exclusiva por mais{' '}
-            <strong className="font-display text-base tabular-nums">{countdownLabel}</strong>
+            {revalidating || expired
+              ? 'Revalidando oferta no servidor…'
+              : (
+                <>
+                  Oferta exclusiva por mais{' '}
+                  <strong className="font-display text-base tabular-nums">{countdownLabel}</strong>
+                </>
+              )}
           </p>
         </div>
       )}
 
       <div className="mt-5 space-y-2">
-        <Button fullWidth onClick={aceitar} loading={submitting} disabled={!podeAceitar || submitting}>
+        <Button fullWidth onClick={aceitar} loading={submitting} disabled={!podeAceitar}>
           Aceitar novo horário
         </Button>
         <Button
           variant="secondary"
           fullWidth
           onClick={recusar}
-          disabled={!podeRecusar || submitting}
+          disabled={!podeRecusar}
         >
           Recusar
         </Button>

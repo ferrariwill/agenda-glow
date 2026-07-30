@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { AceitaAntecipacaoBadge } from '../../components/agenda/AceitaAntecipacaoBadge'
 import { EarlySlotRoundIndicator } from '../../components/agenda/EarlySlotRoundIndicator'
+import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { SecretariaLayout } from '../../components/secretaria/SecretariaLayout'
 import { CobrancaAgendamentoModal } from '../../components/secretaria/CobrancaAgendamentoModal'
@@ -172,6 +173,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
 
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
   const especialidades = db.especialidades.filter((e) => e.tenant_id === tenantId)
+  const tenant = db.tenants.find((item) => item.id === tenantId)
   const hours = hourLabels()
   const dayOfWeek = new Date(`${data}T12:00:00`).getDay()
   const profMobileId = profMobile || profissionais[0]?.id || ''
@@ -522,6 +524,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {success}
         </Alert>
       )}
+      <EarlySlotQueueInactiveBanner queueActive={tenant?.early_slot_queue_active} />
 
       {viewMode !== 'hoje' && (
         <div className="mb-4 rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] px-4 py-3 text-sm text-aura-muted">

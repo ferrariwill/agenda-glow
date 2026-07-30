@@ -41,6 +41,11 @@ export interface Tenant {
   whatsapp_waba_id?: string
   whatsapp_phone_number_id?: string
   whatsapp_connected_at?: string
+  /** Canonical staff signal — true only when the queue can fire offers. */
+  early_slot_queue_active?: boolean
+  early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
+  /** Canonical public/booking signal for opt-in helper copy. */
+  early_slot_notifications_available?: boolean
 }
 
 export interface CategoriaServico {

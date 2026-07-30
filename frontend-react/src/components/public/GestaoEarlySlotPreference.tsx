@@ -10,7 +10,13 @@ interface GestaoEarlySlotPreferenceProps {
   /** Elegibilidade é decisão da API (AGENDADO/CONFIRMADO e futuro), nunca do client. */
   elegivel?: boolean
   profissionalNome?: string
-  onChange?: (aceitaAdiantar: boolean, aceitaAdiantarEm?: string) => void
+  /** Canonical channel signal from manage GET / PATCH echo. */
+  notificationsAvailable?: boolean
+  onChange?: (
+    aceitaAdiantar: boolean,
+    aceitaAdiantarEm?: string,
+    notificationsAvailable?: boolean,
+  ) => void
 }
 
 /**
@@ -22,9 +28,11 @@ export function GestaoEarlySlotPreference({
   aceitaAdiantar,
   elegivel = true,
   profissionalNome,
+  notificationsAvailable,
   onChange,
 }: GestaoEarlySlotPreferenceProps) {
   const [checked, setChecked] = useState(aceitaAdiantar)
+  const [channelAvailable, setChannelAvailable] = useState(notificationsAvailable)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -36,7 +44,14 @@ export function GestaoEarlySlotPreference({
     try {
       const result = await patchEarlySlotPreference(gestaoToken, value)
       setChecked(result.aceita_adiantar)
-      onChange?.(result.aceita_adiantar, result.aceita_adiantar_em)
+      if (typeof result.early_slot_notifications_available === 'boolean') {
+        setChannelAvailable(result.early_slot_notifications_available)
+      }
+      onChange?.(
+        result.aceita_adiantar,
+        result.aceita_adiantar_em,
+        result.early_slot_notifications_available,
+      )
     } catch (err) {
       setChecked(anterior)
       setError(earlySlotErrorMessage(err))
@@ -52,6 +67,7 @@ export function GestaoEarlySlotPreference({
         onChange={(value) => void alterar(value)}
         disabled={!elegivel || saving}
         profissionalNome={profissionalNome}
+        notificationsAvailable={channelAvailable}
       />
       {!elegivel && (
         <p className="text-xs text-aura-muted">

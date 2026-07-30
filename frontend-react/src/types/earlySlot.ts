@@ -47,6 +47,8 @@ export interface EarlySlotDeclineResult {
 export interface EarlySlotPreferenceResult {
   aceita_adiantar: boolean
   aceita_adiantar_em?: string
+  /** Canonical channel signal — never derive from raw WhatsApp flags. */
+  early_slot_notifications_available?: boolean
 }
 
 /** Resumo da oferta ativa embutido no agendamento (bootstrap / listagens). */
