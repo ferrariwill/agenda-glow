@@ -17,9 +17,9 @@ import { Alert } from '../../components/ui/Alert'
 import { Badge, confirmacaoClienteBadge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
-import { useBootstrapState } from '../../data/BootstrapContext'
 import { subscribeStore } from '../../data/store'
 import { refreshAfterMutation } from '../../data/sync'
+import { useSilentTenantBootstrapRefresh } from '../../hooks/useSilentTenantBootstrapRefresh'
 import { IS_MOCK } from '../../lib/config'
 import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
 import type { Agendamento } from '../../types'
@@ -52,11 +52,11 @@ function weekDays(start: string): string[] {
 
 export function AgendaProfissional() {
   const { session } = useAuth()
-  const { retry } = useBootstrapState()
   const profId = session?.user.profissional_id ?? ''
   const tenantId = session?.user.tenant_id ?? ''
   const isProf = session?.user.role === 'PROFISSIONAL'
   const isDonaAgenda = session?.user.role === 'DONA'
+  useSilentTenantBootstrapRefresh(session?.user.role)
 
   const [db, setDb] = useState(getDb())
   const [weekAnchor, setWeekAnchor] = useState(weekStart(todayISO()))
@@ -72,22 +72,6 @@ export function AgendaProfissional() {
   const refresh = useCallback(() => setDb(getDb()), [])
 
   useEffect(() => subscribeStore(refresh), [refresh])
-
-  useEffect(() => {
-    const sync = () => retry()
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') sync()
-    }
-    sync()
-    const interval = window.setInterval(sync, 45_000)
-    window.addEventListener('focus', sync)
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.clearInterval(interval)
-      window.removeEventListener('focus', sync)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [retry])
 
   // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
   const handleOfferExpired = useCallback(() => {

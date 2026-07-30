@@ -24,11 +24,11 @@ import { Badge, confirmacaoClienteBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
-import { useBootstrapState } from '../../data/BootstrapContext'
 import { subscribeStore } from '../../data/store'
 import { refreshAfterMutation } from '../../data/sync'
 import { IS_MOCK } from '../../lib/config'
 import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
+import { useSilentTenantBootstrapRefresh } from '../../hooks/useSilentTenantBootstrapRefresh'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
 import {
@@ -148,8 +148,8 @@ function cardClasses(kind: ReturnType<typeof statusDisplay>['card']) {
 export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const isSecretaria = variant === 'secretaria'
   const { session } = useAuth()
-  const { retry } = useBootstrapState()
   const tenantId = session?.user.tenant_id ?? ''
+  useSilentTenantBootstrapRefresh(session?.user.role)
   const [data, setData] = useState(todayISO())
   const [db, setDb] = useState(getDb())
   const [search, setSearch] = useState('')
@@ -176,22 +176,6 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const refresh = useCallback(() => setDb(getDb()), [])
 
   useEffect(() => subscribeStore(refresh), [refresh])
-
-  useEffect(() => {
-    const sync = () => retry()
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') sync()
-    }
-    sync()
-    const interval = window.setInterval(sync, 45_000)
-    window.addEventListener('focus', sync)
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.clearInterval(interval)
-      window.removeEventListener('focus', sync)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [retry])
 
   // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
   const handleOfferExpired = useCallback(() => {
