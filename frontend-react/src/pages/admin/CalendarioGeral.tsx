@@ -19,6 +19,8 @@ import { EditarAgendamentoProfModal } from '../profissional/EditarAgendamentoPro
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { ConfirmModal } from '../../components/ui/Modal'
+import { EarlySlotOfferIndicator, EarlySlotOptInBadge } from '../../components/agenda/EarlySlotBadges'
+import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { useAuth } from '../../contexts/AuthContext'
 import { enviarOfertaVagaFila } from '../../services/whatsappService'
 import type { Agendamento } from '../../types'
@@ -156,6 +158,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const refresh = () => setDb(getDb())
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
   const especialidades = db.especialidades.filter((e) => e.tenant_id === tenantId)
+  const tenant = db.tenants.find((item) => item.id === tenantId)
   const hours = hourLabels()
   const dayOfWeek = new Date(`${data}T12:00:00`).getDay()
   const profMobileId = profMobile || profissionais[0]?.id || ''
@@ -286,6 +289,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
               {ag.cobrado_em && (
                 <span className="text-[10px] font-medium text-emerald-700">· Pago</span>
               )}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              <EarlySlotOptInBadge enabled={ag.aceita_adiantar} />
+              <EarlySlotOfferIndicator offer={ag.early_slot_offer} />
             </div>
           </div>
           <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
@@ -496,6 +503,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {success}
         </Alert>
       )}
+      <EarlySlotQueueInactiveBanner
+        active={tenant?.early_slot_queue_active}
+        canReconnectWhatsApp={session?.user.role === 'DONA'}
+      />
 
       {viewMode !== 'hoje' && (
         <div className="mb-4 rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] px-4 py-3 text-sm text-aura-muted">
@@ -557,6 +568,10 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                           {ag.cobrado_em && (
                             <span className="text-xs font-medium text-emerald-700">· Pago</span>
                           )}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          <EarlySlotOptInBadge enabled={ag.aceita_adiantar} />
+                          <EarlySlotOfferIndicator offer={ag.early_slot_offer} />
                         </div>
                       </button>
                       <div className="flex shrink-0 flex-col gap-1">
