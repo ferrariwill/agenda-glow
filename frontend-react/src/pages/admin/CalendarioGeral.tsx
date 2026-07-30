@@ -151,6 +151,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth() + 1)
   const [profMobile, setProfMobile] = useState('')
+  const [soAguardandoConfirmacao, setSoAguardandoConfirmacao] = useState(false)
 
   const [filaModal, setFilaModal] = useState<{
     cliente: string
@@ -199,12 +200,14 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           a.tenant_id === tenantId &&
           a.data === data &&
           a.status !== 'CANCELADO' &&
+          (!soAguardandoConfirmacao ||
+            ((a.confirmacao_cliente ?? 'PENDENTE') === 'PENDENTE' && a.status !== 'CONCLUIDO')) &&
           (!q ||
             a.cliente_nome.toLowerCase().includes(q) ||
             getAgendamentoServicosNomes(a, db).toLowerCase().includes(q)),
       )
       .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
-  }, [db, tenantId, data, search])
+  }, [db, tenantId, data, search, soAguardandoConfirmacao])
 
   const totalHoje = agendamentosDia.length
   const ocupacao = calcOcupacao(data, profissionais, agendamentosDia, db)
@@ -515,6 +518,19 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            aria-pressed={soAguardandoConfirmacao}
+            onClick={() => setSoAguardandoConfirmacao((active) => !active)}
+            className={[
+              'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+              soAguardandoConfirmacao
+                ? 'border-[#7d5141] bg-[#efdcd1] text-[#7d5141]'
+                : 'border-[#d6c2bd] text-aura-muted hover:border-[#7d5141] hover:text-[#7d5141]',
+            ].join(' ')}
+          >
+            Aguardando confirmação
+          </button>
           <Button
             className="bg-[#7d5141] hover:bg-[#996958] shadow-lg shadow-[#7d5141]/20"
             onClick={() => openNovoAgendamento()}

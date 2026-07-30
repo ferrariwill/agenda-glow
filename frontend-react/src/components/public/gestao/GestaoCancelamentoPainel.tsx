@@ -3,7 +3,7 @@ import { Button } from '../../ui/Button'
 import { Input } from '../../ui/Input'
 import { Modal } from '../../ui/Modal'
 
-interface GestaoCancelarDialogProps {
+interface GestaoCancelamentoPainelProps {
   open: boolean
   reasonRequired: boolean
   motivo: string
@@ -14,7 +14,7 @@ interface GestaoCancelarDialogProps {
   onConfirm: () => void
 }
 
-export function GestaoCancelarDialog({
+export function GestaoCancelamentoPainel({
   open,
   reasonRequired,
   motivo,
@@ -23,7 +23,7 @@ export function GestaoCancelarDialog({
   onMotivoChange,
   onClose,
   onConfirm,
-}: GestaoCancelarDialogProps) {
+}: GestaoCancelamentoPainelProps) {
   return (
     <Modal
       open={open}

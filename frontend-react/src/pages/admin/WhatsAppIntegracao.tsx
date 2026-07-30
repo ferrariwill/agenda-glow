@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, ExternalLink, Loader2, MessageCircle, RefreshCw, Shield } from 'lucide-react'
 import { DonaLayout, DonaFooter, PageHeader } from '../../components/dona/DonaLayout'
-import { NotificacoesAgendaPanel } from '../../components/dona/NotificacoesAgendaPanel'
+import { LembretesAgendaConfig } from '../../components/whatsapp/LembretesAgendaConfig'
 import { Alert } from '../../components/ui/Alert'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -274,7 +274,7 @@ export function WhatsAppIntegracao() {
         )}
       </section>
 
-      {tenantId && <NotificacoesAgendaPanel estabelecimentoId={tenantId} />}
+      {tenantId && <LembretesAgendaConfig estabelecimentoId={tenantId} />}
 
       <DonaFooter />
     </DonaLayout>

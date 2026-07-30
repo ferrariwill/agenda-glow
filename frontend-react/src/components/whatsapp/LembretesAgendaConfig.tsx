@@ -7,7 +7,7 @@ import {
   getNotificacoesAgenda,
   putNotificacoesAgenda,
   type NotificacoesAgendaUpdate,
-} from '../../services/notificacoesAgendaApi'
+} from '../../services/notificacoesAgendaService'
 import type { NotificacoesAgendaSettings } from '../../types'
 
 const examples: Record<string, string> = {
@@ -28,7 +28,7 @@ function interpolate(template: string, allowed: string[]) {
   }, template)
 }
 
-export function NotificacoesAgendaPanel({ estabelecimentoId }: { estabelecimentoId: string }) {
+export function LembretesAgendaConfig({ estabelecimentoId }: { estabelecimentoId: string }) {
   const [settings, setSettings] = useState<NotificacoesAgendaSettings | null>(null)
   const [form, setForm] = useState<NotificacoesAgendaUpdate | null>(null)
   const [loading, setLoading] = useState(true)
