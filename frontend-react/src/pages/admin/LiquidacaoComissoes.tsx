@@ -11,7 +11,7 @@ import {
 import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Lancamento } from '../../types'
-import { calcLucroLiquido, getDb, liquidarComissoesPendentes } from '../../utils/mockDb'
+import { getDb, liquidarComissoesPendentes } from '../../utils/mockDb'
 import { formatBRL } from '../../utils/format'
 
 interface Props {
@@ -20,14 +20,18 @@ interface Props {
 
 type ComissaoRow = Lancamento & { profissional_nome: string }
 
+function snapshotDb() {
+  return structuredClone(getDb())
+}
+
 export function LiquidacaoComissoes({ embedded }: Props) {
   const { session } = useAuth()
   const tenantId = session?.user.tenant_id ?? ''
-  const [db, setDb] = useState(getDb())
+  const [db, setDb] = useState(snapshotDb)
   const [msg, setMsg] = useState('')
 
-  const refresh = () => setDb(getDb())
-  const { pendentes } = calcLucroLiquido(tenantId)
+  /** Clone: getDb() mutates in place; same ref + setState is a no-op for React. */
+  const refresh = () => setDb(snapshotDb())
 
   const pendentesList = useMemo(() => {
     return db.lancamentos.filter(
@@ -37,6 +41,11 @@ export function LiquidacaoComissoes({ embedded }: Props) {
         l.status_pagamento === 'PENDENTE',
     )
   }, [db, tenantId])
+
+  const pendentes = useMemo(
+    () => pendentesList.reduce((s, l) => s + l.valor, 0),
+    [pendentesList],
+  )
 
   const byProf = useMemo(() => {
     return db.profissionais
