@@ -26,7 +26,7 @@ export function EarlySlotPreferenceToggle({
   return (
     <label
       className={[
-        'flex items-start gap-3',
+        'flex min-h-touch-min touch-manipulation items-start gap-3 py-1',
         disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
         className,
       ].join(' ')}
@@ -36,7 +36,7 @@ export function EarlySlotPreferenceToggle({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-1 rounded border-[#d6c2bd] text-[#7d5141]"
+        className="mt-1.5 h-5 w-5 shrink-0 rounded border-[#d6c2bd] text-[#7d5141]"
       />
       <span>
         <span className="block text-sm font-medium text-[#1a1c1c]">
