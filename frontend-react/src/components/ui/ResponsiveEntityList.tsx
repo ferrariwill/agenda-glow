@@ -67,13 +67,27 @@ function SkeletonCards({ count = 4 }: { count?: number }) {
   )
 }
 
-function SkeletonRows({ cols, count = 5 }: { cols: number; count?: number }) {
+function SkeletonRows<T>({
+  columns,
+  count = 5,
+}: {
+  columns: EntityColumn<T>[]
+  count?: number
+}) {
   return (
     <tbody aria-hidden>
       {Array.from({ length: count }, (_, i) => (
         <tr key={i} className="animate-pulse">
-          {Array.from({ length: cols }, (_, j) => (
-            <td key={j} className="px-5 py-4">
+          {columns.map((col) => (
+            <td
+              key={col.header}
+              className={[
+                'px-5 py-4',
+                col.priority === 'secondary' ? secondaryColVisible : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               <div className="h-4 w-full max-w-[8rem] rounded bg-[#efdcd1]/50" />
             </td>
           ))}
@@ -123,8 +137,6 @@ export function ResponsiveEntityList<T>({
   tableClassName = '',
 }: ResponsiveEntityListProps<T>) {
   const isEmpty = !loading && items.length === 0
-  const primaryCols = columns.filter((c) => c.priority !== 'secondary')
-  const colCount = columns.length
 
   return (
     <div className={className}>
@@ -168,7 +180,7 @@ export function ResponsiveEntityList<T>({
               </tr>
             </thead>
             {loading ? (
-              <SkeletonRows cols={primaryCols.length || colCount} />
+              <SkeletonRows columns={columns} />
             ) : (
               <tbody className="divide-y divide-[#e9e8e7]">
                 {items.map((item) => (

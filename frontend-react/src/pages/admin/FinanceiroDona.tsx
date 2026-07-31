@@ -8,7 +8,6 @@ import {
   Filter,
   PlusCircle,
   Printer,
-  Search,
   Trash2,
   TrendingUp,
   Wallet,
@@ -18,6 +17,11 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { Alert } from '../../components/ui/Alert'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { ConfirmModal, Modal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Lancamento, TransacaoCategoria, TransacaoStatus } from '../../types'
@@ -105,6 +109,144 @@ export function FinanceiroDona() {
     </Link>
   )
 
+  const renderTransacaoActions = (t: Lancamento) => (
+    <div className="flex justify-end gap-1">
+      <button
+        type="button"
+        title="Editar"
+        aria-label={`Editar ${t.descricao}`}
+        onClick={() => navigate(`/admin/financeiro/${t.id}/edit`)}
+        className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-[#514440] transition-colors hover:text-[#7d5141]"
+      >
+        <FileEdit className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        title="Excluir"
+        aria-label={`Excluir ${t.descricao}`}
+        onClick={() => setDeleteTarget(t)}
+        className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-[#514440] transition-colors hover:text-[#ba1a1a]"
+      >
+        <Trash2 className="h-5 w-5" />
+      </button>
+    </div>
+  )
+
+  const transacaoColumns: EntityColumn<Lancamento>[] = [
+    {
+      header: 'Data',
+      cell: (t) => (
+        <span className="whitespace-nowrap text-sm text-[#514440]">
+          {formatTableDateBR(t.data)}
+        </span>
+      ),
+    },
+    {
+      header: 'Descrição',
+      cell: (t) => (
+        <div>
+          <p className="font-medium text-[#1a1c1c]">{t.descricao}</p>
+          {t.subtitulo && <p className="text-xs text-[#514440]">{t.subtitulo}</p>}
+        </div>
+      ),
+    },
+    {
+      header: 'Categoria',
+      cell: (t) => {
+        const cat = lancamentoCategoria(t)
+        return (
+          <span
+            className={[
+              'rounded-full px-3 py-1 text-xs font-medium',
+              CATEGORIA_BADGE[cat],
+            ].join(' ')}
+          >
+            {CATEGORIA_LABEL[cat]}
+          </span>
+        )
+      },
+      priority: 'secondary',
+    },
+    {
+      header: 'Valor',
+      cell: (t) => {
+        const receita = isReceita(t)
+        return (
+          <span
+            className={[
+              'whitespace-nowrap font-medium',
+              receita ? 'text-[#7d5141]' : 'text-[#ba1a1a]',
+            ].join(' ')}
+          >
+            {receita ? '' : '- '}
+            {formatBRL(t.valor)}
+          </span>
+        )
+      },
+      align: 'right',
+    },
+    {
+      header: 'Status',
+      cell: (t) => {
+        const st = lancamentoStatus(t)
+        return (
+          <span
+            className={[
+              'inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider',
+              statusBadge(st),
+            ].join(' ')}
+          >
+            {st === 'PAGO' ? 'Pago' : 'Pendente'}
+          </span>
+        )
+      },
+      priority: 'secondary',
+    },
+    {
+      header: 'Ações',
+      cell: (t) => renderTransacaoActions(t),
+      align: 'right',
+    },
+  ]
+
+  const renderTransacaoCard = (t: Lancamento) => {
+    const st = lancamentoStatus(t)
+    const receita = isReceita(t)
+    return (
+      <div className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-semibold text-[#1a1c1c]">{t.descricao}</p>
+            <p className="mt-0.5 whitespace-nowrap text-xs text-[#514440]">
+              {formatTableDateBR(t.data)}
+            </p>
+          </div>
+          {renderTransacaoActions(t)}
+        </div>
+        {/* ≤2 decisões: status + valor */}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span
+            className={[
+              'inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
+              statusBadge(st),
+            ].join(' ')}
+          >
+            {st === 'PAGO' ? 'Pago' : 'Pendente'}
+          </span>
+          <p
+            className={[
+              'shrink-0 whitespace-nowrap font-semibold',
+              receita ? 'text-[#7d5141]' : 'text-[#ba1a1a]',
+            ].join(' ')}
+          >
+            {receita ? '' : '- '}
+            {formatBRL(t.valor)}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <DonaLayout
       searchPlaceholder="Buscar transações..."
@@ -138,18 +280,12 @@ export function FinanceiroDona() {
         </div>
       </header>
 
-      {(success || error) && (
-        <Alert
-          variant={error ? 'error' : 'info'}
-          className="mb-6"
-          onDismiss={() => {
-            setSuccess('')
-            setError('')
-          }}
-        >
-          {error || success}
+      {error && (
+        <Alert variant="error" className="mb-6" onDismiss={() => setError('')}>
+          {error}
         </Alert>
       )}
+      <ToastFeedback message={success || null} onDismiss={() => setSuccess('')} />
 
       {/* KPIs */}
       <section className="mb-8 grid gap-6 md:grid-cols-3">
@@ -274,115 +410,24 @@ export function FinanceiroDona() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="bg-[#f4f3f2]/50">
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                  Data
-                </th>
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                  Descrição
-                </th>
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                  Categoria
-                </th>
-                <th className="px-6 py-4 text-right text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                  Valor
-                </th>
-                <th className="px-6 py-4 text-center text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                  Status
-                </th>
-                <th className="px-6 py-4 text-right text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                  Ações
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#d6c2bd]/10">
-              {pageItems.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center text-sm text-[#514440]">
-                    <Search className="mx-auto mb-3 h-8 w-8 opacity-30" />
-                    Nenhuma transação encontrada para os filtros selecionados.
-                  </td>
-                </tr>
-              ) : (
-                pageItems.map((t) => {
-                  const cat = lancamentoCategoria(t)
-                  const st = lancamentoStatus(t)
-                  const receita = isReceita(t)
-                  return (
-                    <tr
-                      key={t.id}
-                      className="transition-colors hover:bg-[#996958]/5"
-                    >
-                      <td className="px-6 py-4 text-sm text-[#514440]">
-                        {formatTableDateBR(t.data)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-[#1a1c1c]">{t.descricao}</p>
-                        {t.subtitulo && (
-                          <p className="text-xs text-[#514440]">{t.subtitulo}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={[
-                            'rounded-full px-3 py-1 text-xs font-medium',
-                            CATEGORIA_BADGE[cat],
-                          ].join(' ')}
-                        >
-                          {CATEGORIA_LABEL[cat]}
-                        </span>
-                      </td>
-                      <td
-                        className={[
-                          'px-6 py-4 text-right font-medium',
-                          receita ? 'text-[#7d5141]' : 'text-[#ba1a1a]',
-                        ].join(' ')}
-                      >
-                        {receita ? '' : '- '}
-                        {formatBRL(t.valor)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex justify-center">
-                          <span
-                            className={[
-                              'rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider',
-                              statusBadge(st),
-                            ].join(' ')}
-                          >
-                            {st === 'PAGO' ? 'Pago' : 'Pendente'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            title="Editar"
-                            onClick={() => navigate(`/admin/financeiro/${t.id}/edit`)}
-                            className="rounded p-1 text-[#514440] transition-colors hover:text-[#7d5141]"
-                          >
-                            <FileEdit className="h-5 w-5" />
-                          </button>
-                          <button
-                            type="button"
-                            title="Excluir"
-                            onClick={() => setDeleteTarget(t)}
-                            className="rounded p-1 text-[#514440] transition-colors hover:text-[#ba1a1a]"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveEntityList
+          items={pageItems}
+          getKey={(t) => t.id}
+          renderCard={renderTransacaoCard}
+          columns={transacaoColumns}
+          emptyTitle="Nenhuma transação encontrada para os filtros selecionados."
+          emptyAction={
+            <Link
+              to="/admin/financeiro/novo"
+              className="inline-flex items-center gap-2 rounded-full bg-[#7d5141] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white"
+            >
+              <PlusCircle className="h-4 w-4" />
+              Nova Transação
+            </Link>
+          }
+          tableFrom="md"
+          cardListClassName="space-y-3 p-4"
+        />
 
         <div className="flex items-center justify-between border-t border-[#d6c2bd]/10 bg-[#f4f3f2]/30 px-6 py-4">
           <span className="text-sm text-[#514440]">
