@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from 'react'
+import { forwardRef, useId, type InputHTMLAttributes } from 'react'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -7,26 +7,36 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, className = '', id, ...props }, ref) => {
-    const inputId = id ?? label?.toLowerCase().replace(/\s/g, '-')
+    const autoId = useId()
+    const inputId = id ?? (label ? label.toLowerCase().replace(/\s/g, '-') : autoId)
+    const errorId = error ? `${inputId}-error` : undefined
+
     return (
       <div className="space-y-1.5">
         {label && (
-          <label htmlFor={inputId} className="block text-sm font-medium text-aura-anthracite">
+          <label htmlFor={inputId} className="block text-body font-medium text-aura-anthracite">
             {label}
           </label>
         )}
         <input
           ref={ref}
           id={inputId}
+          {...props}
+          aria-invalid={error ? true : props['aria-invalid']}
+          aria-describedby={errorId ?? props['aria-describedby']}
           className={[
-            'w-full rounded-lg border border-aura-border bg-white px-3 py-2.5 text-sm text-aura-anthracite',
+            'min-h-touch-min w-full touch-manipulation rounded-lg border border-aura-border bg-white px-3 py-2.5 text-control text-aura-anthracite',
             'placeholder:text-aura-muted focus:border-aura-primary focus:outline-none focus:ring-2 focus:ring-aura-primary/20',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40',
             error ? 'border-red-400' : '',
             className,
           ].join(' ')}
-          {...props}
         />
-        {error && <p className="text-xs text-red-600">{error}</p>}
+        {error && (
+          <p id={errorId} className="text-caption text-red-600" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     )
   },

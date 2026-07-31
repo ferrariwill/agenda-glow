@@ -46,7 +46,7 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
   return (
     <div
       className={[
-        'w-[280px] rounded-xl border border-aura-border bg-white p-3 shadow-lg',
+        'w-[320px] rounded-xl border border-aura-border bg-white p-3 shadow-lg',
         className,
       ].join(' ')}
     >
@@ -54,25 +54,25 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
         <button
           type="button"
           onClick={() => shiftMonth(-1)}
-          className="rounded-lg p-1.5 text-aura-muted hover:bg-aura-surface hover:text-aura-anthracite"
+          className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-aura-anthracite focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40"
           aria-label="Mês anterior"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <p className="text-sm font-semibold text-aura-anthracite">
+        <p className="text-body font-semibold text-aura-anthracite">
           {MONTH_NAMES_PT[viewMonth - 1]} {viewYear}
         </p>
         <button
           type="button"
           onClick={() => shiftMonth(1)}
-          className="rounded-lg p-1.5 text-aura-muted hover:bg-aura-surface hover:text-aura-anthracite"
+          className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-aura-anthracite focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40"
           aria-label="Próximo mês"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium text-aura-muted">
+      <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-caption font-medium text-aura-muted">
         {WEEKDAYS_SHORT_PT.map((wd) => (
           <span key={wd} className="py-1">
             {wd}
@@ -83,7 +83,7 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
       <div className="grid grid-cols-7 gap-0.5">
         {grid.map((cell, i) => {
           if (!cell.inMonth || !cell.iso) {
-            return <span key={`e-${i}`} className="h-9" />
+            return <span key={`e-${i}`} className="min-h-touch-min" />
           }
           const selected = cell.iso === value
           const disabled = isDisabled(cell.iso)
@@ -94,7 +94,8 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
               disabled={disabled}
               onClick={() => onChange(cell.iso!)}
               className={[
-                'flex h-9 w-full items-center justify-center rounded-lg text-sm transition-colors',
+                'flex min-h-touch-min w-full touch-manipulation items-center justify-center rounded-lg text-sm transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40',
                 selected
                   ? 'bg-aura-primary font-semibold text-white'
                   : cell.isToday
@@ -113,11 +114,11 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
         <button
           type="button"
           onClick={() => onChange(todayISO())}
-          className="text-xs font-medium text-aura-primary hover:underline"
+          className="min-h-touch-min touch-manipulation px-1 text-caption font-medium text-aura-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40"
         >
           Hoje
         </button>
-        <span className="text-xs text-aura-muted">{formatDateBR(value)}</span>
+        <span className="text-caption text-aura-muted">{formatDateBR(value)}</span>
       </div>
     </div>
   )

@@ -33,11 +33,14 @@ type MenuCoords = {
   maxHeight: number
 }
 
+const TRIGGER_BASE =
+  'inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40'
+
 export function ActionsDropdown({
   items,
   icon: Icon,
   ariaLabel = 'Ações',
-  triggerClassName = 'rounded-lg p-2 text-aura-muted hover:bg-aura-surface',
+  triggerClassName = 'rounded-lg text-aura-muted hover:bg-aura-surface',
   menuClassName = '',
   align = 'right',
   minWidth = 176,
@@ -135,7 +138,8 @@ export function ActionsDropdown({
               setOpen(false)
             }}
             className={[
-              'flex w-full items-center gap-2 px-3 py-2 text-left text-sm',
+              'flex min-h-touch-min w-full touch-manipulation items-center gap-2 px-3 text-left text-sm',
+              'focus-visible:outline-none focus-visible:bg-aura-surface focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-aura-primary/40',
               disabled
                 ? 'cursor-not-allowed text-aura-muted/50'
                 : danger
@@ -157,7 +161,7 @@ export function ActionsDropdown({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={triggerClassName}
+        className={[TRIGGER_BASE, triggerClassName].filter(Boolean).join(' ')}
         aria-label={ariaLabel}
         aria-expanded={open}
         aria-haspopup="menu"

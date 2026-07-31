@@ -1,5 +1,11 @@
 @import 'tailwindcss';
 
+/*
+  Design System — tokens touch + tipografia (DEV-114)
+  - touch-min: piso de hit area 44×44 (WCAG 2.5.5 / Apple HIG)
+  - caption 12 / body 14 / control 16 — control=16 evita zoom iOS em inputs
+  Não reduzir abaixo destes valores via className nas pages.
+*/
 @theme {
   --color-aura-primary: #b78472;
   --color-aura-primary-dark: #9a6b5a;
@@ -11,6 +17,14 @@
   --color-aura-warning-border: #d4a853;
   --font-display: 'Playfair Display', serif;
   --font-sans: 'Inter', system-ui, sans-serif;
+
+  /* Hit area mínima (gera min-h-touch-min, min-w-touch-min, …) */
+  --spacing-touch-min: 44px;
+
+  /* Escala tipográfica DS */
+  --text-caption: 0.75rem; /* 12px — badges, weekday */
+  --text-body: 0.875rem; /* 14px — labels, leitura */
+  --text-control: 1rem; /* 16px — inputs/selects (anti-zoom iOS) */
 }
 
 body {
