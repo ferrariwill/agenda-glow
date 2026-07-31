@@ -46,6 +46,11 @@ erDiagram
 | `000017` | Schema completo do domínio (CRM, catálogo, financeiro estendido) |
 | `000018` | Estado da integração oficial do WhatsApp |
 | `000019` | Permissão administrativa `whatsapp_enabled` e backfill de conectados |
+| `000020` | Flag `whatsapp_enabled` / feature WhatsApp |
+| `000021` | Fila de antecipação (`rodadas_antecipacao`, `ofertas_antecipacao`) |
+| `000022` | Retentativa de envio (`proxima_tentativa_em`) |
+| `000023` | `token_hash_anterior` (link já entregue continua válido) |
+| `000024` | Horários de agenda da antecipação em `TIMESTAMP` (parede), alinhados a `agendamentos` |
 
 ## Tabelas por domínio
 
@@ -68,7 +73,8 @@ erDiagram
 - `insumos` — estoque
 - `servico_insumos` — ficha técnica (BOM)
 - `clientes` — cadastro por salão (telefone único no tenant)
-- `agendamentos` — reservas com status, cobrança, encaixe
+- `agendamentos` — reservas com status, cobrança, encaixe (`data_hora_*` em `TIMESTAMP` de parede)
+- `rodadas_antecipacao` / `ofertas_antecipacao` — fila exclusiva de antecipação; `slot_*` e `*_snapshot` são `TIMESTAMP` (parede, iguais a `agendamentos`); instantes operacionais (`created_at`, `expira_em`, …) ficam `TIMESTAMPTZ`
 - `agendamento_adicionais` — adicionais escolhidos
 - `agendamento_servicos` — múltiplos serviços por agendamento
 - `fila_espera` — clientes que aceitam adiantar horário
