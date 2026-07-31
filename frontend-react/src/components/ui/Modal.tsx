@@ -1,7 +1,21 @@
-import { useEffect } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { Button } from './Button'
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true',
+  )
+}
 
 interface ModalProps {
   open: boolean
@@ -21,6 +35,11 @@ export function Modal({
   footer,
   maxWidthClass = 'max-w-md',
 }: ModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const titleId = useId()
+
   useEffect(() => {
     if (!open) return
 
@@ -47,11 +66,52 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return
+
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+
+    const panel = panelRef.current
+    const focusables = panel ? getFocusable(panel) : []
+    const initial = focusables[0] ?? closeBtnRef.current
+    initial?.focus()
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panel) return
+
+      const nodes = getFocusable(panel)
+      if (nodes.length === 0) {
+        e.preventDefault()
+        closeBtnRef.current?.focus()
+        return
+      }
+
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      const active = document.activeElement
+
+      if (e.shiftKey) {
+        if (active === first || !panel.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else if (active === last || !panel.contains(active)) {
+        e.preventDefault()
+        first.focus()
+      }
     }
+
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      restoreFocusRef.current?.focus()
+      restoreFocusRef.current = null
+    }
   }, [open, onClose])
 
   if (!open) return null
@@ -61,7 +121,7 @@ export function Modal({
       className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="modal-title"
+      aria-labelledby={titleId}
     >
       <div
         className="absolute inset-0 bg-aura-anthracite/40 backdrop-blur-sm"
@@ -69,6 +129,7 @@ export function Modal({
         aria-hidden
       />
       <div
+        ref={panelRef}
         className={[
           'relative z-10 flex max-h-[min(92dvh,100%)] w-full flex-col rounded-t-xl border border-aura-border bg-white shadow-xl sm:max-h-[min(90dvh,100%)] sm:rounded-lg',
           maxWidthClass,
@@ -76,13 +137,14 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-aura-border px-4 py-4 sm:px-6">
-          <h2 id="modal-title" className="font-display text-lg font-semibold text-aura-anthracite">
+          <h2 id={titleId} className="font-display text-lg font-semibold text-aura-anthracite">
             {title}
           </h2>
           <button
+            ref={closeBtnRef}
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-aura-muted hover:bg-aura-surface"
+            className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40"
             aria-label="Fechar"
           >
             <X className="h-5 w-5" />

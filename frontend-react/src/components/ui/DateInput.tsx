@@ -55,7 +55,7 @@ export function DateInput({
   return (
     <div ref={wrapRef} className="relative space-y-1.5">
       {label && (
-        <label className="block text-sm font-medium text-aura-anthracite">{label}</label>
+        <label className="block text-body font-medium text-aura-anthracite">{label}</label>
       )}
       <div className="flex items-start gap-2">
         <Input
@@ -83,7 +83,8 @@ export function DateInput({
             type="button"
             onClick={() => setPickerOpen((o) => !o)}
             className={[
-              'mt-0 flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg border transition-colors',
+              'mt-0 flex min-h-touch-min min-w-touch-min shrink-0 touch-manipulation items-center justify-center rounded-lg border transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40',
               pickerOpen
                 ? 'border-aura-primary bg-aura-primary/10 text-aura-primary'
                 : 'border-aura-border bg-white text-aura-muted hover:border-aura-primary hover:text-aura-primary',
