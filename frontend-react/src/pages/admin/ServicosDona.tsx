@@ -3,8 +3,12 @@ import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { ServicoActionsMenu } from '../../components/dona/ServicoActionsMenu'
-import { Alert } from '../../components/ui/Alert'
 import { ConfirmModal } from '../../components/ui/Modal'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Servico } from '../../types'
 import {
@@ -85,6 +89,126 @@ export function ServicosDona() {
   const getCategoriaNome = (id?: string) =>
     categorias.find((c) => c.id === id)?.nome ?? '—'
 
+  const renderActions = (s: Servico, alwaysVisible = false) => (
+    <div onClick={(e) => e.stopPropagation()}>
+      <ServicoActionsMenu
+        ativo={s.ativo}
+        alwaysVisible={alwaysVisible}
+        onEdit={() => navigate(`/admin/servicos/${s.id}/edit`)}
+        onToggleAtivo={() => toggleAtivo(s)}
+        onDelete={() => setDeleteTarget(s)}
+      />
+    </div>
+  )
+
+  const servicoColumns: EntityColumn<Servico>[] = [
+    {
+      header: 'Nome do serviço',
+      cell: (s) => (
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#efdcd1]/20">
+            <img
+              src={s.imagem_url ?? DEFAULT_IMG}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-[#7d5141]">{s.nome}</p>
+            {s.descricao && (
+              <p className="truncate text-xs text-[#615b58]">{s.descricao}</p>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: 'Categoria',
+      cell: (s) => (
+        <span className="rounded bg-[#eeeeed] px-2 py-1 text-xs font-bold uppercase tracking-wider text-[#695c53]">
+          {getCategoriaNome(s.categoria_id)}
+        </span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Duração',
+      cell: (s) => (
+        <span className="whitespace-nowrap text-sm text-[#615b58]">
+          {s.duracao_minutos} min
+        </span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Preço base',
+      cell: (s) => (
+        <span className="whitespace-nowrap font-semibold text-[#7d5141]">
+          {formatBRL(s.preco)}
+        </span>
+      ),
+      align: 'right',
+    },
+    {
+      header: 'Status',
+      cell: (s) => (
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(s.ativo)}`}
+        >
+          {s.ativo ? 'Ativo' : 'Inativo'}
+        </span>
+      ),
+    },
+    {
+      header: 'Ações',
+      cell: (s) => renderActions(s),
+      align: 'right',
+    },
+  ]
+
+  const renderServicoCard = (s: Servico) => (
+    <div
+      className="cursor-pointer rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4"
+      onClick={() => navigate(`/admin/servicos/${s.id}/edit`)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          navigate(`/admin/servicos/${s.id}/edit`)
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="flex items-start gap-3">
+        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#efdcd1]/20">
+          <img
+            src={s.imagem_url ?? DEFAULT_IMG}
+            alt=""
+            className="h-full w-full object-cover"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-[#7d5141]">{s.nome}</p>
+          <p className="mt-0.5 text-xs text-[#615b58]">
+            {getCategoriaNome(s.categoria_id)}
+          </p>
+        </div>
+        {renderActions(s, true)}
+      </div>
+      {/* ≤2 decisões: status + preço */}
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(s.ativo)}`}
+        >
+          {s.ativo ? 'Ativo' : 'Inativo'}
+        </span>
+        <p className="shrink-0 whitespace-nowrap font-semibold text-[#7d5141]">
+          {formatBRL(s.preco)}
+        </p>
+      </div>
+    </div>
+  )
+
   return (
     <DonaLayout
       searchPlaceholder="Buscar serviços, preços ou categorias…"
@@ -110,11 +234,7 @@ export function ServicosDona() {
         </Link>
       </div>
 
-      {success && (
-        <Alert variant="info" className="mb-4" onDismiss={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      <ToastFeedback message={success || null} onDismiss={() => setSuccess('')} />
 
       <div className="mb-8 grid grid-cols-12 gap-6">
         <div className={`col-span-12 flex flex-wrap items-center gap-3 p-6 xl:col-span-8 ${GLASS}`}>
@@ -169,91 +289,24 @@ export function ServicosDona() {
       </div>
 
       <div className={`overflow-hidden ${GLASS}`}>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-[#d6c2bd]/30 bg-[#f4f3f2]/50">
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                  Nome do serviço
-                </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                  Categoria
-                </th>
-                <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                  Duração
-                </th>
-                <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                  Preço base
-                </th>
-                <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                  Status
-                </th>
-                <th className="px-6 py-4" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#d6c2bd]/10">
-              {pageItems.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-[#83746f]">
-                    Nenhum serviço encontrado.
-                  </td>
-                </tr>
-              ) : (
-                pageItems.map((s) => (
-                  <tr
-                    key={s.id}
-                    className="group cursor-pointer transition-colors hover:bg-[#f4f3f2] hover:translate-x-1"
-                    onClick={() => navigate(`/admin/servicos/${s.id}/edit`)}
-                  >
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-4">
-                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#efdcd1]/20">
-                          <img
-                            src={s.imagem_url ?? DEFAULT_IMG}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-[#7d5141]">{s.nome}</p>
-                          {s.descricao && (
-                            <p className="truncate text-xs text-[#615b58]">{s.descricao}</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <span className="rounded bg-[#eeeeed] px-2 py-1 text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                        {getCategoriaNome(s.categoria_id)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-center text-sm text-[#615b58]">
-                      {s.duracao_minutos} min
-                    </td>
-                    <td className="px-6 py-5 text-right font-semibold text-[#7d5141]">
-                      {formatBRL(s.preco)}
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(s.ativo)}`}
-                      >
-                        {s.ativo ? 'Ativo' : 'Inativo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-right" onClick={(e) => e.stopPropagation()}>
-                      <ServicoActionsMenu
-                        ativo={s.ativo}
-                        onEdit={() => navigate(`/admin/servicos/${s.id}/edit`)}
-                        onToggleAtivo={() => toggleAtivo(s)}
-                        onDelete={() => setDeleteTarget(s)}
-                      />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveEntityList
+          items={pageItems}
+          getKey={(s) => s.id}
+          renderCard={renderServicoCard}
+          columns={servicoColumns}
+          emptyTitle="Nenhum serviço encontrado."
+          emptyAction={
+            <Link
+              to="/admin/servicos/novo"
+              className="inline-flex items-center gap-2 rounded-full bg-[#7d5141] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white"
+            >
+              <Plus className="h-4 w-4" />
+              Novo serviço
+            </Link>
+          }
+          tableFrom="md"
+          cardListClassName="space-y-3 p-4"
+        />
 
         <div className="flex flex-col items-center justify-between gap-4 border-t border-[#d6c2bd]/10 bg-[#f4f3f2]/30 px-6 py-4 sm:flex-row">
           <p className="text-sm text-[#615b58]">
@@ -266,7 +319,7 @@ export function ServicosDona() {
               type="button"
               disabled={pageSafe <= 1}
               onClick={() => setPage((p) => p - 1)}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#d6c2bd]/30 transition-all hover:bg-[#e9e8e7] disabled:opacity-30"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#d6c2bd]/30 transition-all hover:bg-[#e9e8e7] disabled:opacity-30"
               aria-label="Página anterior"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -277,7 +330,7 @@ export function ServicosDona() {
                 type="button"
                 onClick={() => setPage(p)}
                 className={[
-                  'flex h-10 w-10 items-center justify-center rounded-xl border border-[#d6c2bd]/30 text-sm font-bold transition-all',
+                  'flex h-11 w-11 items-center justify-center rounded-xl border border-[#d6c2bd]/30 text-sm font-bold transition-all',
                   p === pageSafe
                     ? 'bg-white text-[#7d5141]'
                     : 'hover:bg-[#e9e8e7] text-[#615b58]',
@@ -290,7 +343,7 @@ export function ServicosDona() {
               type="button"
               disabled={pageSafe >= totalPages}
               onClick={() => setPage((p) => p + 1)}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#d6c2bd]/30 transition-all hover:bg-[#e9e8e7] disabled:opacity-30"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#d6c2bd]/30 transition-all hover:bg-[#e9e8e7] disabled:opacity-30"
               aria-label="Próxima página"
             >
               <ChevronRight className="h-4 w-4" />
