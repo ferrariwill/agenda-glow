@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -14,12 +14,14 @@ import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQ
 import { NovoAgendamentoModal } from '../../components/dona/NovoAgendamentoModal'
 import { ProfissionalLayout, ProfissionalGLASS } from '../../components/profissional/ProfissionalLayout'
 import { Alert } from '../../components/ui/Alert'
-import { Badge, statusAgendamentoBadge } from '../../components/ui/Badge'
+import { Badge, confirmacaoClienteBadge, statusAgendamentoBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { refreshAfterMutation } from '../../data/sync'
+import { subscribeStore } from '../../data/store'
 import { IS_MOCK } from '../../lib/config'
 import { useEarlySlotAgendaExpiry } from '../../hooks/useEarlySlotAgendaExpiry'
+import { useSilentTenantBootstrapRefresh } from '../../hooks/useSilentTenantBootstrapRefresh'
 import type { Agendamento } from '../../types'
 import {
   getAgendamentoDuration,
@@ -54,6 +56,7 @@ export function AgendaProfissional() {
   const tenantId = session?.user.tenant_id ?? ''
   const isProf = session?.user.role === 'PROFISSIONAL'
   const isDonaAgenda = session?.user.role === 'DONA'
+  useSilentTenantBootstrapRefresh(session?.user.role)
 
   const [db, setDb] = useState(getDb())
   const [weekAnchor, setWeekAnchor] = useState(weekStart(todayISO()))
@@ -67,6 +70,8 @@ export function AgendaProfissional() {
   const tenant = db.tenants.find((item) => item.id === tenantId)
 
   const refresh = useCallback(() => setDb(getDb()), [])
+
+  useEffect(() => subscribeStore(refresh), [refresh])
 
   // Oferta de antecipação expirada: refetch silencioso, sem reload da página.
   const handleOfferExpired = useCallback(() => {
@@ -224,6 +229,12 @@ export function AgendaProfissional() {
             const podeConcluir =
               ag.status === 'CONFIRMADO' || ag.status === 'AGENDADO'
             const podeEditar = ag.status !== 'CONCLUIDO'
+            const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
+            const confirmationHint = ag.ultimo_lembrete_enviado_em
+              ? `Lembrete enviado em ${new Date(ag.ultimo_lembrete_enviado_em).toLocaleString('pt-BR')}`
+              : (ag.confirmacao_cliente ?? 'PENDENTE') === 'PENDENTE'
+                ? 'Aguardando resposta'
+                : undefined
 
             return (
               <div
@@ -239,6 +250,9 @@ export function AgendaProfissional() {
                       <Badge variant={statusAgendamentoBadge(ag.status)}>
                         {ag.status}
                       </Badge>
+                      <span title={confirmationHint}>
+                        <Badge variant={confirmation.variant}>{confirmation.label}</Badge>
+                      </span>
                       <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
                       <EarlySlotRoundIndicator
                         offer={ag.early_slot_offer}

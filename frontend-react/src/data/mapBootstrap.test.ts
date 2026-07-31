@@ -190,4 +190,28 @@ describe('mapTenantBootstrap', () => {
     const db = mapTenantBootstrap(payload, emptyDb())
     expect(db.tenants[0].early_slot_queue_active).toBe(false)
   })
+
+  it('mapeia confirmacao_cliente e ultimo_lembrete_enviado_em quando a API envia', () => {
+    const db = mapTenantBootstrap(
+      agendamentoPayload({
+        confirmacao_cliente: 'CONFIRMADO_CLIENTE',
+        ultimo_lembrete_enviado_em: '2026-08-01T13:00:00-03:00',
+      }),
+      emptyDb(),
+    )
+
+    expect(db.agendamentos[0]).toMatchObject({
+      confirmacao_cliente: 'CONFIRMADO_CLIENTE',
+      ultimo_lembrete_enviado_em: '2026-08-01T13:00:00-03:00',
+    })
+  })
+
+  it('assume PENDENTE e lembrete nulo quando a API ainda não envia os campos', () => {
+    const db = mapTenantBootstrap(agendamentoPayload({}), emptyDb())
+
+    expect(db.agendamentos[0]).toMatchObject({
+      confirmacao_cliente: 'PENDENTE',
+      ultimo_lembrete_enviado_em: null,
+    })
+  })
 })
