@@ -46,7 +46,8 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
   return (
     <div
       className={[
-        'w-[320px] rounded-xl border border-aura-border bg-white p-3 shadow-lg',
+        /* 7×44 + 6×8 gap + p-3×2 + border ≈ 382px — dias ≥ 44×44 com ≥8px de separação */
+        'w-[382px] max-w-[calc(100vw-2rem)] rounded-xl border border-aura-border bg-white p-3 shadow-lg',
         className,
       ].join(' ')}
     >
@@ -72,7 +73,7 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
         </button>
       </div>
 
-      <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-caption font-medium text-aura-muted">
+      <div className="mb-1 grid grid-cols-7 gap-2 text-center text-caption font-medium text-aura-muted">
         {WEEKDAYS_SHORT_PT.map((wd) => (
           <span key={wd} className="py-1">
             {wd}
@@ -80,10 +81,10 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-0.5">
+      <div className="grid grid-cols-7 gap-2">
         {grid.map((cell, i) => {
           if (!cell.inMonth || !cell.iso) {
-            return <span key={`e-${i}`} className="min-h-touch-min" />
+            return <span key={`e-${i}`} className="min-h-touch-min min-w-touch-min" />
           }
           const selected = cell.iso === value
           const disabled = isDisabled(cell.iso)
@@ -94,7 +95,7 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
               disabled={disabled}
               onClick={() => onChange(cell.iso!)}
               className={[
-                'flex min-h-touch-min w-full touch-manipulation items-center justify-center rounded-lg text-sm transition-colors',
+                'flex min-h-touch-min min-w-touch-min w-full touch-manipulation items-center justify-center rounded-lg text-sm transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aura-primary/40',
                 selected
                   ? 'bg-aura-primary font-semibold text-white'
