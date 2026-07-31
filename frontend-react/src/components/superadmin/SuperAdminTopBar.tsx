@@ -10,6 +10,7 @@ interface SuperAdminTopBarProps {
   onRenewAll?: () => void
   renewLoading?: boolean
   onMenuClick?: () => void
+  menuOpen?: boolean
 }
 
 export function SuperAdminTopBar({
@@ -19,6 +20,7 @@ export function SuperAdminTopBar({
   onRenewAll,
   renewLoading,
   onMenuClick,
+  menuOpen = false,
 }: SuperAdminTopBarProps) {
   const { session } = useAuth()
   const name = session?.user.nome ?? 'Admin'
@@ -30,8 +32,10 @@ export function SuperAdminTopBar({
         <button
           type="button"
           onClick={onMenuClick}
-          className="rounded-lg p-2 text-aura-muted hover:bg-aura-surface lg:hidden"
+          className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface lg:hidden"
           aria-label="Abrir menu"
+          aria-expanded={menuOpen}
+          aria-controls="superadmin-mobile-drawer"
         >
           <Menu className="h-5 w-5" />
         </button>
