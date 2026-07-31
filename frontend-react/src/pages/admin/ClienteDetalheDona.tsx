@@ -17,7 +17,11 @@ import {
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
-import { Alert } from '../../components/ui/Alert'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
@@ -42,6 +46,7 @@ import {
 } from '../../utils/format'
 
 type TabId = 'history' | 'gallery' | 'notes'
+type HistoricoItem = ReturnType<typeof getClienteHistorico>[number]
 
 function historicoStatusLabel(status: string) {
   switch (status) {
@@ -166,6 +171,98 @@ export function ClienteDetalheDona() {
     navigate(`/admin/clientes/${cliente.id}/agendar`)
   }
 
+  const renderHistoricoAction = () => (
+    <button
+      type="button"
+      className="inline-flex h-11 w-11 items-center justify-center rounded-full text-aura-muted transition-colors hover:bg-[#e9e8e7] hover:text-[#7d5141]"
+      aria-label="Mais opções do atendimento"
+    >
+      <MoreVertical className="h-4 w-4" />
+    </button>
+  )
+
+  const historicoColumns: EntityColumn<HistoricoItem>[] = [
+    {
+      header: 'Data',
+      cell: (h) => (
+        <div>
+          <p className="whitespace-nowrap text-sm font-semibold">{formatDateShortBR(h.data)}</p>
+          <p className="whitespace-nowrap text-xs text-aura-muted">{formatTimeBR(h.hora_inicio)}</p>
+        </div>
+      ),
+    },
+    {
+      header: 'Serviço',
+      cell: (h) => <span className="text-sm">{h.servico_nome}</span>,
+    },
+    {
+      header: 'Profissional',
+      cell: (h) => (
+        <div className="flex items-center gap-2">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#f1dfd4] text-[10px] font-bold text-[#7d5141]">
+            {initials(h.profissional_nome)}
+          </div>
+          <span className="text-sm">{h.profissional_nome}</span>
+        </div>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Valor',
+      cell: (h) => (
+        <span className="whitespace-nowrap text-sm font-semibold">{formatBRL(h.valor)}</span>
+      ),
+      align: 'right',
+    },
+    {
+      header: 'Status',
+      cell: (h) => (
+        <span
+          className={[
+            'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+            historicoStatusClass(h.status),
+          ].join(' ')}
+        >
+          {historicoStatusLabel(h.status)}
+        </span>
+      ),
+    },
+    {
+      header: 'Ações',
+      cell: () => renderHistoricoAction(),
+      align: 'right',
+    },
+  ]
+
+  const renderHistoricoCard = (h: HistoricoItem) => (
+    <div className="rounded-xl border border-[#efdcd1]/40 bg-[#faf9f8] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-[#1a1c1c]">{h.servico_nome}</p>
+          <p className="mt-0.5 whitespace-nowrap text-xs text-aura-muted">
+            {formatDateShortBR(h.data)} · {formatTimeBR(h.hora_inicio)}
+          </p>
+        </div>
+        {renderHistoricoAction()}
+      </div>
+      {/* ≤2 decisões: status + valor */}
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span
+          className={[
+            'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+            historicoStatusClass(h.status),
+          ].join(' ')}
+        >
+          {historicoStatusLabel(h.status)}
+        </span>
+        <p className="shrink-0 whitespace-nowrap font-semibold text-[#7d5141]">
+          {formatBRL(h.valor)}
+        </p>
+      </div>
+      <p className="mt-2 text-xs text-aura-muted">{h.profissional_nome}</p>
+    </div>
+  )
+
   return (
     <DonaLayout searchPlaceholder="Buscar clientes ou agendamentos…">
       <Link
@@ -176,11 +273,7 @@ export function ClienteDetalheDona() {
         Voltar para clientes
       </Link>
 
-      {success && (
-        <Alert variant="info" className="mb-4" onDismiss={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      <ToastFeedback message={success || null} onDismiss={() => setSuccess('')} />
 
       {/* Profile header */}
       <section className="mb-6 rounded-xl bg-white p-5 shadow-[0px_4px_20px_rgba(183,132,114,0.08)] sm:p-6">
@@ -340,7 +433,7 @@ export function ClienteDetalheDona() {
         {/* Right column — tabs */}
         <div className="lg:col-span-8">
           <div className="flex min-h-[480px] flex-col rounded-xl bg-white shadow-[0px_4px_20px_rgba(183,132,114,0.08)]">
-            <div className="flex overflow-x-auto border-b border-[#efdcd1] px-4">
+            <div className="flex flex-wrap gap-1 border-b border-[#efdcd1] px-2 sm:px-4">
               {(
                 [
                   ['history', 'Histórico de atendimentos'],
@@ -353,7 +446,7 @@ export function ClienteDetalheDona() {
                   type="button"
                   onClick={() => setTab(key)}
                   className={[
-                    'whitespace-nowrap border-b-2 px-4 py-4 text-sm font-semibold transition-colors',
+                    'min-h-11 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-semibold transition-colors sm:px-4',
                     tab === key
                       ? 'border-[#7d5141] text-[#7d5141]'
                       : 'border-transparent text-aura-muted hover:text-[#7d5141]',
@@ -365,69 +458,27 @@ export function ClienteDetalheDona() {
             </div>
 
             {tab === 'history' && (
-              <div className="overflow-x-auto p-4 sm:p-5">
-                {historico.length === 0 ? (
-                  <p className="py-12 text-center text-sm text-aura-muted">
-                    Nenhum atendimento registrado.
-                  </p>
-                ) : (
-                  <table className="w-full min-w-[640px] border-separate border-spacing-y-2 text-left">
-                    <thead>
-                      <tr className="text-[10px] font-semibold uppercase tracking-wider text-aura-muted">
-                        <th className="px-2 pb-2">Data</th>
-                        <th className="px-2 pb-2">Serviço</th>
-                        <th className="px-2 pb-2">Profissional</th>
-                        <th className="px-2 pb-2">Valor</th>
-                        <th className="px-2 pb-2">Status</th>
-                        <th className="px-2 pb-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historico.map((h) => (
-                        <tr
-                          key={h.id}
-                          className="group bg-[#f4f3f2] transition-colors hover:bg-[#e9e8e7]"
-                        >
-                          <td className="rounded-l-lg px-3 py-3">
-                            <p className="text-sm font-semibold">{formatDateShortBR(h.data)}</p>
-                            <p className="text-xs text-aura-muted">{formatTimeBR(h.hora_inicio)}</p>
-                          </td>
-                          <td className="px-3 py-3 text-sm">{h.servico_nome}</td>
-                          <td className="px-3 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f1dfd4] text-[10px] font-bold text-[#7d5141]">
-                                {initials(h.profissional_nome)}
-                              </div>
-                              <span className="text-sm">{h.profissional_nome}</span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-3 text-sm font-semibold">
-                            {formatBRL(h.valor)}
-                          </td>
-                          <td className="px-3 py-3">
-                            <span
-                              className={[
-                                'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
-                                historicoStatusClass(h.status),
-                              ].join(' ')}
-                            >
-                              {historicoStatusLabel(h.status)}
-                            </span>
-                          </td>
-                          <td className="rounded-r-lg px-3 py-3 text-right">
-                            <button
-                              type="button"
-                              className="text-aura-muted opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
-                              aria-label="Mais opções"
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+              <div className="p-2 sm:p-4">
+                <ResponsiveEntityList
+                  items={historico}
+                  getKey={(h) => h.id}
+                  renderCard={renderHistoricoCard}
+                  columns={historicoColumns}
+                  emptyTitle="Nenhum atendimento registrado."
+                  emptyAction={
+                    cliente.ativo ? (
+                      <Button
+                        className="bg-[#7d5141] hover:bg-[#996958]"
+                        onClick={openAgendar}
+                      >
+                        <CalendarPlus className="h-4 w-4" />
+                        Agendar horário
+                      </Button>
+                    ) : undefined
+                  }
+                  tableFrom="md"
+                  cardListClassName="space-y-3 p-2"
+                />
               </div>
             )}
 
@@ -435,18 +486,15 @@ export function ClienteDetalheDona() {
               <div className="p-4 sm:p-5">
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
                   {galeria.map((item) => (
-                    <div
-                      key={item.id}
-                      className="group relative aspect-square overflow-hidden rounded-lg"
-                    >
-                      <img
-                        src={item.url}
-                        alt={item.legenda}
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
-                      <div className="absolute inset-0 flex items-end bg-black/40 p-2 opacity-0 transition-opacity group-hover:opacity-100">
-                        <span className="text-xs text-white">{item.legenda}</span>
+                    <div key={item.id} className="overflow-hidden rounded-lg">
+                      <div className="relative aspect-square overflow-hidden">
+                        <img
+                          src={item.url}
+                          alt={item.legenda}
+                          className="h-full w-full object-cover"
+                        />
                       </div>
+                      <p className="mt-2 text-xs text-aura-anthracite">{item.legenda}</p>
                     </div>
                   ))}
                   <button
