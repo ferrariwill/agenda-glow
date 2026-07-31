@@ -7,6 +7,11 @@ import {
 } from '../../components/superadmin/SuperAdminLayout'
 import { Button } from '../../components/ui/Button'
 import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
+import {
   getChurnStats,
   getDistribuicaoPlanos,
   getFinanceiroInsights,
@@ -14,6 +19,7 @@ import {
   getMRR,
   getMRRHistorico6Meses,
   getMRRVariacao,
+  type FaturaSaasView,
 } from '../../utils/mockDb'
 import { formatBRL, formatDateBR, initials } from '../../utils/format'
 import type { FaturaSaasStatus } from '../../types'
@@ -74,6 +80,7 @@ const BAR_COLORS = ['bg-[#d5c3b8]', 'bg-[#996958]', 'bg-[#7d5141]']
 export function FinanceiroSuperAdmin() {
   const [search, setSearch] = useState('')
   const [showAll, setShowAll] = useState(false)
+  const [toast, setToast] = useState('')
 
   const mrr = getMRR()
   const mrrVar = getMRRVariacao()
@@ -90,12 +97,121 @@ export function FinanceiroSuperAdmin() {
 
   const exportRows = useMemo(() => getFaturasSaasRecentes(search, 200), [search])
 
+  const columns: EntityColumn<FaturaSaasView>[] = [
+    {
+      header: 'Tenant / Salão',
+      cell: (f) => {
+        const i = f.id.length % AVATAR_BG.length
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className={[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold',
+                AVATAR_BG[i],
+              ].join(' ')}
+            >
+              {initials(f.tenant_nome)}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-aura-anthracite">{f.tenant_nome}</p>
+              <p className="text-xs text-aura-muted">ID: {shortFaturaId(f.id)}</p>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      header: 'Data',
+      cell: (f) => (
+        <span className="whitespace-nowrap text-sm text-aura-muted">{formatDateBR(f.data)}</span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Valor',
+      cell: (f) => (
+        <span className="whitespace-nowrap text-sm font-bold text-aura-anthracite">
+          {formatBRL(f.valor)}
+        </span>
+      ),
+    },
+    {
+      header: 'Status',
+      cell: (f) => (
+        <span
+          className={[
+            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+            statusFaturaClass(f.status),
+          ].join(' ')}
+        >
+          {statusFaturaLabel(f.status)}
+        </span>
+      ),
+    },
+    {
+      header: 'Ações',
+      cell: () => (
+        <button
+          type="button"
+          className="inline-flex h-11 w-11 items-center justify-center text-aura-muted transition-colors hover:text-[#7d5141]"
+          aria-label="Mais opções"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      ),
+      align: 'right',
+    },
+  ]
+
+  const renderCard = (f: FaturaSaasView, i: number) => (
+    <div className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            className={[
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold',
+              AVATAR_BG[i % AVATAR_BG.length],
+            ].join(' ')}
+          >
+            {initials(f.tenant_nome)}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-aura-anthracite">{f.tenant_nome}</p>
+            <p className="text-xs text-aura-muted">ID: {shortFaturaId(f.id)}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-aura-muted"
+          aria-label="Mais opções"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span
+          className={[
+            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+            statusFaturaClass(f.status),
+          ].join(' ')}
+        >
+          {statusFaturaLabel(f.status)}
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-sm font-bold text-[#7d5141]">
+          {formatBRL(f.valor)}
+        </span>
+      </div>
+    </div>
+  )
+
   return (
     <SuperAdminLayout
       searchPlaceholder="Buscar por faturas, IDs ou salões…"
       searchValue={search}
       onSearchChange={setSearch}
     >
+      <ToastFeedback message={toast || null} onDismiss={() => setToast('')} />
+
       <PageHeader
         title="Financeiro Global"
         subtitle="Visão geral do desempenho econômico da rede AgendaGlow."
@@ -104,7 +220,10 @@ export function FinanceiroSuperAdmin() {
             variant="secondary"
             fullWidth
             className="sm:w-auto border-[#695c53] text-[#7d5141] hover:bg-[#f4f3f2]"
-            onClick={() => exportFaturasCSV(exportRows)}
+            onClick={() => {
+              exportFaturasCSV(exportRows)
+              setToast('Relatório exportado com sucesso.')
+            }}
           >
             <Download className="h-4 w-4" />
             Exportar relatório
@@ -121,7 +240,7 @@ export function FinanceiroSuperAdmin() {
               Total MRR
             </span>
             <div className="flex items-baseline gap-1">
-              <span className="font-display text-2xl font-semibold text-[#7d5141]">
+              <span className="whitespace-nowrap font-display text-2xl font-semibold text-[#7d5141]">
                 {formatBRL(mrr)}
               </span>
               <span className="text-xs text-aura-muted">/mês</span>
@@ -181,7 +300,8 @@ export function FinanceiroSuperAdmin() {
               return (
                 <div key={h.label} className="flex flex-1 flex-col items-center gap-1">
                   <div
-                    title={formatBRL(h.mrr)}
+                    role="img"
+                    aria-label={`${h.label}: ${formatBRL(h.mrr)}`}
                     className={[
                       'w-full max-w-[2rem] rounded-t-sm transition-colors',
                       isLast
@@ -211,7 +331,7 @@ export function FinanceiroSuperAdmin() {
             </h3>
             <button
               type="button"
-              className="rounded-lg p-2 text-aura-muted transition-colors hover:bg-[#e9e8e7]"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-aura-muted transition-colors hover:bg-[#e9e8e7]"
               aria-label="Filtrar"
             >
               <Filter className="h-4 w-4" />
@@ -219,94 +339,18 @@ export function FinanceiroSuperAdmin() {
           </div>
 
           <div className="overflow-hidden rounded-xl border border-[#695c53]/5 bg-white shadow-[0px_4px_20px_rgba(183,132,114,0.08)]">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-left">
-                <thead>
-                  <tr className="bg-[#f4f3f2]/50">
-                    <th className="border-b border-[#695c53]/10 p-4 text-[10px] font-bold uppercase tracking-wider text-aura-muted">
-                      Tenant / Salão
-                    </th>
-                    <th className="border-b border-[#695c53]/10 p-4 text-[10px] font-bold uppercase tracking-wider text-aura-muted">
-                      Data
-                    </th>
-                    <th className="border-b border-[#695c53]/10 p-4 text-[10px] font-bold uppercase tracking-wider text-aura-muted">
-                      Valor
-                    </th>
-                    <th className="border-b border-[#695c53]/10 p-4 text-[10px] font-bold uppercase tracking-wider text-aura-muted">
-                      Status
-                    </th>
-                    <th className="border-b border-[#695c53]/10 p-4" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#695c53]/5">
-                  {faturas.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="p-8 text-center text-sm text-aura-muted">
-                        Nenhuma transação encontrada.
-                      </td>
-                    </tr>
-                  ) : (
-                    faturas.map((f, i) => (
-                      <tr
-                        key={f.id}
-                        className="transition-colors hover:bg-[#f4f3f2]/30"
-                      >
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={[
-                                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold',
-                                AVATAR_BG[i % AVATAR_BG.length],
-                              ].join(' ')}
-                            >
-                              {initials(f.tenant_nome)}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-bold text-aura-anthracite">
-                                {f.tenant_nome}
-                              </p>
-                              <p className="text-xs text-aura-muted">
-                                ID: {shortFaturaId(f.id)}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-4 text-sm text-aura-muted">
-                          {formatDateBR(f.data)}
-                        </td>
-                        <td className="p-4 text-sm font-bold text-aura-anthracite">
-                          {formatBRL(f.valor)}
-                        </td>
-                        <td className="p-4">
-                          <span
-                            className={[
-                              'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-                              statusFaturaClass(f.status),
-                            ].join(' ')}
-                          >
-                            {statusFaturaLabel(f.status)}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right">
-                          <button
-                            type="button"
-                            className="text-aura-muted transition-colors hover:text-[#7d5141]"
-                            aria-label="Mais opções"
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <ResponsiveEntityList
+              items={faturas}
+              getKey={(f) => f.id}
+              renderCard={renderCard}
+              columns={columns}
+              emptyTitle="Nenhuma transação encontrada."
+            />
             <div className="flex justify-center border-t border-[#695c53]/5 bg-white p-4">
               <button
                 type="button"
                 onClick={() => setShowAll((v) => !v)}
-                className="text-xs font-bold uppercase tracking-widest text-[#7d5141] hover:underline"
+                className="min-h-11 text-xs font-bold uppercase tracking-widest text-[#7d5141] hover:underline"
               >
                 {showAll ? 'Ver menos' : 'Ver histórico completo'}
               </button>
