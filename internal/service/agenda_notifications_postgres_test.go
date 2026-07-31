@@ -69,6 +69,7 @@ CREATE TABLE estabelecimentos (
     id UUID PRIMARY KEY,
     nome_comercial TEXT NOT NULL,
     ativo BOOLEAN NOT NULL,
+    whatsapp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     whatsapp_status TEXT NOT NULL,
     logradouro TEXT,
     cidade TEXT,
@@ -141,7 +142,7 @@ CREATE TABLE agendamento_notificacoes (
 		query string
 		args  []any
 	}{
-		{`INSERT INTO estabelecimentos VALUES ($1, 'Studio PG', TRUE, 'CONECTADO', 'Rua Um', 'São Paulo', 'SP')`, []any{tenantID}},
+		{`INSERT INTO estabelecimentos VALUES ($1, 'Studio PG', TRUE, TRUE, 'CONECTADO', 'Rua Um', 'São Paulo', 'SP')`, []any{tenantID}},
 		{`INSERT INTO configuracoes_notificacoes_agenda VALUES ($1, TRUE, 24, 1, 'Confirme {{servico}}', 'Lembrete {{servico}}')`, []any{tenantID}},
 		{`INSERT INTO clientes VALUES ($1, $2, '5511999999999')`, []any{customerID, tenantID}},
 		{`INSERT INTO servicos VALUES ($1, $2, 'Corte')`, []any{serviceID, tenantID}},

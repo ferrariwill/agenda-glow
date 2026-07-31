@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,8 @@ import (
 	"github.com/agendaglow/agendaglow/internal/service"
 	"github.com/jmoiron/sqlx"
 )
+
+const whatsAppFlagQuery = "SELECT COALESCE(whatsapp_enabled, FALSE)"
 
 const (
 	testAppointmentID = "appointment-a"
@@ -201,4 +205,89 @@ func expectAppointmentLookupWithPolicy(
 	mock.ExpectQuery("(?s)SELECT.+FROM agendamentos a.+FOR UPDATE OF a").
 		WithArgs(testTenantID, testPhone, testAppointmentID).
 		WillReturnRows(rows)
+}
+
+func newWhatsAppWebhookHandler(t *testing.T) (*WhatsAppWebhookHandler, sqlmock.Sqlmock) {
+	t.Helper()
+	t.Setenv("WHATSAPP_GATEWAY_KEY", "")
+
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("criar mock: %v", err)
+	}
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	db := sqlx.NewDb(rawDB, "sqlmock")
+	return NewWhatsAppWebhookHandler(
+		service.NewAgendaService(db),
+		service.NewEstabelecimentoService(db),
+	), mock
+}
+
+func postWebhook(path, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+func TestConnectedWebhookIsForbiddenAndDoesNotWriteWhenFeatureIsOff(t *testing.T) {
+	handler, mock := newWhatsAppWebhookHandler(t)
+	mock.ExpectQuery(regexp.QuoteMeta(whatsAppFlagQuery)).
+		WithArgs("tenant-1").
+		WillReturnRows(sqlmock.NewRows([]string{"whatsapp_enabled"}).AddRow(false))
+
+	rec := httptest.NewRecorder()
+	handler.Connected(rec, postWebhook("/api/v1/webhook/whatsapp-connected", `{
+		"event": "whatsapp_connection_completed",
+		"sistema_origem": "beleza",
+		"tenant_id": "tenant-1",
+		"waba_id": "waba-1",
+		"phone_number_id": "phone-1",
+		"status": "connected"
+	}`))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["error"] != "whatsapp_feature_disabled" ||
+		body["message"] != "Recurso de WhatsApp desativado para este estabelecimento. Contate o administrador" {
+		t.Fatalf("body = %#v", body)
+	}
+	// Só a consulta da flag foi emitida: nenhum UPDATE em estabelecimentos.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCallbackConfirmStaysAllowedWhenFeatureIsOff(t *testing.T) {
+	mux, mock, cleanup := newWhatsAppWebhookTestServer(t)
+	defer cleanup()
+	mock.ExpectBegin()
+	expectAppointmentLookup(mock, "AGENDADO", "PENDENTE")
+	mock.ExpectExec("UPDATE agendamentos[\\s\\S]+CONFIRMADO_CLIENTE").
+		WithArgs(testAppointmentID, testTenantID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	code, body := postWhatsAppWebhook(t, mux, callbackRoute, map[string]any{
+		"sistema_origem": "beleza", "tenant_id": testTenantID,
+		"phone_number": testPhone, "event_type": "button_reply",
+		"text": "APPT_CONFIRM", "action": "CONFIRM",
+		"appointment_id": testAppointmentID,
+	})
+
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (callback não é barrado pela flag): %s", code, body)
+	}
+	if got := decodeField(t, body, "appointment_status"); got != "AGENDADO" {
+		t.Fatalf("appointment_status = %q", got)
+	}
+	// Nenhuma consulta à flag foi registrada no caminho do callback.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }

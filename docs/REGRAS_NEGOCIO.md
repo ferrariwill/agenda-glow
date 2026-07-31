@@ -532,6 +532,10 @@ Payload Gateway:
 ```
 → status do salão = `CONECTADO`.
 
+Se `whatsapp_enabled = false`, a conexão é recusada com HTTP 403,
+`whatsapp_feature_disabled`. Essa resposta é terminal e não deve ser retentada
+pelo Gateway.
+
 ### 12.3 Webhook — respostas do cliente (CONFIRM/CANCEL)
 
 `POST /api/v1/webhook/whatsapp-callback` (ou unificado `/whatsapp-gateway`)
@@ -554,6 +558,13 @@ Payload Gateway:
 
 - Tela `/admin/whatsapp` — botão **Conectar WhatsApp Oficial**.
 - `state=beleza_{idDoSalao}` concatenado na URL Meta.
+- `GET /api/v1/whatsapp/integration` continua retornando 200 e expõe
+  `whatsapp_enabled`; quando desativado, `state` e `signup_url` são vazios.
+- `POST /api/v1/whatsapp/integration/start` exige assinatura SaaS ativa e a
+  liberação do recurso. A assinatura é validada primeiro (402), depois a flag
+  administrativa (403).
+- Respostas `CONFIRM`/`CANCEL` continuam sendo processadas quando a flag está
+  desligada, mas configuração e novos envios ficam bloqueados.
 
 **Onde:** `internal/service/whatsapp_integration.go`, `internal/handler/whatsapp_webhook.go`, `migrations/000018`.
 
@@ -571,6 +582,7 @@ Payload Gateway:
 | Editar plano SaaS | Nome, preço, limite, ativo |
 | Criar Dona | E-mail único; senha padrão dev |
 | Toggle status (API JSON) | Altera só `ativo` do salão (não mexe assinatura automaticamente) |
+| Toggle WhatsApp | Só `SUPER_ADMIN`; altera `whatsapp_enabled`, preservando status, WABA e telefone |
 
 **Onde:** `backend/internal/handler/superadmin_ui.go`, `internal/service/plano.go`, `internal/service/superadmin.go`.
 
@@ -588,6 +600,8 @@ Payload Gateway:
 8. **Nome do cliente** não atualiza em re-reserva com o mesmo telefone.
 9. **Webhook WhatsApp** aberto se `WHATSAPP_GATEWAY_KEY` não estiver configurada.
 10. **Cache SaaS** pode liberar acesso por até **60 s** após suspensão (até expirar TTL ou invalidação explícita).
+11. **Cache da flag WhatsApp** usa TTL de 30 s; o toggle administrativo invalida
+    a entrada imediatamente, eliminando a janela no fluxo normal.
 
 ---
 

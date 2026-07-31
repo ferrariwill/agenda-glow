@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -23,13 +24,15 @@ type TenantBootstrapPayload struct {
 }
 
 type TenantBootstrapView struct {
-	ID             string  `json:"id"`
-	Nome           string  `json:"nome"`
-	Slug           string  `json:"slug"`
-	Status         string  `json:"status"`
-	LogoURL        *string `json:"logo_url,omitempty"`
-	PlanoID        *string `json:"plano_id,omitempty"`
-	DataVencimento *string `json:"data_vencimento,omitempty"`
+	ID                           string  `json:"id"`
+	Nome                         string  `json:"nome"`
+	Slug                         string  `json:"slug"`
+	Status                       string  `json:"status"`
+	LogoURL                      *string `json:"logo_url,omitempty"`
+	PlanoID                      *string `json:"plano_id,omitempty"`
+	DataVencimento               *string `json:"data_vencimento,omitempty"`
+	EarlySlotQueueActive         bool    `json:"early_slot_queue_active"`
+	EarlySlotQueueInactiveReason *string `json:"early_slot_queue_inactive_reason"`
 }
 
 type ProfissionalBootstrap struct {
@@ -47,24 +50,32 @@ type ClienteBootstrap struct {
 }
 
 type AgendamentoBootstrap struct {
-	ID                      string   `json:"id"`
-	TenantID                string   `json:"tenant_id"`
-	ProfissionalID          string   `json:"profissional_id"`
-	ServicoID               string   `json:"servico_id"`
-	ServicoIDs              []string `json:"servico_ids"`
-	AdicionalIDs            []string `json:"adicional_ids"`
-	ClienteNome             string   `json:"cliente_nome"`
-	ClienteTelefone         string   `json:"cliente_telefone"`
-	Data                    string   `json:"data"`
-	HoraInicio              string   `json:"hora_inicio"`
-	Status                  string   `json:"status"`
-	MinutosInvadidos        int      `json:"minutos_invadidos,omitempty"`
-	AceitaAdiantar          bool     `json:"aceita_adiantar,omitempty"`
-	ValorCobrado            *float64 `json:"valor_cobrado,omitempty"`
-	MetodoPagamento         *string  `json:"metodo_pagamento,omitempty"`
-	CobradoEm               *string  `json:"cobrado_em,omitempty"`
-	ConfirmacaoCliente      string   `json:"confirmacao_cliente"`
-	UltimoLembreteEnviadoEm *string  `json:"ultimo_lembrete_enviado_em,omitempty"`
+	ID                      string                 `json:"id"`
+	TenantID                string                 `json:"tenant_id"`
+	ProfissionalID          string                 `json:"profissional_id"`
+	ServicoID               string                 `json:"servico_id"`
+	ServicoIDs              []string               `json:"servico_ids"`
+	AdicionalIDs            []string               `json:"adicional_ids"`
+	ClienteNome             string                 `json:"cliente_nome"`
+	ClienteTelefone         string                 `json:"cliente_telefone"`
+	Data                    string                 `json:"data"`
+	HoraInicio              string                 `json:"hora_inicio"`
+	Status                  string                 `json:"status"`
+	MinutosInvadidos        int                    `json:"minutos_invadidos,omitempty"`
+	AceitaAdiantar          bool                   `json:"aceita_adiantar,omitempty"`
+	AceitaAdiantarEm        *string                `json:"aceita_adiantar_em,omitempty"`
+	EarlySlotOffer          *EarlySlotOfferSummary `json:"early_slot_offer"`
+	ValorCobrado            *float64               `json:"valor_cobrado,omitempty"`
+	MetodoPagamento         *string                `json:"metodo_pagamento,omitempty"`
+	CobradoEm               *string                `json:"cobrado_em,omitempty"`
+	ConfirmacaoCliente      string                 `json:"confirmacao_cliente"`
+	UltimoLembreteEnviadoEm *string                `json:"ultimo_lembrete_enviado_em,omitempty"`
+}
+
+type EarlySlotOfferSummary struct {
+	RoundID     string    `json:"round_id"`
+	OfferStatus string    `json:"offer_status"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 type LancamentoBootstrap struct {
@@ -241,14 +252,27 @@ WHERE e.id = $1 AND e.ativo = TRUE
 		s := row.DataVencimento.Format("2006-01-02")
 		venc = &s
 	}
+	earlySlotActive, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, establishmentID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do bootstrap falhou tenant=%s: %v",
+			establishmentID, gateErr)
+		earlySlotActive = false
+	}
+	var inactiveReason *string
+	if !earlySlotActive {
+		reason := earlySlotMotivoCanalIndisponivel
+		inactiveReason = &reason
+	}
 	return &TenantBootstrapView{
-		ID:             row.ID,
-		Nome:           row.NomeComercial,
-		Slug:           row.Slug,
-		Status:         status,
-		LogoURL:        row.LogoURL,
-		PlanoID:        row.PlanoID,
-		DataVencimento: venc,
+		ID:                           row.ID,
+		Nome:                         row.NomeComercial,
+		Slug:                         row.Slug,
+		Status:                       status,
+		LogoURL:                      row.LogoURL,
+		PlanoID:                      row.PlanoID,
+		DataVencimento:               venc,
+		EarlySlotQueueActive:         earlySlotActive,
+		EarlySlotQueueInactiveReason: inactiveReason,
 	}, nil
 }
 
@@ -297,6 +321,7 @@ SELECT
     a.data_hora_inicio,
     a.minutos_invadidos,
     a.aceita_adiantar,
+    a.aceita_adiantar_em,
     a.valor_cobrado,
     a.metodo_pagamento,
     a.cobrado_em,
@@ -310,9 +335,16 @@ SELECT
           AND n.status_envio = 'ENVIADO'
     ) AS ultimo_lembrete_enviado_em,
     c.nome AS cliente_nome,
-    c.telefone AS cliente_telefone
+    c.telefone AS cliente_telefone,
+    eo.rodada_id AS early_round_id,
+    eo.status AS early_offer_status,
+    eo.expira_em AS early_offer_expires_at
 FROM agendamentos a
 INNER JOIN clientes c ON c.id = a.cliente_id AND c.estabelecimento_id = a.estabelecimento_id
+LEFT JOIN ofertas_antecipacao eo
+  ON eo.agendamento_candidato_id = a.id
+ AND eo.estabelecimento_id = a.estabelecimento_id
+ AND eo.status = 'PENDENTE'
 WHERE a.estabelecimento_id = $1
   AND a.data_hora_inicio >= NOW() - INTERVAL '30 days'
   AND a.data_hora_inicio < NOW() + INTERVAL '90 days'
@@ -327,6 +359,7 @@ ORDER BY a.data_hora_inicio
 		DataHoraInicio          time.Time  `db:"data_hora_inicio"`
 		MinutosInvadidos        int        `db:"minutos_invadidos"`
 		AceitaAdiantar          bool       `db:"aceita_adiantar"`
+		AceitaAdiantarEm        *time.Time `db:"aceita_adiantar_em"`
 		ValorCobrado            *float64   `db:"valor_cobrado"`
 		MetodoPagamento         *string    `db:"metodo_pagamento"`
 		CobradoEm               *time.Time `db:"cobrado_em"`
@@ -334,6 +367,9 @@ ORDER BY a.data_hora_inicio
 		UltimoLembreteEnviadoEm *time.Time `db:"ultimo_lembrete_enviado_em"`
 		ClienteNome             string     `db:"cliente_nome"`
 		ClienteTelefone         string     `db:"cliente_telefone"`
+		EarlyRoundID            *string    `db:"early_round_id"`
+		EarlyOfferStatus        *string    `db:"early_offer_status"`
+		EarlyOfferExpiresAt     *time.Time `db:"early_offer_expires_at"`
 	}
 	var rows []row
 	if err := s.db.SelectContext(ctx, &rows, query, establishmentID); err != nil {
@@ -359,6 +395,15 @@ ORDER BY a.data_hora_inicio
 			ValorCobrado:       r.ValorCobrado,
 			MetodoPagamento:    r.MetodoPagamento,
 			ConfirmacaoCliente: r.ConfirmacaoCliente,
+		}
+		if r.AceitaAdiantarEm != nil {
+			formatted := r.AceitaAdiantarEm.Format(time.RFC3339)
+			item.AceitaAdiantarEm = &formatted
+		}
+		if r.EarlyRoundID != nil && r.EarlyOfferStatus != nil && r.EarlyOfferExpiresAt != nil {
+			item.EarlySlotOffer = &EarlySlotOfferSummary{
+				RoundID: *r.EarlyRoundID, OfferStatus: *r.EarlyOfferStatus, ExpiresAt: *r.EarlyOfferExpiresAt,
+			}
 		}
 		if r.CobradoEm != nil {
 			s := r.CobradoEm.Format("2006-01-02")

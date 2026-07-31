@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -20,9 +21,11 @@ var (
 )
 
 const (
-	WhatsAppActionConfirm = "CONFIRM"
-	WhatsAppActionCancel  = "CANCEL"
-	WhatsAppSistemaBeleza = "beleza"
+	WhatsAppActionConfirm          = "CONFIRM"
+	WhatsAppActionCancel           = "CANCEL"
+	WhatsAppActionEarlySlotAccept  = "EARLY_SLOT_ACCEPT"
+	WhatsAppActionEarlySlotDecline = "EARLY_SLOT_DECLINE"
+	WhatsAppSistemaBeleza          = "beleza"
 )
 
 // WhatsAppCallbackPayload representa o JSON repassado pelo WhatsApp Gateway (Gateway → Beleza).
@@ -36,6 +39,7 @@ type WhatsAppCallbackPayload struct {
 	EventType     string `json:"event_type"`
 	Action        string `json:"action"`
 	AppointmentID string `json:"appointment_id"`
+	OfferToken    string `json:"offer_token"`
 	Reason        string `json:"reason"`
 	// Legado (pré-contrato Gateway atual)
 	SystemID         string `json:"system_id"`
@@ -51,6 +55,7 @@ func (p *WhatsAppCallbackPayload) normalize() {
 	p.EventType = strings.TrimSpace(p.EventType)
 	p.Action = strings.ToUpper(strings.TrimSpace(p.Action))
 	p.AppointmentID = strings.TrimSpace(p.AppointmentID)
+	p.OfferToken = strings.TrimSpace(p.OfferToken)
 	p.Reason = strings.TrimSpace(p.Reason)
 	p.SystemID = strings.TrimSpace(p.SystemID)
 	p.ExternalClientID = strings.TrimSpace(p.ExternalClientID)
@@ -91,6 +96,10 @@ func (p *WhatsAppCallbackPayload) validate() error {
 
 	switch p.Action {
 	case WhatsAppActionConfirm, WhatsAppActionCancel:
+	case WhatsAppActionEarlySlotAccept, WhatsAppActionEarlySlotDecline:
+		if p.TenantID == "" || p.OfferToken == "" {
+			return fmt.Errorf("%w: tenant_id e offer_token obrigatórios", ErrWebhookPayloadInvalido)
+		}
 	default:
 		return ErrAcaoWhatsAppInvalida
 	}
@@ -102,6 +111,15 @@ func (p *WhatsAppCallbackPayload) validate() error {
 func (s *AgendaService) ProcessWhatsAppCallback(ctx context.Context, payload WhatsAppCallbackPayload) (string, error) {
 	if err := payload.validate(); err != nil {
 		return "", err
+	}
+	if payload.Action == WhatsAppActionEarlySlotAccept || payload.Action == WhatsAppActionEarlySlotDecline {
+		if s.earlySlot == nil {
+			return "", ErrEarlySlotOfferUnavailable
+		}
+		return s.earlySlot.RespondWhatsApp(
+			ctx, payload.OfferToken, payload.TenantID, payload.PhoneNumber,
+			payload.Action == WhatsAppActionEarlySlotAccept,
+		)
 	}
 
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -137,6 +155,12 @@ WHERE id = $1 AND estabelecimento_id = $2
 		return ag.Status, nil
 	}
 
+	// Callback de cancelamento repetido é idempotente e, sobretudo, não pode
+	// reabrir a fila de uma rodada já encerrada após reconexão do canal.
+	if ag.Status == "CANCELADO" {
+		return "CANCELADO", nil
+	}
+
 	management := &managementAppointment{
 		ID: ag.ID, EstablishmentID: ag.EstablishmentID, StartsAt: ag.StartsAt,
 		Status: ag.Status, CustomerConfirmation: ag.CustomerConfirmation,
@@ -148,6 +172,14 @@ WHERE id = $1 AND estabelecimento_id = $2
 	}
 	if err := tx.Commit(); err != nil {
 		return "", err
+	}
+	// Hook deliberadamente pós-commit: falha da fila de antecipação não altera
+	// o contrato de sucesso do cancelamento que já liberou o slot.
+	if s.earlySlot != nil {
+		if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstablishmentID, ag.ID); err != nil {
+			log.Printf("antecipacao: hook pós-cancelamento whatsapp falhou tenant=%s agendamento_cancelado=%s: %v",
+				ag.EstablishmentID, ag.ID, err)
+		}
 	}
 	return "CANCELADO", nil
 }

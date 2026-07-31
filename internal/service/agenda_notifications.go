@@ -203,8 +203,17 @@ type AppointmentManagementView struct {
 	Establishment struct {
 		Name         string `json:"name"`
 		ContactPhone string `json:"contact_phone"`
+		// Sinal canônico e fail-closed do gate composto de WhatsApp: nas
+		// superfícies públicas ele vive no objeto do estabelecimento.
+		EarlySlotNotificationsAvailable bool `json:"early_slot_notifications_available"`
 	} `json:"establishment"`
+	EarlySlot    EarlySlotPreferenceView  `json:"early_slot"`
 	Cancellation CancellationAvailability `json:"cancellation"`
+}
+
+type EarlySlotPreferenceView struct {
+	AceitaAdiantar bool `json:"aceita_adiantar"`
+	Eligible       bool `json:"eligible"`
 }
 
 type CancellationAvailability struct {
@@ -223,6 +232,7 @@ type managementAppointment struct {
 	Status                         string    `db:"status"`
 	CustomerConfirmation           string    `db:"confirmacao_cliente"`
 	TokenExpiresAt                 time.Time `db:"gestao_token_expires_at"`
+	AceitaAdiantar                 bool      `db:"aceita_adiantar"`
 	EstablishmentName              string    `db:"nome_salao"`
 	ContactPhone                   string    `db:"telefone_contato"`
 	MinimumCancellationNoticeHours int       `db:"janela_minima_cancelamento_horas"`
@@ -269,6 +279,15 @@ func (s *AgendaService) GetAppointmentManagement(ctx context.Context, token stri
 	out.Appointment.CustomerConfirmation = ag.CustomerConfirmation
 	out.Establishment.Name = ag.EstablishmentName
 	out.Establishment.ContactPhone = ag.ContactPhone
+	if s.earlySlot != nil {
+		out.Establishment.EarlySlotNotificationsAvailable =
+			s.earlySlot.NotificationsAvailable(ctx, ag.EstablishmentID)
+	}
+	out.EarlySlot = EarlySlotPreferenceView{
+		AceitaAdiantar: ag.AceitaAdiantar,
+		Eligible: (ag.Status == "AGENDADO" || ag.Status == "CONFIRMADO") &&
+			ag.StartsAt.After(now),
+	}
 	out.Cancellation = cancellationAvailability(ag.Status, ag.StartsAt, now,
 		ag.MinimumCancellationNoticeHours, ag.ReasonRequired)
 	return &out, nil
@@ -310,6 +329,14 @@ func (s *AgendaService) CancelAppointmentByManagementToken(ctx context.Context, 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("confirmar cancelamento: %w", err)
 	}
+	// Hook pós-commit, igual aos demais cancelamentos: se a fila falhar, o
+	// cancelamento continua bem-sucedido e o slot apenas volta livre.
+	if result.SlotReleased && s.earlySlot != nil {
+		if err := s.earlySlot.OpenRoundForCancelledAppointment(ctx, ag.EstablishmentID, ag.ID); err != nil {
+			log.Printf("antecipacao: hook pós-cancelamento por token falhou tenant=%s agendamento_cancelado=%s: %v",
+				ag.EstablishmentID, ag.ID, err)
+		}
+	}
 	return result, nil
 }
 
@@ -325,6 +352,7 @@ func (s *AgendaService) lookupManagementAppointment(ctx context.Context, db sqlx
 	query := `
 SELECT a.id, a.estabelecimento_id, s.nome AS servico, p.nome AS profissional,
        a.data_hora_inicio, a.status, a.confirmacao_cliente, a.gestao_token_expires_at,
+       a.aceita_adiantar,
        e.nome_comercial AS nome_salao, COALESCE(e.whatsapp_phone_number, '') AS telefone_contato,
        cfg.janela_minima_cancelamento_horas, cfg.motivo_cancelamento_obrigatorio
 FROM agendamentos a
@@ -555,11 +583,13 @@ WHERE status_envio = 'ENVIANDO'
 	}
 }
 
-// discoverDue usa dois relógios de propósito distinto: $1 é o relógio da fila, que
-// grava as colunas de controle, e $3 é o horário corrente do salão, comparado contra
-// `data_hora_inicio` (hora de parede do agendamento). Só o primeiro é normalizado.
-func (w *AgendaNotificationWorker) discoverDue(ctx context.Context, now time.Time) error {
-	const insert = `
+// agendaNotificationDiscoverySQL enfileira as notificações vencendo. O par
+// whatsapp_enabled + whatsapp_status é o mesmo gate composto da fila de
+// antecipação: salão sem canal vivo não enfileira envio.
+//
+// Dois relógios: $1 é o relógio da fila (colunas de controle); $3 é o horário
+// corrente do salão, comparado contra `data_hora_inicio`.
+const agendaNotificationDiscoverySQL = `
 INSERT INTO agendamento_notificacoes (
     estabelecimento_id, agendamento_id, tipo, status_envio,
     proxima_tentativa_em, criado_em, atualizado_em
@@ -579,13 +609,16 @@ CROSS JOIN LATERAL (
     WHERE a.data_hora_inicio <= $3::timestamp + make_interval(hours => cfg.antecedencia_lembrete_horas)
 ) due
 WHERE e.ativo = TRUE AND e.whatsapp_status = 'CONECTADO'
+  AND COALESCE(e.whatsapp_enabled, FALSE) = TRUE
   AND cfg.lembretes_ativos = TRUE
   AND a.status = ANY($2)
   AND a.data_hora_inicio > $3::timestamp
   AND BTRIM(c.telefone) <> ''
 ON CONFLICT (estabelecimento_id, agendamento_id, tipo) DO NOTHING
 `
-	if _, err := w.db.ExecContext(ctx, insert, queueClock(now),
+
+func (w *AgendaNotificationWorker) discoverDue(ctx context.Context, now time.Time) error {
+	if _, err := w.db.ExecContext(ctx, agendaNotificationDiscoverySQL, queueClock(now),
 		pq.Array(statusesForScheduledNotifications), now); err != nil {
 		return fmt.Errorf("descobrir notificações vencendo: %w", err)
 	}
@@ -662,7 +695,9 @@ JOIN estabelecimentos e ON e.id = a.estabelecimento_id
 JOIN configuracoes_notificacoes_agenda cfg ON cfg.estabelecimento_id = a.estabelecimento_id
 WHERE n.status_envio IN ('PENDENTE', 'FALHOU')
   AND n.proxima_tentativa_em <= $1::timestamp AND n.tentativas < $2
-  AND e.ativo = TRUE AND e.whatsapp_status = 'CONECTADO' AND cfg.lembretes_ativos = TRUE
+  AND e.ativo = TRUE AND e.whatsapp_status = 'CONECTADO'
+  AND COALESCE(e.whatsapp_enabled, FALSE) = TRUE
+  AND cfg.lembretes_ativos = TRUE
   AND CASE WHEN n.tipo = ANY($3) THEN a.status = ANY($4) ELSE a.status = ANY($5) END
   AND BTRIM(c.telefone) <> ''
 ORDER BY n.proxima_tentativa_em, n.criado_em

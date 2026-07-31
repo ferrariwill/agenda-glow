@@ -28,9 +28,16 @@ var (
 )
 
 type AgendaService struct {
-	db      *sqlx.DB
-	baseURL string
-	mailer  Mailer
+	db        *sqlx.DB
+	baseURL   string
+	mailer    Mailer
+	earlySlot *EarlySlotService
+}
+
+// SetEarlySlotService conecta o hook pós-cancelamento sem alterar o contrato
+// dos construtores usados pelos testes e demais consumidores.
+func (s *AgendaService) SetEarlySlotService(earlySlot *EarlySlotService) {
+	s.earlySlot = earlySlot
 }
 
 func NewAgendaService(db *sqlx.DB, opts ...AgendaOptions) *AgendaService {
@@ -331,10 +338,12 @@ VALUES ($1, $2)
 }
 
 func (s *AgendaService) validarProfissional(ctx context.Context, tx *sqlx.Tx, estabelecimentoID, profissionalID string) error {
+	// Mesmo lock usado pelo aceite da fila de antecipação: serializa criação e
+	// reagendamento no profissional/tenant antes da checagem de colisão.
 	const query = `
 SELECT id FROM profissionais
 WHERE id = $1 AND estabelecimento_id = $2 AND ativo = TRUE
-`
+FOR UPDATE`
 	var id string
 	if err := tx.GetContext(ctx, &id, query, profissionalID, estabelecimentoID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

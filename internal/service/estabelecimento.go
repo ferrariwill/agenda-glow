@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -31,10 +32,11 @@ func NewEstabelecimentoService(db *sqlx.DB) *EstabelecimentoService {
 }
 
 type Estabelecimento struct {
-	ID            string  `db:"id" json:"id"`
-	NomeComercial string  `db:"nome_comercial" json:"nome_comercial"`
-	Slug          string  `db:"slug" json:"slug"`
-	LogoURL       *string `db:"logo_url" json:"logo_url,omitempty"`
+	ID                              string  `db:"id" json:"id"`
+	NomeComercial                   string  `db:"nome_comercial" json:"nome_comercial"`
+	Slug                            string  `db:"slug" json:"slug"`
+	LogoURL                         *string `db:"logo_url" json:"logo_url,omitempty"`
+	EarlySlotNotificationsAvailable bool    `db:"early_slot_notifications_available" json:"early_slot_notifications_available"`
 }
 
 type ConfigEstabelecimentoInput struct {
@@ -50,11 +52,13 @@ type CreateEstablishmentInput struct {
 }
 
 type EstablishmentAdminView struct {
-	ID            string    `db:"id" json:"id"`
-	NomeComercial string    `db:"nome_comercial" json:"nome_comercial"`
-	Slug          string    `db:"slug" json:"slug"`
-	Ativo         bool      `db:"ativo" json:"ativo"`
-	DataCadastro  time.Time `db:"data_cadastro" json:"data_cadastro"`
+	ID              string    `db:"id" json:"id"`
+	NomeComercial   string    `db:"nome_comercial" json:"nome_comercial"`
+	Slug            string    `db:"slug" json:"slug"`
+	Ativo           bool      `db:"ativo" json:"ativo"`
+	DataCadastro    time.Time `db:"data_cadastro" json:"data_cadastro"`
+	WhatsAppEnabled bool      `db:"whatsapp_enabled" json:"whatsapp_enabled"`
+	WhatsAppStatus  string    `db:"whatsapp_status" json:"whatsapp_status"`
 }
 
 type ProfissionalCatalogo struct {
@@ -64,10 +68,10 @@ type ProfissionalCatalogo struct {
 }
 
 type ServicoAdicionalCatalogo struct {
-	ID                        string  `db:"id" json:"id"`
-	Nome                      string  `db:"nome" json:"nome"`
-	PrecoAdicional            float64 `db:"preco_adicional" json:"preco_adicional"`
-	DuracaoAdicionalMinutos   int     `db:"duracao_adicional_minutos" json:"duracao_adicional_minutos"`
+	ID                      string  `db:"id" json:"id"`
+	Nome                    string  `db:"nome" json:"nome"`
+	PrecoAdicional          float64 `db:"preco_adicional" json:"preco_adicional"`
+	DuracaoAdicionalMinutos int     `db:"duracao_adicional_minutos" json:"duracao_adicional_minutos"`
 }
 
 type ServicoCatalogo struct {
@@ -167,7 +171,9 @@ VALUES ($1)
 // ListAllEstablishments retorna todos os estabelecimentos para o painel Super Admin.
 func (s *EstabelecimentoService) ListAllEstablishments(ctx context.Context) ([]EstablishmentAdminView, error) {
 	const query = `
-SELECT id, nome_comercial, slug, ativo, data_cadastro
+SELECT id, nome_comercial, slug, ativo, data_cadastro,
+       COALESCE(whatsapp_enabled, FALSE) AS whatsapp_enabled,
+       COALESCE(whatsapp_status, 'DESCONECTADO') AS whatsapp_status
 FROM estabelecimentos
 ORDER BY data_cadastro DESC
 `
@@ -223,6 +229,12 @@ WHERE slug = $1 AND ativo = TRUE
 		return nil, fmt.Errorf("buscar estabelecimento por slug: %w", err)
 	}
 
+	ready, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, est.ID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do catálogo falhou tenant=%s: %v", est.ID, gateErr)
+		ready = false
+	}
+	est.EarlySlotNotificationsAvailable = ready
 	return &est, nil
 }
 
@@ -240,6 +252,12 @@ WHERE id = $1
 		}
 		return nil, fmt.Errorf("buscar estabelecimento por id: %w", err)
 	}
+	ready, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, est.ID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do estabelecimento falhou tenant=%s: %v", est.ID, gateErr)
+		ready = false
+	}
+	est.EarlySlotNotificationsAvailable = ready
 	return &est, nil
 }
 

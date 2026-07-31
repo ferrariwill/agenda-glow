@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -36,13 +37,14 @@ type AgendamentoTimelineItem struct {
 }
 
 type DashboardProfissional struct {
-	ProfissionalNome string                    `json:"profissional_nome"`
-	DataSelecionada  string                    `json:"data_selecionada"`
-	DataLabel        string                    `json:"data_label"`
-	DataAnterior     string                    `json:"data_anterior"`
-	DataProxima      string                    `json:"data_proxima"`
-	ResumoSemana     ResumoSemanaProfissional  `json:"resumo_semana"`
-	Agenda           []AgendamentoTimelineItem `json:"agenda"`
+	ProfissionalNome     string                    `json:"profissional_nome"`
+	DataSelecionada      string                    `json:"data_selecionada"`
+	DataLabel            string                    `json:"data_label"`
+	DataAnterior         string                    `json:"data_anterior"`
+	DataProxima          string                    `json:"data_proxima"`
+	ResumoSemana         ResumoSemanaProfissional  `json:"resumo_semana"`
+	Agenda               []AgendamentoTimelineItem `json:"agenda"`
+	EarlySlotQueueActive bool                      `json:"early_slot_queue_active"`
 }
 
 // GetDashboardProfissional monta extrato semanal e timeline do dia para a profissional logada.
@@ -70,18 +72,25 @@ func (s *AgendaService) GetDashboardProfissional(
 	if err != nil {
 		return nil, err
 	}
+	earlySlotActive, gateErr := WhatsAppChannelReadyForTenant(ctx, s.db, establishmentID)
+	if gateErr != nil {
+		log.Printf("antecipacao: checagem informativa do dashboard falhou tenant=%s: %v",
+			establishmentID, gateErr)
+		earlySlotActive = false
+	}
 
 	prevDay := selectedDate.AddDate(0, 0, -1)
 	nextDay := selectedDate.AddDate(0, 0, 1)
 
 	return &DashboardProfissional{
-		ProfissionalNome: nome,
-		DataSelecionada:  selectedDate.Format("2006-01-02"),
-		DataLabel:        formatarDataLabel(selectedDate),
-		DataAnterior:     prevDay.Format("2006-01-02"),
-		DataProxima:      nextDay.Format("2006-01-02"),
-		ResumoSemana:     *resumo,
-		Agenda:           agenda,
+		ProfissionalNome:     nome,
+		DataSelecionada:      selectedDate.Format("2006-01-02"),
+		DataLabel:            formatarDataLabel(selectedDate),
+		DataAnterior:         prevDay.Format("2006-01-02"),
+		DataProxima:          nextDay.Format("2006-01-02"),
+		ResumoSemana:         *resumo,
+		Agenda:               agenda,
+		EarlySlotQueueActive: earlySlotActive,
 	}, nil
 }
 

@@ -116,9 +116,9 @@ func seedTenant(t *testing.T, db *sqlx.DB, slug string) seededTenant {
 	t.Helper()
 	out := seededTenant{Phone: "5511999990000"}
 	mustGet(t, db, &out.EstablishmentID, `
-INSERT INTO estabelecimentos (nome_comercial, slug, ativo, whatsapp_status, whatsapp_phone_number,
+INSERT INTO estabelecimentos (nome_comercial, slug, ativo, whatsapp_enabled, whatsapp_status, whatsapp_phone_number,
                               logradouro, cidade, uf)
-VALUES ($1, $2, TRUE, 'CONECTADO', '5511000000000', 'Rua Um', 'São Paulo', 'SP')
+VALUES ($1, $2, TRUE, TRUE, 'CONECTADO', '5511000000000', 'Rua Um', 'São Paulo', 'SP')
 RETURNING id`, "Studio "+slug, slug)
 
 	mustExec(t, db, `
