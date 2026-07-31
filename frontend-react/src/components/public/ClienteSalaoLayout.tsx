@@ -11,6 +11,8 @@ interface Props {
   backTo?: string
   backLabel?: string
   showAccount?: boolean
+  /** Extra bottom padding when a sticky CTA is present */
+  contentClassName?: string
 }
 
 export function ClienteSalaoLayout({
@@ -19,6 +21,7 @@ export function ClienteSalaoLayout({
   backTo,
   backLabel = 'Voltar',
   showAccount = true,
+  contentClassName = '',
 }: Props) {
   const { slug } = useParams<{ slug: string }>()
   const { session } = useAuth()
@@ -32,7 +35,7 @@ export function ClienteSalaoLayout({
             {backTo && (
               <Link
                 to={backTo}
-                className="mb-1 flex items-center gap-1 text-xs text-[#7d5141]"
+                className="mb-1 inline-flex min-h-touch-min items-center gap-1 touch-manipulation text-xs text-[#7d5141]"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 {backLabel}
@@ -49,7 +52,7 @@ export function ClienteSalaoLayout({
             {showAccount && session?.user.role === 'CLIENTE' && (
               <Link
                 to={`/${slug}/conta`}
-                className="rounded-lg border border-aura-border px-3 py-1.5 text-xs font-medium text-aura-anthracite hover:bg-aura-surface"
+                className="inline-flex min-h-touch-min touch-manipulation items-center rounded-lg border border-aura-border px-3 text-xs font-medium text-aura-anthracite hover:bg-aura-surface"
               >
                 Minha conta
               </Link>
@@ -58,7 +61,7 @@ export function ClienteSalaoLayout({
               <button
                 type="button"
                 onClick={handleLogout}
-                className="rounded-lg p-2 text-aura-muted hover:bg-aura-surface"
+                className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface"
                 aria-label="Sair"
               >
                 <LogOut className="h-4 w-4" />
@@ -67,7 +70,12 @@ export function ClienteSalaoLayout({
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-lg px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <main
+        className={[
+          'mx-auto max-w-lg px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]',
+          contentClassName,
+        ].join(' ')}
+      >
         {children}
       </main>
     </div>
