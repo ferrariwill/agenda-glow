@@ -69,8 +69,9 @@ func newEarlySlotPostgres(t *testing.T) *sqlx.DB {
 	return db
 }
 
-// Recorte das tabelas que o aceite toca, com as mesmas colunas e restrições das
-// migrações 000021/000022 que importam para a corrida.
+// Recorte das tabelas que o aceite toca. Horários de agenda são TIMESTAMP de
+// parede (000001 + 000024): misturar TIMESTAMPTZ aqui mascararia o bug de fuso
+// que DEV-105 fecha. Instantes operacionais ficam TIMESTAMPTZ.
 const earlySlotTestDDL = `
 CREATE TABLE estabelecimentos (
     id UUID PRIMARY KEY,
@@ -108,8 +109,8 @@ CREATE TABLE agendamentos (
     cliente_id UUID NOT NULL REFERENCES clientes(id),
     servico_id UUID NOT NULL REFERENCES servicos(id),
     profissional_id UUID NOT NULL REFERENCES profissionais(id),
-    data_hora_inicio TIMESTAMPTZ NOT NULL,
-    data_hora_fim TIMESTAMPTZ NOT NULL,
+    data_hora_inicio TIMESTAMP NOT NULL,
+    data_hora_fim TIMESTAMP NOT NULL,
     status TEXT NOT NULL,
     aceita_adiantar BOOLEAN NOT NULL DEFAULT FALSE,
     aceita_adiantar_em TIMESTAMPTZ
@@ -118,8 +119,8 @@ CREATE TABLE rodadas_antecipacao (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     estabelecimento_id UUID NOT NULL REFERENCES estabelecimentos(id),
     profissional_id UUID NOT NULL REFERENCES profissionais(id),
-    slot_inicio TIMESTAMPTZ NOT NULL,
-    slot_fim TIMESTAMPTZ NOT NULL,
+    slot_inicio TIMESTAMP NOT NULL,
+    slot_fim TIMESTAMP NOT NULL,
     agendamento_cancelado_id UUID NOT NULL REFERENCES agendamentos(id),
     status VARCHAR(16) NOT NULL DEFAULT 'ATIVA'
         CHECK (status IN ('ATIVA', 'PREENCHIDA', 'ESGOTADA', 'CANCELADA')),
@@ -136,8 +137,8 @@ CREATE TABLE ofertas_antecipacao (
     agendamento_candidato_id UUID NOT NULL REFERENCES agendamentos(id),
     cliente_id UUID REFERENCES clientes(id),
     profissional_snapshot_id UUID NOT NULL REFERENCES profissionais(id),
-    inicio_snapshot TIMESTAMPTZ NOT NULL,
-    fim_snapshot TIMESTAMPTZ NOT NULL,
+    inicio_snapshot TIMESTAMP NOT NULL,
+    fim_snapshot TIMESTAMP NOT NULL,
     posicao INTEGER NOT NULL CHECK (posicao > 0),
     status VARCHAR(16) NOT NULL DEFAULT 'PENDENTE'
         CHECK (status IN ('PENDENTE','ACEITA','RECUSADA','EXPIRADA','INVALIDADA','FALHA_ENVIO')),
@@ -568,5 +569,58 @@ func TestPostgresRecoveredAttemptKeepsAlreadySentLinkValid(t *testing.T) {
 	}
 	if result.Status != "ACEITA" || !result.NewStart.UTC().Equal(slotStart) {
 		t.Fatalf("aceite pelo link anterior fora do contrato: %#v", result)
+	}
+}
+
+// Com TIMESTAMPTZ no slot/snapshot e TIMESTAMP no agendamento, Postgres converte
+// pelo TimeZone da sessão. Em America/Sao_Paulo o `=` do cenário 12 nunca casa e
+// todo aceite vira appointment_no_longer_eligible. Depois da 000024 os dois lados
+// são TIMESTAMP de parede — a sessão pode mudar e o reagendamento ainda fecha.
+func TestPostgresAcceptSurvivesSessionTimezoneSaoPaulo(t *testing.T) {
+	db := newEarlySlotPostgres(t)
+	if _, err := db.Exec(`SET TIME ZONE 'America/Sao_Paulo'`); err != nil {
+		t.Fatalf("fixar TimeZone da sessão: %v", err)
+	}
+	var sessionTZ string
+	if err := db.Get(&sessionTZ, `SHOW TIME ZONE`); err != nil {
+		t.Fatalf("ler TIME ZONE: %v", err)
+	}
+	if sessionTZ != "America/Sao_Paulo" {
+		t.Fatalf("TIME ZONE da sessão = %q, esperado America/Sao_Paulo", sessionTZ)
+	}
+
+	// Hora de parede explícita (UTC Location = dígitos gravados no TIMESTAMP).
+	// Um horário diurno evita que o deslocamento de 3h empurre EXTRACT(DOW)/::time
+	// para o dia anterior caso o tipo misto volte a aparecer.
+	slotStart := time.Date(2026, 8, 3, 14, 0, 0, 0, time.UTC)
+	slotEnd := slotStart.Add(time.Hour)
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+
+	cancelledID := seedEarlySlotTenant(t, db, slotStart, slotEnd)
+	roundID := insertRound(t, db, cancelledID, slotStart, slotEnd)
+
+	candStart := time.Date(2026, 8, 5, 16, 0, 0, 0, time.UTC)
+	candEnd := candStart.Add(45 * time.Minute)
+	candidateID := addCandidate(t, db, "0000000000f0", candStart, candEnd)
+	token := insertOffer(t, db, roundID, candidateID, 1, candStart, candEnd, now.Add(5*time.Minute))
+
+	svc := newEarlySlotServiceForPostgres(db, now)
+	result, err := svc.Accept(context.Background(), token, "WEB")
+	if err != nil {
+		t.Fatalf("aceite com TimeZone America/Sao_Paulo falhou: %v", err)
+	}
+	if result.Status != "ACEITA" {
+		t.Fatalf("status=%q, esperado ACEITA (sessão não-UTC não pode invalidar o snapshot)", result.Status)
+	}
+	if !result.NewStart.UTC().Equal(slotStart) {
+		t.Fatalf("novo início = %s, esperado %s", result.NewStart.UTC(), slotStart)
+	}
+
+	var start2 time.Time
+	if err := db.Get(&start2, `SELECT data_hora_inicio FROM agendamentos WHERE id=$1`, candidateID); err != nil {
+		t.Fatalf("reler candidato: %v", err)
+	}
+	if !start2.UTC().Equal(slotStart) {
+		t.Fatalf("data_hora_inicio persistido = %s, esperado %s", start2.UTC(), slotStart)
 	}
 }
