@@ -200,9 +200,28 @@ func main() {
 	mux.Handle("POST /api/v1/professional/appointments/{id}/complete", professionalRoute(bootstrapAPI.CompleteAppointment))
 	mux.Handle("GET /api/v1/professional/bootstrap", professionalRoute(bootstrapAPI.TenantBootstrap))
 
-	mux.Handle("GET /api/v1/public/{slug}/catalog", http.HandlerFunc(bootstrapAPI.PublicCatalog))
+	// Go 1.22+ ServeMux rejects overlapping patterns such as
+	// GET /public/{slug}/catalog and GET /public/early-slot-offers/{token}
+	// (path early-slot-offers/catalog matches both). Dispatch 2-segment GETs
+	// through one pattern so public URLs stay stable.
+	mux.HandleFunc("GET /api/v1/public/{seg1}/{seg2}", func(w http.ResponseWriter, r *http.Request) {
+		seg1 := r.PathValue("seg1")
+		seg2 := r.PathValue("seg2")
+		switch {
+		case seg1 == "early-slot-offers":
+			r.SetPathValue("token", seg2)
+			earlySlotHandler.GetOffer(w, r)
+		case seg2 == "catalog":
+			r.SetPathValue("slug", seg1)
+			bootstrapAPI.PublicCatalog(w, r)
+		case seg2 == "slots":
+			r.SetPathValue("slug", seg1)
+			publicSlotsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 	mux.Handle("POST /api/v1/public/{slug}/appointments", http.HandlerFunc(bootstrapAPI.CreateAppointment))
-	mux.HandleFunc("GET /api/v1/public/early-slot-offers/{token}", earlySlotHandler.GetOffer)
 	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/accept", earlySlotHandler.Accept)
 	mux.HandleFunc("POST /api/v1/public/early-slot-offers/{token}/decline", earlySlotHandler.Decline)
 	mux.HandleFunc("PATCH /api/v1/public/appointments/manage/{token}/early-slot-preference", earlySlotHandler.SetPreferencePublic)
@@ -250,8 +269,8 @@ func main() {
 	mux.Handle("GET /dashboard/profissional/timeline", professionalRoute(dashboardProfHandler.Timeline))
 	mux.Handle("POST /dashboard/profissional/appointments/{id}/complete", professionalRoute(dashboardProfHandler.CompleteAppointment))
 
-	// API pública — horários livres, ações de agendamento e webhook WhatsApp Gateway
-	mux.Handle("GET /api/v1/public/{slug}/slots", publicSlotsHandler)
+	// API pública — ações de agendamento e webhook WhatsApp Gateway
+	// (GET /{slug}/slots e GET early-slot-offers/{token} ficam no dispatcher 2-segmentos acima)
 	mux.HandleFunc("POST /api/v1/public/appointments/{id}/approve", publicAppointmentsHandler.Approve)
 	mux.HandleFunc("POST /api/v1/public/appointments/{id}/reschedule", publicAppointmentsHandler.Reschedule)
 	mux.HandleFunc("GET /api/v1/public/appointments/manage/{token}", publicAppointmentsHandler.Manage)
