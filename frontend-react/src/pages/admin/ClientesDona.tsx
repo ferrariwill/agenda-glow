@@ -19,6 +19,11 @@ import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
 import type { PlatformClient } from '../../utils/mockDb'
 import {
@@ -256,7 +261,7 @@ export function ClientesDona() {
         href={whatsappUrl(c.telefone)}
         target="_blank"
         rel="noopener noreferrer"
-        className="rounded-lg p-2 text-[#25D366] transition-colors hover:bg-[#25D366]/10"
+        className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-[#25D366] transition-colors hover:bg-[#25D366]/10"
         title="WhatsApp"
         aria-label={`WhatsApp ${c.nome}`}
       >
@@ -265,7 +270,7 @@ export function ClientesDona() {
       <button
         type="button"
         onClick={() => openEdit(c)}
-        className="rounded-lg p-2 text-aura-muted transition-colors hover:text-[#7d5141]"
+        className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted transition-colors hover:text-[#7d5141]"
         aria-label={`Editar ${c.nome}`}
       >
         <Pencil className="h-4 w-4" />
@@ -283,6 +288,147 @@ export function ClientesDona() {
       />
     </div>
   )
+
+  const clienteColumns: EntityColumn<PlatformClient>[] = [
+    {
+      header: 'Nome do Cliente',
+      cell: (c) => {
+        const i = slice.findIndex((x) => x.cliente_id === c.cliente_id)
+        return (
+          <div className="flex items-center gap-4">
+            <div
+              className={[
+                'flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-2 ring-[#7d5141]/10',
+                AVATAR_RING[(i >= 0 ? i : 0) % AVATAR_RING.length],
+              ].join(' ')}
+            >
+              <span className="text-xs font-bold">{initials(c.nome)}</span>
+            </div>
+            <div>
+              <Link
+                to={`/admin/clientes/${c.cliente_id}`}
+                className="text-sm font-semibold text-[#7d5141] group-hover:underline"
+              >
+                {c.nome}
+              </Link>
+              <p className="text-xs text-aura-muted">{c.email ?? c.telefone}</p>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      header: 'Última Visita',
+      cell: (c) => {
+        const days = daysSinceVisit(c.ultima_visita)
+        return (
+          <>
+            <p className="whitespace-nowrap text-sm text-aura-anthracite">
+              {formatDateShortBR(c.ultima_visita)}
+            </p>
+            <p
+              className={[
+                'whitespace-nowrap text-[11px] font-medium uppercase',
+                days > 60 ? 'text-red-600' : 'text-aura-muted',
+              ].join(' ')}
+            >
+              {formatRelativeDate(c.ultima_visita)}
+            </p>
+          </>
+        )
+      },
+    },
+    {
+      header: 'Frequência',
+      cell: (c) => {
+        const freq = getFrequencia(c)
+        return (
+          <span
+            className={[
+              'inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase',
+              frequenciaClass(freq),
+            ].join(' ')}
+          >
+            {freq}
+          </span>
+        )
+      },
+      priority: 'secondary',
+    },
+    {
+      header: 'Total Gasto',
+      cell: (c) => (
+        <p className="whitespace-nowrap text-sm font-semibold text-[#7d5141]">
+          {formatBRL(c.gasto_total)}
+        </p>
+      ),
+    },
+    {
+      header: 'Status',
+      cell: (c) => {
+        const status = getClienteStatus(c)
+        return (
+          <span
+            className={[
+              'inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase',
+              statusClass(status),
+            ].join(' ')}
+          >
+            {status}
+          </span>
+        )
+      },
+    },
+    {
+      header: 'Ações',
+      cell: (c) => renderActions(c),
+      align: 'right',
+    },
+  ]
+
+  const renderClienteCard = (c: PlatformClient, i: number) => {
+    const status = getClienteStatus(c)
+    return (
+      <div className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className={[
+                'flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-2 ring-[#7d5141]/10',
+                AVATAR_RING[i % AVATAR_RING.length],
+              ].join(' ')}
+            >
+              <span className="text-xs font-bold">{initials(c.nome)}</span>
+            </div>
+            <div className="min-w-0">
+              <Link
+                to={`/admin/clientes/${c.cliente_id}`}
+                className="block font-semibold text-[#7d5141] hover:underline"
+              >
+                {c.nome}
+              </Link>
+              <p className="truncate text-xs text-aura-muted">{c.email ?? c.telefone}</p>
+            </div>
+          </div>
+          {renderActions(c)}
+        </div>
+        {/* ≤2 dados de decisão: status + gasto (sem truncate em valor) */}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span
+            className={[
+              'inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
+              statusClass(status),
+            ].join(' ')}
+          >
+            {status}
+          </span>
+          <p className="shrink-0 whitespace-nowrap font-semibold text-[#7d5141]">
+            {formatBRL(c.gasto_total)}
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <DonaLayout
@@ -339,11 +485,7 @@ export function ClientesDona() {
           {error}
         </Alert>
       )}
-      {success && (
-        <Alert variant="info" className="mb-4" onDismiss={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      <ToastFeedback message={success || null} onDismiss={() => setSuccess('')} />
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <BentoMetric
@@ -492,193 +634,22 @@ export function ClientesDona() {
             </button>
           </div>
 
-          {/* Mobile cards */}
-          <div className="space-y-3 p-3 md:hidden">
-            {slice.length === 0 ? (
-              <p className="py-8 text-center text-sm text-aura-muted">Nenhum cliente encontrado.</p>
-            ) : (
-              slice.map((c, i) => {
-                const freq = getFrequencia(c)
-                const status = getClienteStatus(c)
-                const days = daysSinceVisit(c.ultima_visita)
-                return (
-                  <div
-                    key={c.cliente_id}
-                    className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className={[
-                            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-2 ring-[#7d5141]/10',
-                            AVATAR_RING[i % AVATAR_RING.length],
-                          ].join(' ')}
-                        >
-                          <span className="text-xs font-bold">{initials(c.nome)}</span>
-                        </div>
-                        <div className="min-w-0">
-                          <Link
-                            to={`/admin/clientes/${c.cliente_id}`}
-                            className="truncate font-semibold text-[#7d5141] hover:underline"
-                          >
-                            {c.nome}
-                          </Link>
-                          <p className="truncate text-xs text-aura-muted">
-                            {c.email ?? c.telefone}
-                          </p>
-                        </div>
-                      </div>
-                      {renderActions(c)}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <span
-                        className={[
-                          'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
-                          frequenciaClass(freq),
-                        ].join(' ')}
-                      >
-                        {freq}
-                      </span>
-                      <span
-                        className={[
-                          'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
-                          statusClass(status),
-                        ].join(' ')}
-                      >
-                        {status}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex justify-between text-sm">
-                      <div>
-                        <p>{formatDateShortBR(c.ultima_visita)}</p>
-                        <p
-                          className={[
-                            'text-[11px] font-medium uppercase',
-                            days > 60 ? 'text-red-600' : 'text-aura-muted',
-                          ].join(' ')}
-                        >
-                          {formatRelativeDate(c.ultima_visita)}
-                        </p>
-                      </div>
-                      <p className="font-semibold text-[#7d5141]">{formatBRL(c.gasto_total)}</p>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-
-          {/* Desktop table */}
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full border-collapse text-left">
-              <thead>
-                <tr className="bg-[#f4f3f2]">
-                  {[
-                    'Nome do Cliente',
-                    'Última Visita',
-                    'Frequência',
-                    'Total Gasto',
-                    'Status',
-                    'Ações',
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className={[
-                        'border-b border-[#e9e8e7] px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-aura-muted',
-                        h === 'Ações' ? 'text-right' : '',
-                      ].join(' ')}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e9e8e7]">
-                {slice.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center text-aura-muted">
-                      Nenhum cliente encontrado.
-                    </td>
-                  </tr>
-                ) : (
-                  slice.map((c, i) => {
-                    const freq = getFrequencia(c)
-                    const status = getClienteStatus(c)
-                    const days = daysSinceVisit(c.ultima_visita)
-                    return (
-                      <tr
-                        key={c.cliente_id}
-                        className="group transition-colors hover:bg-[#faf9f8]"
-                      >
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-4">
-                            <div
-                              className={[
-                                'flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-2 ring-[#7d5141]/10',
-                                AVATAR_RING[i % AVATAR_RING.length],
-                              ].join(' ')}
-                            >
-                              <span className="text-xs font-bold">{initials(c.nome)}</span>
-                            </div>
-                            <div>
-                              <Link
-                                to={`/admin/clientes/${c.cliente_id}`}
-                                className="text-sm font-semibold text-[#7d5141] group-hover:underline"
-                              >
-                                {c.nome}
-                              </Link>
-                              <p className="text-xs text-aura-muted">
-                                {c.email ?? c.telefone}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="text-sm text-aura-anthracite">
-                            {formatDateShortBR(c.ultima_visita)}
-                          </p>
-                          <p
-                            className={[
-                              'text-[11px] font-medium uppercase',
-                              days > 60 ? 'text-red-600' : 'text-aura-muted',
-                            ].join(' ')}
-                          >
-                            {formatRelativeDate(c.ultima_visita)}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span
-                            className={[
-                              'inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase',
-                              frequenciaClass(freq),
-                            ].join(' ')}
-                          >
-                            {freq}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="text-sm font-semibold text-[#7d5141]">
-                            {formatBRL(c.gasto_total)}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span
-                            className={[
-                              'inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase',
-                              statusClass(status),
-                            ].join(' ')}
-                          >
-                            {status}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">{renderActions(c)}</td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+          <ResponsiveEntityList
+            items={slice}
+            getKey={(c) => c.cliente_id}
+            renderCard={renderClienteCard}
+            columns={clienteColumns}
+            emptyTitle="Nenhum cliente encontrado."
+            emptyAction={
+              <Button
+                className="bg-[#7d5141] hover:bg-[#996958]"
+                onClick={openCreate}
+              >
+                <Plus className="h-4 w-4" />
+                Novo cliente
+              </Button>
+            }
+          />
 
           <div className="flex flex-col items-center justify-between gap-3 border-t border-[#e9e8e7] bg-[#f4f3f2]/50 px-4 py-4 sm:flex-row sm:px-5">
             <p className="text-sm text-aura-muted">
