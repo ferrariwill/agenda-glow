@@ -385,14 +385,14 @@ export function EquipeConfig() {
             className="w-full rounded-lg border-none bg-[#f4f3f2] py-3 pl-11 pr-4 text-sm transition-all focus:bg-white focus:ring-1 focus:ring-[#7d5141]"
           />
         </div>
-        <div className="flex w-full gap-4 md:w-auto">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-3 md:w-auto md:flex-nowrap md:gap-4">
           <select
             value={espFilter}
             onChange={(e) => {
               setEspFilter(e.target.value)
               setPage(1)
             }}
-            className="min-w-[140px] cursor-pointer rounded-lg border-none bg-[#f4f3f2] px-4 py-3 text-sm focus:ring-1 focus:ring-[#7d5141]"
+            className="min-w-0 flex-1 cursor-pointer rounded-lg border-none bg-[#f4f3f2] px-4 py-3 text-sm focus:ring-1 focus:ring-[#7d5141] md:min-w-[140px] md:flex-none"
           >
             <option value="">Especialidade</option>
             {especialidades.map((e) => (
@@ -407,7 +407,7 @@ export function EquipeConfig() {
               setStatusFilter(e.target.value as StatusFilter)
               setPage(1)
             }}
-            className="min-w-[140px] cursor-pointer rounded-lg border-none bg-[#f4f3f2] px-4 py-3 text-sm focus:ring-1 focus:ring-[#7d5141]"
+            className="min-w-0 flex-1 cursor-pointer rounded-lg border-none bg-[#f4f3f2] px-4 py-3 text-sm focus:ring-1 focus:ring-[#7d5141] md:min-w-[140px] md:flex-none"
           >
             <option value="">Status</option>
             <option value="ativo">Ativo</option>
@@ -417,7 +417,7 @@ export function EquipeConfig() {
           <button
             type="button"
             onClick={() => setToast('Filtros aplicados.')}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#e9e8e7] text-[#514440] transition-colors hover:bg-[#d6c2bd]/30"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#e9e8e7] text-[#514440] transition-colors hover:bg-[#d6c2bd]/30"
             aria-label="Aplicar filtros"
           >
             <Filter className="h-5 w-5" />
