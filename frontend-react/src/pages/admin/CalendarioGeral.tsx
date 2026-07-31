@@ -6,12 +6,18 @@ import {
   ChevronRight,
   Clock,
   Lock,
+  MoreVertical,
   Pencil,
   Plus,
   TrendingUp,
   XCircle,
 } from 'lucide-react'
 import { AceitaAntecipacaoBadge } from '../../components/agenda/AceitaAntecipacaoBadge'
+import {
+  AppointmentCardMobile,
+  AppointmentCardMobileSkeletonList,
+  type AppointmentCardAction,
+} from '../../components/agenda/AppointmentCardMobile'
 import { EarlySlotRoundIndicator } from '../../components/agenda/EarlySlotRoundIndicator'
 import { EarlySlotQueueInactiveBanner } from '../../components/agenda/EarlySlotQueueInactiveBanner'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
@@ -19,6 +25,7 @@ import { SecretariaLayout } from '../../components/secretaria/SecretariaLayout'
 import { CobrancaAgendamentoModal } from '../../components/secretaria/CobrancaAgendamentoModal'
 import { NovoAgendamentoModal, type NovoAgendamentoPreset } from '../../components/dona/NovoAgendamentoModal'
 import { EditarAgendamentoProfModal } from '../profissional/EditarAgendamentoProfModal'
+import { ActionsDropdown } from '../../components/ui/ActionsDropdown'
 import { Alert } from '../../components/ui/Alert'
 import { Badge, confirmacaoClienteBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -172,6 +179,8 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   const [success, setSuccess] = useState('')
   const [editAg, setEditAg] = useState<Agendamento | null>(null)
   const [cobrancaAg, setCobrancaAg] = useState<Agendamento | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<Agendamento | null>(null)
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   const refresh = useCallback(() => setDb(getDb()), [])
 
@@ -260,6 +269,49 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
     }
   }
 
+  const confirmCancel = async () => {
+    if (!cancelTarget) return
+    setCancelLoading(true)
+    try {
+      await handleCancel(cancelTarget)
+      setCancelTarget(null)
+    } finally {
+      setCancelLoading(false)
+    }
+  }
+
+  const buildAppointmentActions = (ag: Agendamento): AppointmentCardAction[] => {
+    const actions: AppointmentCardAction[] = []
+    if (isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO') {
+      actions.push({
+        id: 'cobrar',
+        label: 'Cobrar',
+        ariaLabel: `Cobrar ${ag.cliente_nome}`,
+        icon: Banknote,
+        tone: 'primary',
+        onClick: () => setCobrancaAg(ag),
+      })
+    }
+    if (isSecretaria) {
+      actions.push({
+        id: 'editar',
+        label: 'Editar',
+        ariaLabel: `Editar ${ag.cliente_nome}`,
+        icon: Pencil,
+        onClick: () => setEditAg(ag),
+      })
+    }
+    actions.push({
+      id: 'cancelar',
+      label: 'Cancelar',
+      ariaLabel: `Cancelar ${ag.cliente_nome}`,
+      icon: XCircle,
+      danger: true,
+      onClick: () => setCancelTarget(ag),
+    })
+    return actions
+  }
+
   const confirmFila = async () => {
     if (!filaModal) return
     setSending(true)
@@ -299,6 +351,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
     const st = statusDisplay(ag, data)
     const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
     const hint = confirmationHint(ag)
+    const actions = buildAppointmentActions(ag)
 
     return (
       <div
@@ -321,7 +374,7 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
         <div className="flex items-start justify-between gap-1">
           <div className="min-w-0">
             <div className="flex items-center justify-between gap-1">
-              <p className="truncate text-[10px] font-bold uppercase text-[#7d5141]">
+              <p className="truncate text-caption font-bold uppercase text-[#7d5141]">
                 {appointmentEndTime(ag, db)}
               </p>
               <span className="flex shrink-0 items-center gap-1">
@@ -333,51 +386,30 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
             <p className="truncate text-xs text-aura-muted">{servicoLabel}</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1" title={hint}>
               <span className={`h-2 w-2 rounded-full ${st.dot}`} />
-              <span className="text-[10px] text-aura-muted">{st.label}</span>
+              <span className="text-caption text-aura-muted">{st.label}</span>
               <Badge variant={confirmation.variant}>{confirmation.label}</Badge>
               {ag.cobrado_em && (
-                <span className="text-[10px] font-medium text-emerald-700">· Pago</span>
+                <span className="text-caption font-medium text-emerald-700">· Pago</span>
               )}
             </div>
           </div>
-          <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-            {isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO' && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setCobrancaAg(ag)
-                }}
-                className="rounded p-1 hover:bg-white/50"
-                aria-label="Cobrar"
-              >
-                <Banknote className="h-3.5 w-3.5 text-[#7d5141]" />
-              </button>
-            )}
-            {isSecretaria && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setEditAg(ag)
-                }}
-                className="rounded p-1 hover:bg-white/50"
-                aria-label="Editar"
-              >
-                <Pencil className="h-3.5 w-3.5 text-aura-muted" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleCancel(ag)
-              }}
-              className="rounded p-1 hover:bg-white/50"
-              aria-label="Cancelar"
-            >
-              <XCircle className="h-3.5 w-3.5 text-aura-muted" />
-            </button>
+          {/* Sempre visível no toque; em ponteiros finos com hover, revela no hover do card */}
+          <div
+            className="shrink-0 opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <ActionsDropdown
+              icon={MoreVertical}
+              ariaLabel={`Ações de ${ag.cliente_nome}`}
+              triggerClassName="rounded-lg text-aura-muted hover:bg-white/60"
+              items={actions.map(({ label, icon, onClick, danger }) => ({
+                label,
+                icon,
+                onClick,
+                danger,
+              }))}
+            />
           </div>
         </div>
       </div>
@@ -407,22 +439,32 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
             {formatMonthYearBR(`${calYear}-${String(calMonth).padStart(2, '0')}`)}
           </p>
           <div className="flex gap-1">
-            <button type="button" onClick={() => shiftMonth(-1)} className="rounded p-1 text-aura-muted hover:text-[#7d5141]">
+            <button
+              type="button"
+              onClick={() => shiftMonth(-1)}
+              className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
+              aria-label="Mês anterior"
+            >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <button type="button" onClick={() => shiftMonth(1)} className="rounded p-1 text-aura-muted hover:text-[#7d5141]">
+            <button
+              type="button"
+              onClick={() => shiftMonth(1)}
+              className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
+              aria-label="Próximo mês"
+            >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <div className="mb-2 grid grid-cols-7 text-center text-[10px] font-bold uppercase text-aura-muted">
+        <div className="mb-2 grid grid-cols-7 text-center text-caption font-bold uppercase text-aura-muted">
           {WEEKDAYS_SHORT_PT.map((d) => (
             <div key={d}>{d.charAt(0)}</div>
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1 text-center">
           {calendarDays.map((cell, i) => {
-            if (!cell.iso) return <div key={`e-${i}`} />
+            if (!cell.iso) return <div key={`e-${i}`} className="min-h-touch-min min-w-touch-min" />
             const selected = cell.iso === data
             const isPast = cell.iso < todayISO()
             return (
@@ -432,8 +474,13 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
                 disabled={isPast}
                 onClick={() => setData(cell.iso!)}
                 className={[
-                  'rounded-full p-1 text-xs transition-colors',
-                  selected ? 'bg-[#7d5141] font-bold text-white' : isPast ? 'text-aura-muted/30' : 'hover:bg-[#efdcd1]',
+                  'box-border flex size-touch-min touch-manipulation items-center justify-center rounded-lg text-sm transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40',
+                  selected
+                    ? 'bg-[#7d5141] font-bold text-white'
+                    : isPast
+                      ? 'text-aura-muted/30'
+                      : 'hover:bg-[#efdcd1]',
                 ].join(' ')}
               >
                 {cell.day}
@@ -579,91 +626,86 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
           {/* Mobile list */}
           <div className="space-y-3 lg:hidden">
             <div className="flex items-center justify-between gap-2">
-              <Button variant="ghost" onClick={() => setData(addDaysISO(data, -1))}>
+              <Button
+                variant="ghost"
+                onClick={() => setData(addDaysISO(data, -1))}
+                aria-label="Dia anterior"
+                className="min-w-touch-min px-2"
+              >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <p className="text-center text-sm font-semibold capitalize">{formatDateShortBR(data)}</p>
-              <Button variant="ghost" onClick={() => setData(addDaysISO(data, 1))}>
+              <p className="text-center text-body font-semibold capitalize">{formatDateShortBR(data)}</p>
+              <Button
+                variant="ghost"
+                onClick={() => setData(addDaysISO(data, 1))}
+                aria-label="Próximo dia"
+                className="min-w-touch-min px-2"
+              >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-            <select
-              value={profMobileId}
-              onChange={(e) => setProfMobile(e.target.value)}
-              className="w-full rounded-lg border border-[#d6c2bd] bg-white px-3 py-2.5 text-sm"
-            >
-              {profissionais.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
-            {agendamentosDia
-              .filter((a) => a.profissional_id === profMobileId)
-              .map((ag) => {
-                const st = statusDisplay(ag, data)
-                const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
-                const hint = confirmationHint(ag)
-                return (
-                  <div
-                    key={ag.id}
-                    className={['rounded-xl p-4 shadow-sm', cardClasses(st.card)].join(' ')}
-                  >
-                    <div className="flex justify-between gap-2">
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => isSecretaria && setEditAg(ag)}
+            <label className="block">
+              <span className="sr-only">Profissional</span>
+              <select
+                value={profMobileId}
+                onChange={(e) => setProfMobile(e.target.value)}
+                className="min-h-touch-min w-full touch-manipulation rounded-lg border border-[#d6c2bd] bg-white px-3 py-2.5 text-control text-aura-anthracite focus:border-[#7d5141] focus:outline-none focus:ring-2 focus:ring-[#7d5141]/20"
+              >
+                {profissionais.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {profissionais.length === 0 ? (
+              <AppointmentCardMobileSkeletonList count={3} />
+            ) : (
+              (() => {
+                const mobileAgs = agendamentosDia.filter((a) => a.profissional_id === profMobileId)
+                if (mobileAgs.length === 0) {
+                  return (
+                    <div className="rounded-xl border border-dashed border-[#d6c2bd]/60 bg-white px-4 py-8 text-center">
+                      <p className="text-body text-aura-muted">Nenhum agendamento neste dia.</p>
+                      <Button
+                        className="mt-4 bg-[#7d5141] hover:bg-[#996958]"
+                        onClick={() =>
+                          openNovoAgendamento({
+                            profissional_id: profMobileId || undefined,
+                          })
+                        }
                       >
-                        <p className="text-xs font-bold uppercase text-[#7d5141]">
-                          {appointmentEndTime(ag, db)}
-                        </p>
-                        <p className="font-semibold">{ag.cliente_nome}</p>
-                        <p className="text-sm text-aura-muted">
-                          {getAgendamentoServicosNomes(ag, db)}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1" title={hint}>
-                          <span className={`h-2 w-2 rounded-full ${st.dot}`} />
-                          <span className="text-xs text-aura-muted">{st.label}</span>
-                          <Badge variant={confirmation.variant}>{confirmation.label}</Badge>
-                          {ag.cobrado_em && (
-                            <span className="text-xs font-medium text-emerald-700">· Pago</span>
-                          )}
-                        </div>
-                        {(ag.aceita_adiantar || ag.early_slot_offer) && (
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            <AceitaAntecipacaoBadge aceitaAdiantar={ag.aceita_adiantar} />
-                            <EarlySlotRoundIndicator
-                              offer={ag.early_slot_offer}
-                            />
-                          </div>
-                        )}
-                      </button>
-                      <div className="flex shrink-0 flex-col gap-1">
-                        {isSecretaria && !ag.cobrado_em && ag.status !== 'CANCELADO' && (
-                          <button
-                            type="button"
-                            onClick={() => setCobrancaAg(ag)}
-                            aria-label="Cobrar"
-                          >
-                            <Banknote className="h-4 w-4 text-[#7d5141]" />
-                          </button>
-                        )}
-                        {isSecretaria && (
-                          <button type="button" onClick={() => setEditAg(ag)} aria-label="Editar">
-                            <Pencil className="h-4 w-4 text-aura-muted" />
-                          </button>
-                        )}
-                        <button type="button" onClick={() => handleCancel(ag)} aria-label="Cancelar">
-                          <XCircle className="h-4 w-4 text-aura-muted" />
-                        </button>
-                      </div>
+                        <Plus className="h-4 w-4" />
+                        Novo agendamento
+                      </Button>
                     </div>
-                  </div>
-                )
-              })}
-            {agendamentosDia.filter((a) => a.profissional_id === profMobileId).length === 0 && (
-              <p className="py-6 text-center text-sm text-aura-muted">Nenhum agendamento neste dia.</p>
+                  )
+                }
+                return mobileAgs.map((ag) => {
+                  const st = statusDisplay(ag, data)
+                  const confirmation = confirmacaoClienteBadge(ag.confirmacao_cliente)
+                  return (
+                    <AppointmentCardMobile
+                      key={ag.id}
+                      timeLabel={appointmentEndTime(ag, db)}
+                      clientName={ag.cliente_nome}
+                      serviceLabel={getAgendamentoServicosNomes(ag, db)}
+                      statusLabel={st.label}
+                      statusDotClass={st.dot}
+                      confirmationLabel={confirmation.label}
+                      confirmationVariant={confirmation.variant}
+                      confirmationHint={confirmationHint(ag)}
+                      pago={Boolean(ag.cobrado_em)}
+                      aceitaAdiantar={ag.aceita_adiantar}
+                      earlySlotOffer={ag.early_slot_offer}
+                      cardClassName={cardClasses(st.card)}
+                      onOpenDetail={isSecretaria ? () => setEditAg(ag) : undefined}
+                      actions={buildAppointmentActions(ag)}
+                    />
+                  )
+                })
+              })()
             )}
             {sidebarPanel}
           </div>
@@ -771,16 +813,32 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => openNovoAgendamento()}
-        className="fixed bottom-24 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#7d5141] text-white shadow-2xl transition-transform hover:rotate-90 lg:hidden"
-        aria-label="Novo agendamento"
-      >
-        <Plus className="h-6 w-6" />
-      </button>
+      {!agModalOpen && !editAg && !cobrancaAg && !filaModal && !cancelTarget && (
+        <button
+          type="button"
+          onClick={() => openNovoAgendamento()}
+          className="fixed bottom-24 right-6 z-40 flex h-14 w-14 touch-manipulation items-center justify-center rounded-full bg-[#7d5141] text-white shadow-2xl transition-transform hover:rotate-90 lg:hidden"
+          aria-label="Novo agendamento"
+        >
+          <Plus className="h-6 w-6" />
+        </button>
+      )}
 
       {!isSecretaria && <DonaFooter />}
+
+      <ConfirmModal
+        open={!!cancelTarget}
+        onClose={() => !cancelLoading && setCancelTarget(null)}
+        onConfirm={confirmCancel}
+        title="Cancelar agendamento"
+        message={
+          cancelTarget
+            ? `Cancelar o horário de ${cancelTarget.cliente_nome} às ${formatTimeBR(cancelTarget.hora_inicio)}?`
+            : ''
+        }
+        confirmLabel="Cancelar horário"
+        loading={cancelLoading}
+      />
 
       <ConfirmModal
         open={!!filaModal}
