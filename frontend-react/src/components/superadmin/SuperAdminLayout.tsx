@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { BottomNav } from '../layout/BottomNav'
+import { useMobileDrawer } from '../../hooks/useMobileDrawer'
 import { SuperAdminSidebar } from './SuperAdminSidebar'
 import { SuperAdminTopBar } from './SuperAdminTopBar'
 
@@ -22,31 +23,29 @@ export function SuperAdminLayout({
 }: SuperAdminLayoutProps) {
   const [internalSearch, setInternalSearch] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const panelRef = useRef<HTMLElement>(null)
   const searchValue = externalSearch ?? internalSearch
   const onSearchChange = externalOnSearch ?? setInternalSearch
-  const closeSidebar = () => setSidebarOpen(false)
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
-  useEffect(() => {
-    if (!sidebarOpen) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [sidebarOpen])
+  useMobileDrawer(sidebarOpen, closeSidebar, panelRef)
 
   return (
     <div className="min-h-screen bg-aura-surface lg:flex">
       {sidebarOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-aura-anthracite/40 lg:hidden"
+          className="fixed inset-0 z-[45] bg-aura-anthracite/40 lg:hidden"
           onClick={closeSidebar}
           aria-label="Fechar menu"
         />
       )}
-      <SuperAdminSidebar mobileOpen={sidebarOpen} onNavigate={closeSidebar} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <SuperAdminSidebar
+        ref={panelRef}
+        mobileOpen={sidebarOpen}
+        onNavigate={closeSidebar}
+      />
+      <div className="flex min-w-0 flex-1 flex-col" inert={sidebarOpen || undefined}>
         <SuperAdminTopBar
           searchPlaceholder={searchPlaceholder}
           searchValue={searchValue}
@@ -54,12 +53,13 @@ export function SuperAdminLayout({
           onRenewAll={onRenewAll}
           renewLoading={renewLoading}
           onMenuClick={() => setSidebarOpen(true)}
+          menuOpen={sidebarOpen}
         />
         <main className="flex-1 px-4 py-5 pb-24 sm:px-6 sm:py-6 lg:px-8 lg:pb-8">
           {children}
         </main>
       </div>
-      <BottomNav variant="superadmin" />
+      <BottomNav variant="superadmin" drawerOpen={sidebarOpen} />
     </div>
   )
 }
