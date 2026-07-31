@@ -16,6 +16,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { Alert } from '../../components/ui/Alert'
 import { ActionsDropdown } from '../../components/ui/ActionsDropdown'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
 import { PlanLimitExceededError, type Profissional } from '../../types'
 import {
@@ -127,6 +132,157 @@ export function EquipeConfig() {
   const getEspNome = (id: string) =>
     especialidades.find((e) => e.id === id)?.nome ?? '—'
 
+  const renderProfActions = (p: Profissional) => (
+    <div className="relative flex justify-end gap-1">
+      <button
+        type="button"
+        title="Ver Desempenho"
+        aria-label="Ver desempenho"
+        onClick={() => setToast('Relatório de desempenho em breve.')}
+        className="inline-flex h-11 w-11 items-center justify-center rounded text-[#514440] transition-all hover:bg-[#996958]/10 hover:text-[#7d5141]"
+      >
+        <BarChart3 className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        title="Editar"
+        aria-label="Editar"
+        onClick={() => navigate(`/admin/equipe/${p.id}/edit`)}
+        className="inline-flex h-11 w-11 items-center justify-center rounded text-[#514440] transition-all hover:bg-[#996958]/10 hover:text-[#7d5141]"
+      >
+        <Edit className="h-5 w-5" />
+      </button>
+      <ActionsDropdown
+        icon={MoreVertical}
+        iconClassName="h-5 w-5"
+        triggerClassName="inline-flex h-11 w-11 items-center justify-center rounded text-[#514440] transition-all hover:bg-[#996958]/10 hover:text-[#7d5141]"
+        menuClassName="border-[#e5d3c8]/50"
+        items={
+          p.pendente_aprovacao
+            ? [
+                {
+                  label: 'Aprovar profissional',
+                  onClick: () => void toggleProfissional(p),
+                },
+              ]
+            : [
+                {
+                  label: 'Editar perfil',
+                  onClick: () => navigate(`/admin/equipe/${p.id}/edit`),
+                },
+                {
+                  label: p.ativo ? 'Desativar' : 'Reativar',
+                  onClick: () => void toggleProfissional(p),
+                },
+              ]
+        }
+      />
+    </div>
+  )
+
+  const profissionalColumns: EntityColumn<Profissional>[] = [
+    {
+      header: 'Profissional',
+      cell: (p) => {
+        const status = profissionalStatusLabel(p)
+        const inactive = status === 'INATIVO'
+        return (
+          <div className="flex items-center gap-4">
+            <img
+              src={p.foto_url ?? DEFAULT_AVATAR}
+              alt=""
+              className={[
+                'h-12 w-12 rounded-full border-2 object-cover',
+                inactive ? 'border-[#d6c2bd]/30 grayscale' : 'border-[#ffdbcf]',
+              ].join(' ')}
+            />
+            <div>
+              <p className="text-lg font-semibold text-[#7d5141]">{p.nome}</p>
+              <p className="text-sm text-[#514440]/70">{getProfissionalEmail(p)}</p>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      header: 'Especialidade',
+      cell: (p) => (
+        <span className="rounded bg-[#f1dfd4] px-2 py-1 text-xs font-semibold text-[#50443c]">
+          {getEspNome(p.especialidade_id)}
+        </span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Disponibilidade',
+      cell: (p) => (
+        <span className="whitespace-nowrap text-sm text-[#514440]">
+          {formatProfissionalDisponibilidade(p.expedientes)}
+        </span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Status',
+      cell: (p) => {
+        const status = profissionalStatusLabel(p)
+        return (
+          <span
+            className={[
+              'inline-block rounded-full px-4 py-1 text-xs font-bold',
+              statusPill(status),
+            ].join(' ')}
+          >
+            {status}
+          </span>
+        )
+      },
+    },
+    {
+      header: 'Ações',
+      cell: renderProfActions,
+      align: 'right',
+    },
+  ]
+
+  const renderProfCard = (p: Profissional) => {
+    const status = profissionalStatusLabel(p)
+    const inactive = status === 'INATIVO'
+    return (
+      <div className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4">
+        <div className="flex items-start gap-3">
+          <img
+            src={p.foto_url ?? DEFAULT_AVATAR}
+            alt=""
+            className={[
+              'h-12 w-12 shrink-0 rounded-full border-2 object-cover',
+              inactive ? 'border-[#d6c2bd]/30 grayscale' : 'border-[#ffdbcf]',
+            ].join(' ')}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-[#7d5141]">{p.nome}</p>
+            <p className="text-xs text-[#514440]/70">{getEspNome(p.especialidade_id)}</p>
+          </div>
+          {renderProfActions(p)}
+        </div>
+        {/* ≤2 decisões: status + disponibilidade */}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span
+            className={[
+              'inline-block rounded-full px-3 py-1 text-xs font-bold',
+              statusPill(status),
+            ].join(' ')}
+          >
+            {status}
+          </span>
+          <p className="shrink-0 whitespace-nowrap text-xs text-[#514440]">
+            {formatProfissionalDisponibilidade(p.expedientes)}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const novoBtn = (
     <Link
       to="/admin/equipe/novo"
@@ -136,6 +292,8 @@ export function EquipeConfig() {
       Novo Profissional
     </Link>
   )
+
+  const feedbackMessage = success || toast || null
 
   return (
     <DonaLayout headerAction={novoBtn}>
@@ -154,19 +312,18 @@ export function EquipeConfig() {
         <div className="sm:hidden">{novoBtn}</div>
       </header>
 
-      {(error || success || toast) && (
-        <Alert
-          variant={error ? 'error' : 'info'}
-          className="mb-6"
-          onDismiss={() => {
-            setError('')
-            setSuccess('')
-            setToast('')
-          }}
-        >
-          {error || success || toast}
+      {error && (
+        <Alert variant="error" className="mb-6" onDismiss={() => setError('')}>
+          {error}
         </Alert>
       )}
+      <ToastFeedback
+        message={feedbackMessage}
+        onDismiss={() => {
+          setSuccess('')
+          setToast('')
+        }}
+      />
 
       {/* KPIs */}
       <div className="mb-8 grid gap-6 md:grid-cols-3">
@@ -260,153 +417,37 @@ export function EquipeConfig() {
           <button
             type="button"
             onClick={() => setToast('Filtros aplicados.')}
-            className="rounded-lg bg-[#e9e8e7] px-4 py-3 text-[#514440] transition-colors hover:bg-[#d6c2bd]/30"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#e9e8e7] text-[#514440] transition-colors hover:bg-[#d6c2bd]/30"
+            aria-label="Aplicar filtros"
           >
             <Filter className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      {/* Tabela */}
-      {profissionais.length === 0 ? (
-        <div className={`flex flex-col items-center py-16 text-center ${GLASS}`}>
-          <Users className="mb-4 h-16 w-16 text-[#7d5141]/30" />
-          <h4 className="font-display mb-2 text-xl font-semibold text-[#7d5141]">
-            Nenhum profissional encontrado
-          </h4>
-          <p className="mb-6 max-w-md text-sm text-[#514440]">
-            Não conseguimos encontrar membros da equipe que correspondam aos seus filtros
-            atuais. Tente ajustar a busca ou limpe os filtros.
-          </p>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="rounded-xl border border-[#7d5141] px-6 py-3 text-sm font-semibold text-[#7d5141] transition-colors hover:bg-[#996958]/10"
-          >
-            Limpar Filtros
-          </button>
-        </div>
-      ) : (
-        <div className={`overflow-hidden ${GLASS}`}>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left">
-              <thead className="border-b border-[#d6c2bd]/30 bg-[#f4f3f2]">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-[#514440]">
-                    Profissional
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-[#514440]">
-                    Especialidade
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-[#514440]">
-                    Disponibilidade
-                  </th>
-                  <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-widest text-[#514440]">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-widest text-[#514440]">
-                    Ações
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#d6c2bd]/20">
-                {pageItems.map((p) => {
-                  const status = profissionalStatusLabel(p)
-                  const inactive = status === 'INATIVO'
-                  return (
-                    <tr
-                      key={p.id}
-                      className="transition-colors hover:bg-[#996958]/5"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-4">
-                          <img
-                            src={p.foto_url ?? DEFAULT_AVATAR}
-                            alt=""
-                            className={[
-                              'h-12 w-12 rounded-full border-2 object-cover',
-                              inactive
-                                ? 'border-[#d6c2bd]/30 grayscale'
-                                : 'border-[#ffdbcf]',
-                            ].join(' ')}
-                          />
-                          <div>
-                            <p className="text-lg font-semibold text-[#7d5141]">{p.nome}</p>
-                            <p className="text-sm text-[#514440]/70">
-                              {getProfissionalEmail(p)}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="rounded bg-[#f1dfd4] px-2 py-1 text-xs font-semibold text-[#50443c]">
-                          {getEspNome(p.especialidade_id)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#514440]">
-                        {formatProfissionalDisponibilidade(p.expedientes)}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span
-                          className={[
-                            'inline-block rounded-full px-4 py-1 text-xs font-bold',
-                            statusPill(status),
-                          ].join(' ')}
-                        >
-                          {status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="relative flex justify-end gap-2">
-                          <button
-                            type="button"
-                            title="Ver Desempenho"
-                            onClick={() => setToast('Relatório de desempenho em breve.')}
-                            className="rounded p-1 text-[#514440] transition-all hover:bg-[#996958]/10 hover:text-[#7d5141]"
-                          >
-                            <BarChart3 className="h-5 w-5" />
-                          </button>
-                          <button
-                            type="button"
-                            title="Editar"
-                            onClick={() => navigate(`/admin/equipe/${p.id}/edit`)}
-                            className="rounded p-1 text-[#514440] transition-all hover:bg-[#996958]/10 hover:text-[#7d5141]"
-                          >
-                            <Edit className="h-5 w-5" />
-                          </button>
-                          <ActionsDropdown
-                            icon={MoreVertical}
-                            iconClassName="h-5 w-5"
-                            triggerClassName="rounded p-1 text-[#514440] transition-all hover:bg-[#996958]/10 hover:text-[#7d5141]"
-                            menuClassName="border-[#e5d3c8]/50"
-                            items={
-                              p.pendente_aprovacao
-                                ? [
-                                    {
-                                      label: 'Aprovar profissional',
-                                      onClick: () => void toggleProfissional(p),
-                                    },
-                                  ]
-                                : [
-                                    {
-                                      label: 'Editar perfil',
-                                      onClick: () => navigate(`/admin/equipe/${p.id}/edit`),
-                                    },
-                                    {
-                                      label: p.ativo ? 'Desativar' : 'Reativar',
-                                      onClick: () => void toggleProfissional(p),
-                                    },
-                                  ]
-                            }
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+      {/* Listagem */}
+      <div className={`overflow-hidden ${GLASS}`}>
+        <ResponsiveEntityList
+          items={pageItems}
+          getKey={(p) => p.id}
+          renderCard={renderProfCard}
+          columns={profissionalColumns}
+          emptyTitle="Nenhum profissional encontrado"
+          emptyDescription="Não conseguimos encontrar membros da equipe que correspondam aos seus filtros atuais. Tente ajustar a busca ou limpe os filtros."
+          emptyAction={
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-xl border border-[#7d5141] px-6 py-3 text-sm font-semibold text-[#7d5141] transition-colors hover:bg-[#996958]/10"
+            >
+              Limpar Filtros
+            </button>
+          }
+          tableFrom="md"
+          cardListClassName="space-y-3 p-4"
+        />
+
+        {profissionais.length > 0 && (
           <div className="flex items-center justify-between border-t border-[#d6c2bd]/30 bg-[#f4f3f2] px-6 py-4">
             <p className="text-sm text-[#514440]">
               Mostrando {rangeStart}-{rangeEnd} de {profissionais.length} profissionais
@@ -416,7 +457,8 @@ export function EquipeConfig() {
                 type="button"
                 disabled={pageSafe <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border border-[#d6c2bd]/50 p-2 text-[#514440] hover:bg-white disabled:opacity-50"
+                className="inline-flex h-11 w-11 items-center justify-center rounded border border-[#d6c2bd]/50 text-[#514440] hover:bg-white disabled:opacity-50"
+                aria-label="Página anterior"
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
@@ -428,7 +470,7 @@ export function EquipeConfig() {
                     type="button"
                     onClick={() => setPage(n)}
                     className={[
-                      'rounded border px-3 py-2 text-sm font-bold',
+                      'inline-flex h-11 min-w-11 items-center justify-center rounded border px-3 text-sm font-bold',
                       n === pageSafe
                         ? 'border-[#d6c2bd]/50 bg-white text-[#7d5141] shadow-sm'
                         : 'border-[#d6c2bd]/50 text-[#514440] hover:bg-white',
@@ -441,14 +483,15 @@ export function EquipeConfig() {
                 type="button"
                 disabled={pageSafe >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="rounded border border-[#d6c2bd]/50 p-2 text-[#514440] hover:bg-white disabled:opacity-50"
+                className="inline-flex h-11 w-11 items-center justify-center rounded border border-[#d6c2bd]/50 text-[#514440] hover:bg-white disabled:opacity-50"
+                aria-label="Próxima página"
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <DonaFooter />
     </DonaLayout>

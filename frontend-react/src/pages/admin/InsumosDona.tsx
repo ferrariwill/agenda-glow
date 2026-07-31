@@ -15,10 +15,14 @@ import {
   Warehouse,
 } from 'lucide-react'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
-import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
 import type { InsumoCategoria, InsumoEstoque } from '../../types'
 import {
@@ -127,6 +131,156 @@ export function InsumosDona() {
     setSuccess(`Reposição de ${delta} ${item.unidade} registrada para ${item.nome}.`)
   }
 
+  const renderInsumoActions = (item: InsumoEstoque) => {
+    const nivel = getInsumoNivelEstoque(item)
+    return (
+      <div className="flex justify-end gap-1">
+        {nivel !== 'ok' ? (
+          <button
+            type="button"
+            onClick={() => reposicaoRapida(item)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-[#ffdbcf]/50 text-[#7d5141] transition-transform hover:scale-105"
+            title="Reposição rápida"
+            aria-label="Reposição rápida"
+          >
+            <ShoppingCart className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setEstoqueOpen(item)
+              setEstoqueDelta('')
+            }}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[#514440] transition-colors hover:bg-[#7d5141]/10 hover:text-[#7d5141]"
+            title="Gerenciar estoque"
+            aria-label="Gerenciar estoque"
+          >
+            <Warehouse className="h-4 w-4" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => navigate(`/admin/insumos/${item.id}/edit`)}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[#514440] transition-colors hover:bg-[#7d5141]/10 hover:text-[#7d5141]"
+          title="Editar"
+          aria-label="Editar"
+        >
+          <Edit className="h-4 w-4" />
+        </button>
+      </div>
+    )
+  }
+
+  const renderStockCell = (item: InsumoEstoque) => {
+    const nivel = getInsumoNivelEstoque(item)
+    const pct = Math.min(100, (item.quantidade / item.estoque_ideal) * 100)
+    const bar = stockBar(nivel)
+    return (
+      <div className="text-center">
+        <p
+          className={[
+            'whitespace-nowrap text-sm font-semibold',
+            nivel === 'critico' ? 'font-bold text-[#ba1a1a]' : '',
+          ].join(' ')}
+        >
+          {String(item.quantidade).padStart(2, '0')}{' '}
+          <span className="text-xs font-normal text-[#514440]">{item.unidade}</span>
+        </p>
+        <div className={`mx-auto mt-1 h-1 w-16 overflow-hidden rounded-full ${bar.track}`}>
+          <div className={`h-full ${bar.bar}`} style={{ width: `${pct}%` }} />
+        </div>
+        {bar.label && (
+          <p className={`mt-1 text-[10px] font-bold uppercase tracking-wider ${bar.labelClass}`}>
+            {bar.label}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  const insumoColumns: EntityColumn<InsumoEstoque>[] = [
+    {
+      header: 'Produto',
+      cell: (item) => (
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#efdcd1]/20 bg-[#eeeeed]">
+            <img
+              src={item.imagem_url ?? DEFAULT_IMG}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{item.nome}</p>
+            {item.marca && <p className="text-xs text-[#514440]">{item.marca}</p>}
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: 'Categoria',
+      cell: (item) => (
+        <span className="inline-flex rounded-full bg-[#efdcd1] px-2 py-1 text-xs font-semibold text-[#50443c]">
+          {CATEGORIA_LABEL[item.categoria]}
+        </span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Estoque',
+      cell: renderStockCell,
+    },
+    {
+      header: 'Valor unit.',
+      cell: (item) => (
+        <span className="whitespace-nowrap text-sm font-semibold">
+          {formatBRL(item.valor_unitario)}
+        </span>
+      ),
+      align: 'right',
+    },
+    {
+      header: 'Ações',
+      cell: renderInsumoActions,
+      align: 'right',
+    },
+  ]
+
+  const renderInsumoCard = (item: InsumoEstoque) => {
+    const nivel = getInsumoNivelEstoque(item)
+    return (
+      <div
+        className={[
+          'rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4',
+          nivel === 'critico' ? 'border-red-200 bg-red-50/40' : '',
+        ].join(' ')}
+      >
+        <div className="flex items-start gap-3">
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#efdcd1]/20 bg-[#eeeeed]">
+            <img
+              src={item.imagem_url ?? DEFAULT_IMG}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">{item.nome}</p>
+            {item.marca && <p className="text-xs text-[#514440]">{item.marca}</p>}
+          </div>
+          {renderInsumoActions(item)}
+        </div>
+        {/* ≤2 decisões: estoque + valor */}
+        <div className="mt-3 flex items-end justify-between gap-3">
+          {renderStockCell(item)}
+          <p className="shrink-0 whitespace-nowrap font-semibold text-[#7d5141]">
+            {formatBRL(item.valor_unitario)}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const novoInsumoBtn = (
     <Link
       to="/admin/insumos/novo"
@@ -136,6 +290,8 @@ export function InsumosDona() {
       Novo insumo
     </Link>
   )
+
+  const feedbackMessage = success || toast || null
 
   return (
     <DonaLayout
@@ -156,18 +312,13 @@ export function InsumosDona() {
         </p>
       </div>
 
-      {(success || toast) && (
-        <Alert
-          variant="info"
-          className="mb-6"
-          onDismiss={() => {
-            setSuccess('')
-            setToast('')
-          }}
-        >
-          {success || toast}
-        </Alert>
-      )}
+      <ToastFeedback
+        message={feedbackMessage}
+        onDismiss={() => {
+          setSuccess('')
+          setToast('')
+        }}
+      />
 
       {/* KPIs */}
       <div className="mb-8 grid gap-6 md:grid-cols-3">
@@ -226,7 +377,7 @@ export function InsumosDona() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* List */}
       <div className={`overflow-hidden ${GLASS}`}>
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#efdcd1]/20 px-6 py-4">
           <div className="flex flex-wrap gap-6">
@@ -252,143 +403,31 @@ export function InsumosDona() {
           <button
             type="button"
             onClick={() => setToast('Filtros avançados em breve.')}
-            className="flex items-center gap-1 text-sm text-[#514440] hover:text-[#7d5141]"
+            className="flex min-h-11 items-center gap-1 text-sm text-[#514440] hover:text-[#7d5141]"
           >
             <Filter className="h-4 w-4" />
             Filtros avançados
           </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-[#efdcd1]/20 bg-[#f4f3f2]">
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-[#514440]/60">
-                  Produto
-                </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-[#514440]/60">
-                  Categoria
-                </th>
-                <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-[#514440]/60">
-                  Estoque
-                </th>
-                <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-[#514440]/60">
-                  Valor unit.
-                </th>
-                <th className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider text-[#514440]/60">
-                  Ações
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#efdcd1]/10">
-              {pageItems.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-[#83746f]">
-                    Nenhum insumo encontrado.
-                  </td>
-                </tr>
-              ) : (
-                pageItems.map((item) => {
-                  const nivel = getInsumoNivelEstoque(item)
-                  const pct = Math.min(100, (item.quantidade / item.estoque_ideal) * 100)
-                  const bar = stockBar(nivel)
-                  return (
-                    <tr
-                      key={item.id}
-                      className={[
-                        'transition-colors hover:bg-[#f4f3f2]/50',
-                        nivel === 'critico' ? 'bg-red-50/40' : '',
-                      ].join(' ')}
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-4">
-                          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#efdcd1]/20 bg-[#eeeeed]">
-                            <img
-                              src={item.imagem_url ?? DEFAULT_IMG}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold">{item.nome}</p>
-                            {item.marca && (
-                              <p className="text-xs text-[#514440]">{item.marca}</p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex rounded-full bg-[#efdcd1] px-2 py-1 text-xs font-semibold text-[#50443c]">
-                          {CATEGORIA_LABEL[item.categoria]}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <p
-                          className={[
-                            'text-sm font-semibold',
-                            nivel === 'critico' ? 'font-bold text-[#ba1a1a]' : '',
-                          ].join(' ')}
-                        >
-                          {String(item.quantidade).padStart(2, '0')}{' '}
-                          <span className="text-xs font-normal text-[#514440]">{item.unidade}</span>
-                        </p>
-                        <div
-                          className={`mx-auto mt-1 h-1 w-16 overflow-hidden rounded-full ${bar.track}`}
-                        >
-                          <div className={`h-full ${bar.bar}`} style={{ width: `${pct}%` }} />
-                        </div>
-                        {bar.label && (
-                          <p
-                            className={`mt-1 text-[10px] font-bold uppercase tracking-wider ${bar.labelClass}`}
-                          >
-                            {bar.label}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm font-semibold">
-                        {formatBRL(item.valor_unitario)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex justify-center gap-3">
-                          {nivel !== 'ok' ? (
-                            <button
-                              type="button"
-                              onClick={() => reposicaoRapida(item)}
-                              className="rounded-md bg-[#ffdbcf]/50 p-1.5 text-[#7d5141] transition-transform hover:scale-110"
-                              title="Reposição rápida"
-                            >
-                              <ShoppingCart className="h-4 w-4" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEstoqueOpen(item)
-                                setEstoqueDelta('')
-                              }}
-                              className="rounded-md p-1.5 text-[#514440] transition-colors hover:bg-[#7d5141]/10 hover:text-[#7d5141]"
-                              title="Gerenciar estoque"
-                            >
-                              <Warehouse className="h-4 w-4" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/admin/insumos/${item.id}/edit`)}
-                            className="rounded-md p-1.5 text-[#514440] transition-colors hover:bg-[#7d5141]/10 hover:text-[#7d5141]"
-                            title="Editar"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveEntityList
+          items={pageItems}
+          getKey={(item) => item.id}
+          renderCard={renderInsumoCard}
+          columns={insumoColumns}
+          emptyTitle="Nenhum insumo encontrado."
+          emptyAction={
+            <Link
+              to="/admin/insumos/novo"
+              className="inline-flex items-center gap-2 rounded-full bg-[#7d5141] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white"
+            >
+              <Plus className="h-4 w-4" />
+              Novo insumo
+            </Link>
+          }
+          tableFrom="md"
+          cardListClassName="space-y-3 p-4"
+        />
 
         <div className="flex flex-col items-center justify-between gap-4 border-t border-[#efdcd1]/10 px-6 py-4 sm:flex-row">
           <p className="text-xs text-[#514440]">
@@ -399,7 +438,8 @@ export function InsumosDona() {
               type="button"
               disabled={pageSafe <= 1}
               onClick={() => setPage((p) => p - 1)}
-              className="rounded border border-[#efdcd1]/30 p-2 text-[#514440] transition-colors hover:bg-[#f4f3f2] disabled:opacity-40"
+              className="inline-flex h-11 w-11 items-center justify-center rounded border border-[#efdcd1]/30 text-[#514440] transition-colors hover:bg-[#f4f3f2] disabled:opacity-40"
+              aria-label="Página anterior"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -409,7 +449,7 @@ export function InsumosDona() {
                 type="button"
                 onClick={() => setPage(p)}
                 className={[
-                  'flex h-8 w-8 items-center justify-center rounded text-xs font-bold',
+                  'flex h-11 w-11 items-center justify-center rounded text-xs font-bold',
                   p === pageSafe
                     ? 'bg-[#7d5141] text-white'
                     : 'text-[#514440] hover:bg-[#f4f3f2]',
@@ -422,7 +462,8 @@ export function InsumosDona() {
               type="button"
               disabled={pageSafe >= totalPages}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded border border-[#efdcd1]/30 p-2 text-[#514440] transition-colors hover:bg-[#f4f3f2] disabled:opacity-40"
+              className="inline-flex h-11 w-11 items-center justify-center rounded border border-[#efdcd1]/30 text-[#514440] transition-colors hover:bg-[#f4f3f2] disabled:opacity-40"
+              aria-label="Próxima página"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
