@@ -14,8 +14,10 @@ import {
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { DonaLayout } from '../../components/dona/DonaLayout'
+import { SlotChip } from '../../components/public/SlotChip'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
+import { Modal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
 import { enviarAlertaEncaixe, enviarConfirmacaoAgendamento } from '../../services/whatsappService'
 import {
@@ -554,29 +556,21 @@ export function AgendarClienteDona() {
                 ) : slots.length === 0 ? (
                   <p className="text-sm text-aura-muted">Sem horários neste dia.</p>
                 ) : (
-                  <div className="grid max-h-48 grid-cols-3 gap-2 overflow-y-auto pr-1">
-                    {slots.map(({ hora: h, status }) => {
-                      const selected = hora === h
-                      const disabled = status === 'occupied'
-                      return (
-                        <button
-                          key={h}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => setHora(h)}
-                          className={[
-                            'rounded-lg py-2 text-center text-sm transition-all',
-                            disabled
-                              ? 'cursor-not-allowed bg-[#eeeeed] text-aura-muted/40 line-through'
-                              : selected
-                                ? 'bg-[#7d5141] font-bold text-white shadow-md'
-                                : 'border border-[#d6c2bd] bg-white hover:border-[#7d5141]',
-                          ].join(' ')}
-                        >
-                          {formatTimeBR(h)}
-                        </button>
-                      )
-                    })}
+                  <div
+                    role="listbox"
+                    aria-label="Horários disponíveis"
+                    className="grid max-h-48 grid-cols-3 gap-2 overflow-y-auto overscroll-contain pr-1"
+                  >
+                    {slots.map(({ hora: h, status }) => (
+                      <SlotChip
+                        key={h}
+                        value={h}
+                        label={formatTimeBR(h)}
+                        selected={hora === h}
+                        disabled={status === 'occupied'}
+                        onSelect={setHora}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -691,29 +685,31 @@ export function AgendarClienteDona() {
         </div>
       </div>
 
-      {/* Success overlay */}
-      {success && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#2f3130]/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm scale-100 space-y-6 rounded-2xl bg-white p-8 text-center opacity-100 shadow-2xl transition-all">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#7d5141]/10 text-[#7d5141]">
-              <CheckCircle2 className="h-12 w-12" />
-            </div>
-            <div>
-              <h3 className="font-display text-xl font-semibold">Agendamento realizado!</h3>
-              <p className="mt-2 text-sm text-aura-muted">{successMsg}</p>
-            </div>
+      <Modal
+        open={success}
+        onClose={() => navigate(`/admin/clientes/${cliente.id}`)}
+        title="Agendamento realizado!"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/admin/calendario')}>
+              Ver agenda
+            </Button>
             <Button
-              className="w-full bg-[#7d5141] hover:bg-[#996958]"
+              className="bg-[#7d5141] hover:bg-[#996958]"
               onClick={() => navigate(`/admin/clientes/${cliente.id}`)}
             >
               Voltar ao perfil
             </Button>
-            <Button variant="secondary" className="w-full" onClick={() => navigate('/admin/calendario')}>
-              Ver agenda
-            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col items-center gap-4 py-2 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#7d5141]/10 text-[#7d5141]">
+            <CheckCircle2 className="h-9 w-9" aria-hidden />
           </div>
+          <p className="text-body text-aura-muted">{successMsg}</p>
         </div>
-      )}
+      </Modal>
     </DonaLayout>
   )
 }

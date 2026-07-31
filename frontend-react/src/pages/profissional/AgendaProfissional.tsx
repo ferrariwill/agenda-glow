@@ -117,14 +117,13 @@ export function AgendaProfissional() {
   }
 
   const novoBtn = (
-    <button
-      type="button"
+    <Button
       onClick={() => setAgModalOpen(true)}
-      className="flex items-center gap-2 rounded-full bg-[#7d5141] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90"
+      className="rounded-full bg-[#7d5141] px-4 text-xs font-bold uppercase tracking-wider hover:opacity-90"
     >
       <Plus className="h-4 w-4" />
       Novo
-    </button>
+    </Button>
   )
 
   const agendaContent = (
@@ -154,7 +153,8 @@ export function AgendaProfissional() {
         <button
           type="button"
           onClick={() => setWeekAnchor(addDaysISO(weekAnchor, -7))}
-          className="rounded-lg p-2 text-[#514440] hover:bg-[#efdcd1]/30"
+          className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-[#514440] hover:bg-[#efdcd1]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
+          aria-label="Semana anterior"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -169,7 +169,8 @@ export function AgendaProfissional() {
                 type="button"
                 onClick={() => setSelectedDay(d)}
                 className={[
-                  'min-w-[3.5rem] rounded-xl px-2 py-2 text-center text-xs transition-all',
+                  'min-h-touch-min min-w-[3.5rem] touch-manipulation rounded-xl px-2 py-2 text-center text-xs transition-all',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40',
                   isSelected
                     ? 'bg-[#7d5141] text-white shadow-md'
                     : 'bg-[#f4f3f2] text-[#514440] hover:bg-[#efdcd1]/40',
@@ -183,7 +184,7 @@ export function AgendaProfissional() {
                   {new Date(`${d}T12:00:00`).getDate()}
                 </span>
                 {count > 0 && (
-                  <span className="mt-0.5 block text-[10px] opacity-80">{count} ag.</span>
+                  <span className="mt-0.5 block text-caption opacity-80">{count} ag.</span>
                 )}
               </button>
             )
@@ -192,7 +193,8 @@ export function AgendaProfissional() {
         <button
           type="button"
           onClick={() => setWeekAnchor(addDaysISO(weekAnchor, 7))}
-          className="rounded-lg p-2 text-[#514440] hover:bg-[#efdcd1]/30"
+          className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-[#514440] hover:bg-[#efdcd1]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
+          aria-label="Próxima semana"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
@@ -211,15 +213,12 @@ export function AgendaProfissional() {
       </div>
 
       {dayAgs.length === 0 ? (
-        <div className={`py-16 text-center ${ProfissionalGLASS}`}>
-          <p className="text-[#514440]">Nenhum agendamento neste dia.</p>
-          <button
-            type="button"
-            onClick={() => setAgModalOpen(true)}
-            className="mt-4 text-sm font-semibold text-[#7d5141] hover:underline"
-          >
-            Criar agendamento
-          </button>
+        <div className={`px-4 py-12 text-center ${ProfissionalGLASS}`}>
+          <p className="text-body text-[#514440]">Nenhum agendamento neste dia.</p>
+          <Button className="mt-4 bg-[#7d5141] hover:opacity-90" onClick={() => setAgModalOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Novo agendamento
+          </Button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -258,12 +257,12 @@ export function AgendaProfissional() {
                         offer={ag.early_slot_offer}
                       />
                     </div>
-                    <p className="mt-1 font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
-                    <p className="text-sm text-[#514440]">
+                    <p className="mt-1 truncate font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
+                    <p className="text-body text-[#514440]">
                       {servicoLabel} · {dur} min
                     </p>
                     {ag.observacoes && (
-                      <p className="mt-1 text-xs italic text-[#514440]/80">{ag.observacoes}</p>
+                      <p className="mt-1 text-caption italic text-[#514440]/80">{ag.observacoes}</p>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -271,9 +270,9 @@ export function AgendaProfissional() {
                       <button
                         type="button"
                         onClick={() => setEditTarget(ag)}
-                        className="flex items-center gap-1 rounded-lg border border-[#d6c2bd] px-3 py-2 text-sm text-[#514440] hover:border-[#7d5141] hover:text-[#7d5141]"
+                        className="inline-flex min-h-touch-min touch-manipulation items-center gap-1 rounded-lg border border-[#d6c2bd] px-3 text-sm text-[#514440] hover:border-[#7d5141] hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
                       >
-                        <Edit className="h-4 w-4" />
+                        <Edit className="h-4 w-4" aria-hidden />
                         Editar
                       </button>
                     )}
@@ -281,9 +280,9 @@ export function AgendaProfissional() {
                       <button
                         type="button"
                         onClick={() => concluir(ag)}
-                        className="flex items-center gap-1 rounded-lg bg-[#7d5141] px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+                        className="inline-flex min-h-touch-min touch-manipulation items-center gap-1 rounded-lg bg-[#7d5141] px-3 text-sm font-semibold text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
                       >
-                        <CheckCircle2 className="h-4 w-4" />
+                        <CheckCircle2 className="h-4 w-4" aria-hidden />
                         Concluir
                       </button>
                     )}

@@ -1,6 +1,6 @@
 import type { ConfirmacaoCliente, TenantStatus } from '../../types'
 
-type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'muted'
+export type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'muted'
 
 const styles: Record<BadgeVariant, string> = {
   default: 'bg-aura-primary/15 text-aura-primary-dark',
