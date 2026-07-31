@@ -432,61 +432,71 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
   }
 
   const sidebarPanel = (
-    <aside className="flex w-full flex-col gap-6 lg:w-80 lg:shrink-0">
-      <div className="rounded-xl border border-[#efdcd1]/20 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between px-1">
-          <p className="font-semibold text-[#7d5141]">
-            {formatMonthYearBR(`${calYear}-${String(calMonth).padStart(2, '0')}`)}
-          </p>
-          <div className="flex gap-1">
-            <button
-              type="button"
-              onClick={() => shiftMonth(-1)}
-              className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
-              aria-label="Mês anterior"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => shiftMonth(1)}
-              className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
-              aria-label="Próximo mês"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-        <div className="mb-2 grid grid-cols-7 text-center text-caption font-bold uppercase text-aura-muted">
-          {WEEKDAYS_SHORT_PT.map((d) => (
-            <div key={d}>{d.charAt(0)}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1 text-center">
-          {calendarDays.map((cell, i) => {
-            if (!cell.iso) return <div key={`e-${i}`} className="min-h-touch-min min-w-touch-min" />
-            const selected = cell.iso === data
-            const isPast = cell.iso < todayISO()
-            return (
+    <aside className="flex w-full min-w-0 flex-col gap-6 lg:w-80 lg:shrink-0">
+      {/* overflow-x-auto: 7×44 + gaps não estouram document.scrollWidth em 360 (padrão DEV-114) */}
+      <div className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-[#efdcd1]/20 bg-white shadow-sm">
+        <div className="box-border w-[332px] p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="min-w-0 truncate font-semibold text-[#7d5141]">
+              {formatMonthYearBR(`${calYear}-${String(calMonth).padStart(2, '0')}`)}
+            </p>
+            <div className="flex shrink-0 gap-0.5">
               <button
-                key={cell.iso}
                 type="button"
-                disabled={isPast}
-                onClick={() => setData(cell.iso!)}
-                className={[
-                  'box-border flex size-touch-min touch-manipulation items-center justify-center rounded-lg text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40',
-                  selected
-                    ? 'bg-[#7d5141] font-bold text-white'
-                    : isPast
-                      ? 'text-aura-muted/30'
-                      : 'hover:bg-[#efdcd1]',
-                ].join(' ')}
+                onClick={() => shiftMonth(-1)}
+                className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
+                aria-label="Mês anterior"
               >
-                {cell.day}
+                <ChevronLeft className="h-4 w-4" />
               </button>
-            )
-          })}
+              <button
+                type="button"
+                onClick={() => shiftMonth(1)}
+                className="inline-flex min-h-touch-min min-w-touch-min touch-manipulation items-center justify-center rounded-lg text-aura-muted hover:bg-aura-surface hover:text-[#7d5141] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40"
+                aria-label="Próximo mês"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div className="mb-2 grid grid-cols-7 gap-1 text-center text-caption font-bold uppercase text-aura-muted">
+            {WEEKDAYS_SHORT_PT.map((d) => (
+              <div key={d} className="min-w-touch-min">
+                {d.charAt(0)}
+              </div>
+            ))}
+          </div>
+          {/* 7×44 + 6×4 gap = 332px — scroll interno se o shell for mais estreito */}
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {calendarDays.map((cell, i) => {
+              if (!cell.iso) {
+                return (
+                  <span key={`e-${i}`} className="min-h-touch-min min-w-touch-min" aria-hidden />
+                )
+              }
+              const selected = cell.iso === data
+              const isPast = cell.iso < todayISO()
+              return (
+                <button
+                  key={cell.iso}
+                  type="button"
+                  disabled={isPast}
+                  onClick={() => setData(cell.iso!)}
+                  className={[
+                    'box-border flex size-touch-min shrink-0 touch-manipulation items-center justify-center rounded-lg text-sm transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7d5141]/40',
+                    selected
+                      ? 'bg-[#7d5141] font-bold text-white'
+                      : isPast
+                        ? 'text-aura-muted/30'
+                        : 'hover:bg-[#efdcd1]',
+                  ].join(' ')}
+                >
+                  {cell.day}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -620,11 +630,11 @@ export function CalendarioGeral({ variant = 'dona' }: CalendarioGeralProps) {
         </div>
       )}
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex min-w-0 flex-col gap-6 lg:flex-row">
         {/* Calendar main */}
         <section className="min-w-0 flex-1">
           {/* Mobile list */}
-          <div className="space-y-3 lg:hidden">
+          <div className="min-w-0 space-y-3 lg:hidden">
             <div className="flex items-center justify-between gap-2">
               <Button
                 variant="ghost"
