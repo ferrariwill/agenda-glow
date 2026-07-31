@@ -9,9 +9,23 @@ import {
   Banknote,
 } from 'lucide-react'
 import { ProfissionalLayout, ProfissionalGLASS } from '../../components/profissional/ProfissionalLayout'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
 import { useAuth } from '../../contexts/AuthContext'
-import { getDb, getProfissionalComissoesResumo } from '../../utils/mockDb'
+import {
+  getDb,
+  getProfissionalComissoesResumo,
+  type ProfissionalComissaoItem,
+} from '../../utils/mockDb'
 import { currentYearMonth, formatBRL, formatMonthYearBR, formatTableDateBR } from '../../utils/format'
+
+function statusBadge(status: ProfissionalComissaoItem['status']) {
+  return status === 'LIQUIDADO'
+    ? 'bg-[#E1F5FE] text-[#01579B]'
+    : 'bg-[#efdcd1]/50 text-[#50443c]'
+}
 
 export function DashboardProfissional() {
   const { session } = useAuth()
@@ -52,6 +66,70 @@ export function DashboardProfissional() {
     }
     return out
   }, [])
+
+  const historicoColumns: EntityColumn<ProfissionalComissaoItem>[] = [
+    {
+      header: 'Data',
+      cell: (item) => (
+        <span className="whitespace-nowrap text-[#514440]">
+          {formatTableDateBR(item.data)}
+        </span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Descrição',
+      cell: (item) => (
+        <span className="font-medium text-[#1a1c1c]">{item.descricao}</span>
+      ),
+    },
+    {
+      header: 'Valor',
+      cell: (item) => (
+        <span className="whitespace-nowrap font-semibold text-[#7d5141]">
+          {formatBRL(item.valor)}
+        </span>
+      ),
+      align: 'right',
+    },
+    {
+      header: 'Status',
+      cell: (item) => (
+        <span
+          className={[
+            'rounded-full px-3 py-1 text-[10px] font-bold uppercase',
+            statusBadge(item.status),
+          ].join(' ')}
+        >
+          {item.status === 'LIQUIDADO' ? 'Pago' : 'Pendente'}
+        </span>
+      ),
+    },
+  ]
+
+  const renderHistoricoCard = (item: ProfissionalComissaoItem) => (
+    <div className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium text-[#1a1c1c]">{item.descricao}</p>
+          <p className="mt-0.5 whitespace-nowrap text-xs text-[#514440]">
+            {formatTableDateBR(item.data)}
+          </p>
+        </div>
+        <span
+          className={[
+            'shrink-0 rounded-full px-3 py-1 text-[10px] font-bold uppercase',
+            statusBadge(item.status),
+          ].join(' ')}
+        >
+          {item.status === 'LIQUIDADO' ? 'Pago' : 'Pendente'}
+        </span>
+      </div>
+      <p className="mt-3 shrink-0 whitespace-nowrap text-right font-semibold text-[#7d5141]">
+        {formatBRL(item.valor)}
+      </p>
+    </div>
+  )
 
   return (
     <ProfissionalLayout
@@ -150,53 +228,15 @@ export function DashboardProfissional() {
               {resumo.atendimentosConcluidos} atendimentos concluídos no período
             </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#f4f3f2]/50 text-[11px] font-bold uppercase tracking-widest text-[#514440]">
-                <tr>
-                  <th className="px-6 py-3">Data</th>
-                  <th className="px-6 py-3">Descrição</th>
-                  <th className="px-6 py-3 text-right">Valor</th>
-                  <th className="px-6 py-3 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#d6c2bd]/10">
-                {resumo.historico.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-10 text-center text-[#514440]">
-                      Nenhuma comissão registrada neste mês.
-                    </td>
-                  </tr>
-                ) : (
-                  resumo.historico.map((item) => (
-                    <tr key={item.id} className="hover:bg-[#996958]/5">
-                      <td className="px-6 py-3 text-[#514440]">
-                        {formatTableDateBR(item.data)}
-                      </td>
-                      <td className="px-6 py-3 font-medium text-[#1a1c1c]">
-                        {item.descricao}
-                      </td>
-                      <td className="px-6 py-3 text-right font-semibold text-[#7d5141]">
-                        {formatBRL(item.valor)}
-                      </td>
-                      <td className="px-6 py-3 text-center">
-                        <span
-                          className={[
-                            'rounded-full px-3 py-1 text-[10px] font-bold uppercase',
-                            item.status === 'LIQUIDADO'
-                              ? 'bg-[#E1F5FE] text-[#01579B]'
-                              : 'bg-[#efdcd1]/50 text-[#50443c]',
-                          ].join(' ')}
-                        >
-                          {item.status === 'LIQUIDADO' ? 'Pago' : 'Pendente'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <ResponsiveEntityList
+            items={resumo.historico}
+            getKey={(item) => item.id}
+            renderCard={renderHistoricoCard}
+            columns={historicoColumns}
+            emptyTitle="Nenhuma comissão registrada neste mês."
+            tableFrom="md"
+            cardListClassName="space-y-3 p-4"
+          />
         </section>
 
         <section className={`lg:col-span-5 ${ProfissionalGLASS} p-6`}>
@@ -222,7 +262,7 @@ export function DashboardProfissional() {
                   className="rounded-lg border border-[#d6c2bd]/20 bg-[#faf9f8] px-4 py-3"
                 >
                   <p className="font-medium text-[#1a1c1c]">{ag.cliente_nome}</p>
-                  <p className="text-xs text-[#514440]">
+                  <p className="whitespace-nowrap text-xs text-[#514440]">
                     {formatTableDateBR(ag.data)} · {ag.hora_inicio.slice(0, 5)}
                   </p>
                 </li>
