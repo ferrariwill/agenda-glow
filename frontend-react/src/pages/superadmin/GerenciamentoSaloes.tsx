@@ -13,6 +13,11 @@ import { Badge, statusTenantBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
+import {
+  ResponsiveEntityList,
+  type EntityColumn,
+} from '../../components/ui/ResponsiveEntityList'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import type { Tenant } from '../../types'
 import {
   SLUG_REGEX,
@@ -128,6 +133,114 @@ export function GerenciamentoSaloes() {
     setSuccess(n > 0 ? `${n} assinatura(s) renovada(s).` : 'Nenhuma assinatura vencida.')
   }
 
+  const renderActions = (t: Tenant) => (
+    <TenantActionsMenu
+      status={t.status}
+      slug={t.slug}
+      onAssignPlan={() => {
+        setAssignPlanoId(t.plano_id)
+        setAssignOpen(t)
+      }}
+      onRenew={async () => {
+        await renewTenant(t.id)
+        refresh()
+        setSuccess(`Assinatura de ${t.nome} renovada por 12 meses.`)
+      }}
+      onToggleStatus={async () => {
+        if (t.status === 'ATIVO') await suspendTenant(t.id)
+        else await activateTenant(t.id)
+        refresh()
+      }}
+      onCreateDona={() => {
+        setDonaNome(t.dona_nome ?? '')
+        setDonaEmail(t.dona_email ?? '')
+        setDonaOpen(t)
+      }}
+    />
+  )
+
+  const columns: EntityColumn<Tenant>[] = [
+    {
+      header: 'Salão',
+      cell: (t) => (
+        <div className="flex items-center gap-3">
+          {t.logo_url ? (
+            <img src={t.logo_url} alt="" className="h-9 w-9 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-aura-primary/15 text-xs font-semibold text-aura-primary">
+              {initials(t.nome)}
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="font-medium">{t.nome}</p>
+            <p className="text-xs text-aura-muted">/{t.slug}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: 'Dona',
+      cell: (t) => (
+        <>
+          <p className="text-aura-anthracite">{t.dona_nome ?? '—'}</p>
+          <p className="text-xs text-aura-muted">{t.dona_email ?? 'Sem dona'}</p>
+        </>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Plano',
+      cell: (t) => (
+        <span className="text-aura-muted">{getPlano(t.plano_id)?.nome ?? '—'}</span>
+      ),
+      priority: 'secondary',
+    },
+    {
+      header: 'Vencimento',
+      cell: (t) => (
+        <span className="whitespace-nowrap text-aura-muted">
+          {formatDateBR(t.data_vencimento)}
+        </span>
+      ),
+    },
+    {
+      header: 'Status',
+      cell: (t) => <Badge variant={statusTenantBadge(t.status)}>{t.status}</Badge>,
+    },
+    {
+      header: 'Ações',
+      cell: (t) => renderActions(t),
+      align: 'right',
+    },
+  ]
+
+  const renderCard = (t: Tenant) => (
+    <div className="rounded-xl border border-[#efdcd1]/30 bg-[#faf9f8]/50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {t.logo_url ? (
+            <img src={t.logo_url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-aura-primary/15 text-xs font-semibold text-aura-primary">
+              {initials(t.nome)}
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="font-semibold text-aura-anthracite">{t.nome}</p>
+            <p className="truncate text-xs text-aura-muted">/{t.slug}</p>
+          </div>
+        </div>
+        {renderActions(t)}
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <Badge variant={statusTenantBadge(t.status)}>{t.status}</Badge>
+        <span className="shrink-0 whitespace-nowrap text-sm font-medium text-aura-anthracite">
+          {formatDateBR(t.data_vencimento)}
+        </span>
+      </div>
+    </div>
+  )
+
   return (
     <SuperAdminLayout
       searchPlaceholder="Buscar salões…"
@@ -144,11 +257,7 @@ export function GerenciamentoSaloes() {
           {error}
         </Alert>
       )}
-      {success && (
-        <Alert variant="info" className="mb-4" onDismiss={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+      <ToastFeedback message={success || null} onDismiss={() => setSuccess('')} />
 
       <PageHeader
         title="Gestão de Salões"
@@ -179,7 +288,7 @@ export function GerenciamentoSaloes() {
             setStatusFilter(e.target.value as typeof statusFilter)
             setPage(1)
           }}
-          className="rounded-lg border border-aura-border bg-white px-3 py-2 text-sm"
+          className="min-h-11 rounded-lg border border-aura-border bg-white px-3 py-2 text-sm"
         >
           <option value="TODOS">Todos os Salões</option>
           <option value="ATIVO">Ativos</option>
@@ -192,85 +301,26 @@ export function GerenciamentoSaloes() {
             setSearch('')
             setPage(1)
           }}
-          className="text-sm text-aura-primary hover:underline"
+          className="min-h-11 text-sm text-aura-primary hover:underline"
         >
           Limpar Filtros
         </button>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-aura-border bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-aura-border bg-aura-surface/50 text-left text-aura-muted">
-                <th className="px-4 py-3 font-medium">Salão</th>
-                <th className="px-4 py-3 font-medium">Dona</th>
-                <th className="px-4 py-3 font-medium">Plano</th>
-                <th className="px-4 py-3 font-medium">Vencimento</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {slice.map((t) => {
-                const plano = getPlano(t.plano_id)
-                return (
-                  <tr key={t.id} className="border-b border-aura-border/60 hover:bg-aura-surface/30">
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        {t.logo_url ? (
-                          <img src={t.logo_url} alt="" className="h-9 w-9 rounded-full object-cover" />
-                        ) : (
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-aura-primary/15 text-xs font-semibold text-aura-primary">
-                            {initials(t.nome)}
-                          </div>
-                        )}
-                        <div>
-                          <p className="font-medium">{t.nome}</p>
-                          <p className="text-xs text-aura-muted">/{t.slug}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <p className="text-aura-anthracite">{t.dona_nome ?? '—'}</p>
-                      <p className="text-xs text-aura-muted">{t.dona_email ?? 'Sem dona'}</p>
-                    </td>
-                    <td className="px-4 py-3.5 text-aura-muted">{plano?.nome ?? '—'}</td>
-                    <td className="px-4 py-3.5 text-aura-muted">{formatDateBR(t.data_vencimento)}</td>
-                    <td className="px-4 py-3.5">
-                      <Badge variant={statusTenantBadge(t.status)}>{t.status}</Badge>
-                    </td>
-                    <td className="px-4 py-3.5 text-right">
-                      <TenantActionsMenu
-                        status={t.status}
-                        slug={t.slug}
-                        onAssignPlan={() => {
-                          setAssignPlanoId(t.plano_id)
-                          setAssignOpen(t)
-                        }}
-                        onRenew={async () => {
-                          await renewTenant(t.id)
-                          refresh()
-                          setSuccess(`Assinatura de ${t.nome} renovada por 12 meses.`)
-                        }}
-                        onToggleStatus={async () => {
-                          if (t.status === 'ATIVO') await suspendTenant(t.id)
-                          else await activateTenant(t.id)
-                          refresh()
-                        }}
-                        onCreateDona={() => {
-                          setDonaNome(t.dona_nome ?? '')
-                          setDonaEmail(t.dona_email ?? '')
-                          setDonaOpen(t)
-                        }}
-                      />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveEntityList
+          items={slice}
+          getKey={(t) => t.id}
+          renderCard={renderCard}
+          columns={columns}
+          emptyTitle="Nenhum salão encontrado."
+          emptyAction={
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Novo Salão
+            </Button>
+          }
+        />
         <TablePagination
           page={page}
           totalPages={totalPages}
