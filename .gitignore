@@ -80,3 +80,4 @@ desktop.ini
 # --- Artefatos da suíte de regressão de UI ---
 tests/regression/ui/node_modules/
 tests/regression/ui/evidencia_*.png
+_qa_build/*
