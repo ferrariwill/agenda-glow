@@ -76,3 +76,4 @@ test-results/
 .DS_Store
 Thumbs.db
 desktop.ini
+_qa_build/*
