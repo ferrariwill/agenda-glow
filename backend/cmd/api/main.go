@@ -197,6 +197,7 @@ func main() {
 	mux.Handle("DELETE /api/v1/supplies/{id}", donaRoute(bootstrapAPI.DeleteInsumo))
 
 	mux.Handle("GET /api/v1/professional/dashboard", professionalRoute(bootstrapAPI.ProfessionalDashboard))
+	mux.Handle("POST /api/v1/professional/appointments", professionalRoute(bootstrapAPI.CreateProfessionalAppointment))
 	mux.Handle("POST /api/v1/professional/appointments/{id}/complete", professionalRoute(bootstrapAPI.CompleteAppointment))
 	mux.Handle("GET /api/v1/professional/bootstrap", professionalRoute(bootstrapAPI.TenantBootstrap))
 

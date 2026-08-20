@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,10 +11,26 @@ import (
 	"github.com/agendaglow/agendaglow/internal/service"
 )
 
+// agendaAPI cobre as operações de agenda usadas por BootstrapAPIHandler.
+// *service.AgendaService satisfaz a interface; testes podem injetar stubs.
+type agendaAPI interface {
+	CriarAgendamento(
+		ctx context.Context,
+		estabelecimentoID, clienteNome, clienteTelefone, profissionalID, servicoID string,
+		adicionaisIDs []string,
+		inicio time.Time,
+		origem service.OrigemAgendamento,
+		aceitaAdiantar bool,
+	) (service.ResultadoAgendamento, error)
+	ValidarAgendamentoDaProfissional(ctx context.Context, establishmentID, professionalID, agendamentoID string) error
+	ConcluirAtendimentoProfissional(ctx context.Context, establishmentID, professionalID, agendamentoID string, financeiro *service.FinanceiroService) error
+	GetDashboardProfissional(ctx context.Context, establishmentID, professionalID string, selectedDate time.Time) (*service.DashboardProfissional, error)
+}
+
 type BootstrapAPIHandler struct {
 	bootstrap *service.BootstrapService
 	estab     *service.EstabelecimentoService
-	agenda    *service.AgendaService
+	agenda    agendaAPI
 	esp       *service.EspecialidadeService
 	prof      *service.ProfissionalService
 	proc      *service.ProcedimentoService
@@ -26,7 +43,7 @@ type BootstrapAPIHandler struct {
 func NewBootstrapAPIHandler(
 	bootstrap *service.BootstrapService,
 	estab *service.EstabelecimentoService,
-	agenda *service.AgendaService,
+	agenda agendaAPI,
 	esp *service.EspecialidadeService,
 	prof *service.ProfissionalService,
 	proc *service.ProcedimentoService,
@@ -167,6 +184,85 @@ func (h *BootstrapAPIHandler) CreateAppointment(w http.ResponseWriter, r *http.R
 		_, _ = h.fila.Inscrever(r.Context(), service.InscreverFilaInput{
 			EstabelecimentoID: establishmentID,
 			ProfissionalID:    req.ProfissionalID,
+			ClienteNome:       req.ClienteNome,
+			ClienteTelefone:   req.ClienteTelefone,
+			AgendamentoID:     result.ID,
+			Data:              req.Data,
+			Hora:              req.HoraInicio,
+		})
+	}
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+type createProfessionalAppointmentRequest struct {
+	ClienteNome     string   `json:"cliente_nome"`
+	ClienteTelefone string   `json:"cliente_telefone"`
+	ProfissionalID  string   `json:"profissional_id"` // ignorado; token manda
+	ServicoID       string   `json:"servico_id"`
+	AdicionalIDs    []string `json:"adicional_ids"`
+	Data            string   `json:"data"`
+	HoraInicio      string   `json:"hora_inicio"`
+	AceitaAdiantar  bool     `json:"aceita_adiantar"`
+}
+
+// CreateProfessionalAppointment POST /api/v1/professional/appointments
+// Profissional agenda apenas para si (profissional_id do JWT). Não amplia RequireTenantStaff.
+func (h *BootstrapAPIHandler) CreateProfessionalAppointment(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	profID, ok := security.ProfessionalIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_professional_context")
+		return
+	}
+
+	var req createProfessionalAppointmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	// Escopo: rejeitar tentativa explícita de agendar para outra profissional.
+	if req.ProfissionalID != "" && req.ProfissionalID != profID {
+		writeJSONError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	inicio, err := time.ParseInLocation("2006-01-02 15:04", req.Data+" "+req.HoraInicio, time.Local)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_datetime")
+		return
+	}
+
+	result, err := h.agenda.CriarAgendamento(
+		r.Context(),
+		establishmentID,
+		req.ClienteNome,
+		req.ClienteTelefone,
+		profID,
+		req.ServicoID,
+		req.AdicionalIDs,
+		inicio,
+		service.OrigemInterno,
+		req.AceitaAdiantar,
+	)
+	if err != nil {
+		if errors.Is(err, service.ErrColisaoHorario) {
+			writeJSONError(w, http.StatusConflict, "slot_unavailable")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+
+	if req.AceitaAdiantar && h.fila != nil {
+		_, _ = h.fila.Inscrever(r.Context(), service.InscreverFilaInput{
+			EstabelecimentoID: establishmentID,
+			ProfissionalID:    profID,
 			ClienteNome:       req.ClienteNome,
 			ClienteTelefone:   req.ClienteTelefone,
 			AgendamentoID:     result.ID,
