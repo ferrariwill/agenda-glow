@@ -26,7 +26,6 @@ import { WhatsAppIntegracao } from './pages/admin/WhatsAppIntegracao'
 import { DashboardSuperAdmin } from './pages/superadmin/DashboardSuperAdmin'
 import { GerenciamentoSaloes } from './pages/superadmin/GerenciamentoSaloes'
 import { PlanosSaaS } from './pages/superadmin/PlanosSaaS'
-import { ClientesSuperAdmin } from './pages/superadmin/ClientesSuperAdmin'
 import { FinanceiroSuperAdmin } from './pages/superadmin/FinanceiroSuperAdmin'
 import { AgendaProfissional } from './pages/profissional/AgendaProfissional'
 import { DashboardProfissional } from './pages/profissional/DashboardProfissional'
@@ -56,7 +55,6 @@ export default function App() {
 
           <Route element={<ProtectedRoute allowedRoles={['SUPER_ADMIN']} />}>
             <Route path="/superadmin/dashboard" element={<DashboardSuperAdmin />} />
-            <Route path="/superadmin/clientes" element={<ClientesSuperAdmin />} />
             <Route path="/superadmin/saloes" element={<GerenciamentoSaloes />} />
             <Route path="/superadmin/planos" element={<PlanosSaaS />} />
             <Route path="/superadmin/financeiro" element={<FinanceiroSuperAdmin />} />
