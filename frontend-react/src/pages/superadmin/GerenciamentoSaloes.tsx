@@ -317,7 +317,7 @@ export function GerenciamentoSaloes() {
       onRenewAll={handleRenewAll}
       renewLoading={renewLoading}
     >
-      {error && (
+      {error && !createOpen && !editOpen && (
         <Alert variant="error" className="mb-4" onDismiss={() => setError('')}>
           {error}
         </Alert>
@@ -330,6 +330,7 @@ export function GerenciamentoSaloes() {
         action={
           <Button
             onClick={() => {
+              setError('')
               resetIdentityForm()
               setPlanoId(db.planos[0]?.id ?? '')
               setCreateOpen(true)
@@ -388,6 +389,7 @@ export function GerenciamentoSaloes() {
           emptyAction={
             <Button
               onClick={() => {
+                setError('')
                 resetIdentityForm()
                 setPlanoId(db.planos[0]?.id ?? '')
                 setCreateOpen(true)
@@ -412,17 +414,27 @@ export function GerenciamentoSaloes() {
 
       <Modal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          setError('')
+        }}
         title="Novo Salão"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCreateOpen(false)
+                setError('')
+              }}
+            >
               Cancelar
             </Button>
             <Button onClick={handleCreate}>Cadastrar</Button>
           </>
         }
       >
+        {error && createOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <TenantIdentityForm
           {...identityFormProps}
           showPlano
@@ -437,6 +449,7 @@ export function GerenciamentoSaloes() {
         onClose={() => {
           setEditOpen(null)
           resetIdentityForm()
+          setError('')
         }}
         title="Editar Salão"
         footer={
@@ -446,6 +459,7 @@ export function GerenciamentoSaloes() {
               onClick={() => {
                 setEditOpen(null)
                 resetIdentityForm()
+                setError('')
               }}
             >
               Cancelar
@@ -454,6 +468,7 @@ export function GerenciamentoSaloes() {
           </>
         }
       >
+        {error && editOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <TenantIdentityForm {...identityFormProps} showPlano={false} />
       </Modal>
 
