@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { DateInput } from '../../components/ui/DateInput'
 import { Input } from '../../components/ui/Input'
+import { MoneyInput } from '../../components/ui/MoneyInput'
 import {
   ResponsiveEntityList,
   type EntityColumn,
@@ -128,12 +129,11 @@ export function FinanceiroFluxo({ embedded, onLancamentoCreated }: Props) {
           placeholder="Ex: Conta de água"
           required
         />
-        <Input
+        <MoneyInput
           label="Valor (R$)"
           value={valor}
-          onChange={(e) => setValor(e.target.value)}
-          placeholder="120,00"
-          inputMode="decimal"
+          onChange={setValor}
+          placeholder="0,00"
           required
         />
         <DateInput

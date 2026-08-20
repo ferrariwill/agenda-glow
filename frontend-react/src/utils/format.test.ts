@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  formatBRLInputValue,
   maskBRLInput,
   maskPhoneBRInput,
   parseBRLInput,
@@ -21,9 +22,49 @@ describe('maskBRLInput', () => {
     expect(maskBRLInput('123456')).toBe('1.234,56')
   })
 
+  it('digitar 100000 exibe 1.000,00 e parseia 1000', () => {
+    expect(maskBRLInput('100000')).toBe('1.000,00')
+    expect(parseBRLInput(maskBRLInput('100000'))).toBe(1000)
+  })
+
   it('ignora não-dígitos e round-trip com parseBRLInput', () => {
     expect(maskBRLInput('R$ 1.234,56')).toBe('1.234,56')
     expect(parseBRLInput(maskBRLInput('123456'))).toBe(1234.56)
+  })
+
+  it('limita a 12 dígitos', () => {
+    expect(maskBRLInput('1234567890123')).toBe('1.234.567.890,12')
+  })
+})
+
+describe('parseBRLInput', () => {
+  it('aceita milhar BR sem centavos', () => {
+    expect(parseBRLInput('1.000')).toBe(1000)
+    expect(parseBRLInput('10.000')).toBe(10000)
+    expect(parseBRLInput('1.234.567')).toBe(1234567)
+  })
+
+  it('aceita vírgula decimal e milhar+centavos', () => {
+    expect(parseBRLInput('1.000,00')).toBe(1000)
+    expect(parseBRLInput('180,50')).toBe(180.5)
+    expect(parseBRLInput('R$ 1.234,56')).toBe(1234.56)
+  })
+
+  it('mantém decimal com ponto quando não é milhar BR', () => {
+    expect(parseBRLInput('1.5')).toBe(1.5)
+    expect(parseBRLInput('180.50')).toBe(180.5)
+  })
+
+  it('parseia inteiros e strings mascaradas típicas', () => {
+    expect(parseBRLInput('1000')).toBe(1000)
+    expect(parseBRLInput('0,00')).toBe(0)
+  })
+})
+
+describe('formatBRLInputValue', () => {
+  it('hidrata input a partir de reais', () => {
+    expect(formatBRLInputValue(1000)).toBe('1.000,00')
+    expect(formatBRLInputValue(14.2)).toBe('14,20')
   })
 })
 
