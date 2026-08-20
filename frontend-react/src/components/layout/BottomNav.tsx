@@ -56,7 +56,6 @@ const profissionalPrimary: NavItem[] = [
 const superPrimary: NavItem[] = [
   { to: '/superadmin/dashboard', label: 'Início', icon: LayoutDashboard },
   { to: '/superadmin/saloes', label: 'Salões', icon: Building2 },
-  { to: '/superadmin/clientes', label: 'Clientes', icon: Users },
   { to: '/superadmin/planos', label: 'Planos', icon: Sparkles },
   { to: '/superadmin/financeiro', label: 'Caixa', icon: Wallet },
 ]

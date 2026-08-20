@@ -198,13 +198,13 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 		t.Fatalf("cadastrar especialidade: %v", err)
 	}
 
-	profID, err := profSvc.CreateProfessional(ctx, estID, "Cláudia - Manicure", espID, 40)
+	profID, err := profSvc.CreateProfessional(ctx, estID, "Cláudia - Manicure", espID, 40, nil, nil)
 	if err != nil {
 		t.Fatalf("cadastrar profissional: %v", err)
 	}
 	setProfissionalEmail(t, db, profID, "claudia.encaixe@test.local")
 
-	servicoID, err := procSvc.CreateService(ctx, estID, "Fazer Unhas", 50, 45)
+	servicoID, err := procSvc.CreateService(ctx, estID, "Fazer Unhas", 50, 45, nil)
 	if err != nil {
 		t.Fatalf("cadastrar serviço: %v", err)
 	}

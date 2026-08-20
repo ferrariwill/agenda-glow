@@ -128,7 +128,7 @@ WHERE sa.id = $1 AND s.estabelecimento_id = $2
 	return &ad, nil
 }
 
-// BuscarServicoPorID retorna serviço recém-criado para partial HTMX.
+// BuscarServicoPorID retorna serviço com adicionais e profissional_ids (tenant-scoped).
 func (s *ProcedimentoService) BuscarServicoPorID(ctx context.Context, establishmentID, serviceID string) (*Servico, error) {
 	const query = `
 SELECT id, nome, preco_base, duracao_base_minutos, ativo
@@ -143,6 +143,37 @@ WHERE id = $1 AND estabelecimento_id = $2
 		return nil, fmt.Errorf("buscar serviço: %w", err)
 	}
 	serv.Adicionais = []ServicoAdicional{}
+	serv.ProfissionalIDs = []string{}
+
+	const queryAdicionais = `
+SELECT sa.id, sa.servico_id, sa.nome, sa.preco_adicional, sa.duracao_adicional_minutos
+FROM servico_adicionais sa
+INNER JOIN servicos s ON s.id = sa.servico_id
+WHERE s.estabelecimento_id = $1 AND sa.servico_id = $2
+ORDER BY sa.nome ASC
+`
+	var adicionais []ServicoAdicional
+	if err := s.db.SelectContext(ctx, &adicionais, queryAdicionais, establishmentID, serviceID); err != nil {
+		return nil, fmt.Errorf("listar adicionais do serviço: %w", err)
+	}
+	if adicionais != nil {
+		serv.Adicionais = adicionais
+	}
+
+	const queryLinks = `
+SELECT profissional_id
+FROM servico_profissionais
+WHERE estabelecimento_id = $1 AND servico_id = $2
+ORDER BY profissional_id ASC
+`
+	var profIDs []string
+	if err := s.db.SelectContext(ctx, &profIDs, queryLinks, establishmentID, serviceID); err != nil {
+		return nil, fmt.Errorf("listar vínculos do serviço: %w", err)
+	}
+	if profIDs != nil {
+		serv.ProfissionalIDs = profIDs
+	}
+
 	return &serv, nil
 }
 
@@ -150,7 +181,11 @@ WHERE id = $1 AND estabelecimento_id = $2
 func (s *ProfissionalService) BuscarProfissionalPorID(ctx context.Context, establishmentID, professionalID string) (*Profissional, error) {
 	const query = `
 SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
-       p.comissao_porcentagem, p.ativo
+       p.comissao_porcentagem, p.ativo, COALESCE(p.pendente_aprovacao, FALSE) AS pendente_aprovacao,
+       COALESCE(p.eh_dona, FALSE) AS eh_dona,
+       NULLIF(TRIM(p.foto_url), '') AS foto_url,
+       CASE WHEN p.data_nascimento IS NULL THEN NULL
+            ELSE to_char(p.data_nascimento, 'YYYY-MM-DD') END AS data_nascimento
 FROM profissionais p
 INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
 WHERE p.id = $1 AND p.estabelecimento_id = $2

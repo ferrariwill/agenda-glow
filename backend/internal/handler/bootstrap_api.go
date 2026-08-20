@@ -279,9 +279,12 @@ type updateProfessionalRequest struct {
 	EspecialidadeID string  `json:"especialidade_id"`
 	Comissao        float64 `json:"comissao_porcentagem"`
 	Ativo           bool    `json:"ativo"`
+	DataNascimento  *string `json:"data_nascimento"`
+	FotoURL         *string `json:"foto_url"`
 }
 
 // UpdateProfessional PUT /api/v1/professionals/{id}
+// data_nascimento / foto_url omitidos ou null → não alteram; string válida → define; data futura → 400 birthdate_in_future.
 func (h *BootstrapAPIHandler) UpdateProfessional(w http.ResponseWriter, r *http.Request) {
 	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
 	if !ok {
@@ -294,12 +297,28 @@ func (h *BootstrapAPIHandler) UpdateProfessional(w http.ResponseWriter, r *http.
 		writeJSONError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
-	if err := h.prof.UpdateProfessional(r.Context(), establishmentID, profID, req.Nome, req.EspecialidadeID, req.Comissao, req.Ativo); err != nil {
+	if err := h.prof.UpdateProfessional(
+		r.Context(), establishmentID, profID,
+		req.Nome, req.EspecialidadeID, req.Comissao, req.Ativo,
+		req.DataNascimento, req.FotoURL,
+	); err != nil {
 		if errors.Is(err, service.ErrPlanLimitExceeded) {
 			writeJSON(w, http.StatusForbidden, limitReachedResponse{
 				Error:   "limit_reached",
 				Message: "Seu plano atingiu o limite de profissionais parceiras permitidas. Faça um upgrade no painel.",
 			})
+			return
+		}
+		if errors.Is(err, service.ErrProfissionalNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "professional_not_found")
+			return
+		}
+		if errors.Is(err, service.ErrDataNascimentoFutura) {
+			writeJSONError(w, http.StatusBadRequest, "birthdate_in_future")
+			return
+		}
+		if errors.Is(err, service.ErrDataNascimentoInvalida) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_birthdate")
 			return
 		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
@@ -597,17 +616,40 @@ func (h *BootstrapAPIHandler) ListInsumos(w http.ResponseWriter, r *http.Request
 }
 
 type insumoRequest struct {
-	Nome          string  `json:"nome"`
-	Marca         string  `json:"marca"`
-	Categoria     string  `json:"categoria"`
-	Quantidade    float64 `json:"quantidade"`
-	EstoqueMinimo float64 `json:"estoque_minimo"`
-	EstoqueIdeal  float64 `json:"estoque_ideal"`
-	ValorUnitario float64 `json:"valor_unitario"`
-	Unidade       string  `json:"unidade"`
-	ImagemURL     string  `json:"imagem_url"`
-	InstrucoesUso string  `json:"instrucoes_uso"`
-	Ativo         *bool   `json:"ativo,omitempty"`
+	Nome                 string   `json:"nome"`
+	Marca                string   `json:"marca"`
+	Categoria            string   `json:"categoria"`
+	Quantidade           *float64 `json:"quantidade"`
+	QuantidadeEmbalagens *float64 `json:"quantidade_embalagens"`
+	ConteudoPorEmbalagem *float64 `json:"conteudo_por_embalagem"`
+	EstoqueMinimo        float64  `json:"estoque_minimo"`
+	EstoqueIdeal         float64  `json:"estoque_ideal"`
+	ValorUnitario        float64  `json:"valor_unitario"`
+	Unidade              string   `json:"unidade"`
+	ImagemURL            string   `json:"imagem_url"`
+	InstrucoesUso        string   `json:"instrucoes_uso"`
+	Ativo                *bool    `json:"ativo,omitempty"`
+}
+
+func (req insumoRequest) toInput(ativo bool) service.InsumoInput {
+	in := service.InsumoInput{
+		Nome:                 req.Nome,
+		Marca:                req.Marca,
+		Categoria:            req.Categoria,
+		Unidade:              req.Unidade,
+		Quantidade:           req.Quantidade,
+		QuantidadeEmbalagens: req.QuantidadeEmbalagens,
+		EstoqueMinimo:        req.EstoqueMinimo,
+		EstoqueIdeal:         req.EstoqueIdeal,
+		ValorUnitario:        req.ValorUnitario,
+		ImagemURL:            req.ImagemURL,
+		InstrucoesUso:        req.InstrucoesUso,
+		Ativo:                ativo,
+	}
+	if req.ConteudoPorEmbalagem != nil {
+		in.ConteudoPorEmbalagem = *req.ConteudoPorEmbalagem
+	}
+	return in
 }
 
 // CreateInsumo POST /api/v1/supplies
@@ -622,9 +664,7 @@ func (h *BootstrapAPIHandler) CreateInsumo(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
-	id, err := h.insumo.Create(r.Context(), establishmentID, req.Nome, req.Categoria, req.Unidade,
-		req.Quantidade, req.EstoqueMinimo, req.EstoqueIdeal, req.ValorUnitario,
-		req.Marca, req.ImagemURL, req.InstrucoesUso)
+	id, err := h.insumo.Create(r.Context(), establishmentID, req.toInput(true))
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
 		return
@@ -649,9 +689,7 @@ func (h *BootstrapAPIHandler) UpdateInsumo(w http.ResponseWriter, r *http.Reques
 	if req.Ativo != nil {
 		ativo = *req.Ativo
 	}
-	if err := h.insumo.Update(r.Context(), establishmentID, id, req.Nome, req.Categoria, req.Unidade,
-		req.Quantidade, req.EstoqueMinimo, req.EstoqueIdeal, req.ValorUnitario,
-		req.Marca, req.ImagemURL, req.InstrucoesUso, ativo); err != nil {
+	if err := h.insumo.Update(r.Context(), establishmentID, id, req.toInput(ativo)); err != nil {
 		if errors.Is(err, service.ErrInsumoNaoEncontrado) {
 			writeJSONError(w, http.StatusNotFound, "not_found")
 			return
@@ -663,7 +701,8 @@ func (h *BootstrapAPIHandler) UpdateInsumo(w http.ResponseWriter, r *http.Reques
 }
 
 type adjustEstoqueRequest struct {
-	Delta float64 `json:"delta"`
+	Delta           *float64 `json:"delta"`
+	DeltaEmbalagens *float64 `json:"delta_embalagens"`
 }
 
 // AdjustInsumoEstoque POST /api/v1/supplies/{id}/adjust
@@ -679,7 +718,10 @@ func (h *BootstrapAPIHandler) AdjustInsumoEstoque(w http.ResponseWriter, r *http
 		writeJSONError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
-	if err := h.insumo.AjustarEstoque(r.Context(), establishmentID, id, req.Delta); err != nil {
+	if err := h.insumo.AjustarEstoque(r.Context(), establishmentID, id, service.AjusteEstoqueInput{
+		Delta:           req.Delta,
+		DeltaEmbalagens: req.DeltaEmbalagens,
+	}); err != nil {
 		if errors.Is(err, service.ErrInsumoNaoEncontrado) {
 			writeJSONError(w, http.StatusNotFound, "not_found")
 			return

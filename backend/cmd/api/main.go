@@ -57,6 +57,8 @@ func main() {
 	saasGuard := security.NewSaaSGuard(db, 60*time.Second)
 	filaSvc := service.NewFilaEsperaService(db)
 	insumoSvc := service.NewInsumoService(db)
+	servicoInsumoSvc := service.NewServicoInsumoService(db)
+	estoquePrevisaoSvc := service.NewEstoquePrevisaoService(db)
 	whatsAppGate := security.NewWhatsAppGate(db, 30*time.Second)
 	earlySlotSvc := service.NewEarlySlotService(db, envOrDefault("APP_BASE_URL", "http://localhost:8081"))
 	agendaSvc.SetEarlySlotService(earlySlotSvc)
@@ -72,6 +74,7 @@ func main() {
 	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc, authSvc, whatsAppGate)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
 	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc)
+	estoqueHandler := adminhandler.NewEstoqueHandler(servicoInsumoSvc, estoquePrevisaoSvc)
 	tenantFinanceHandler := adminhandler.NewTenantFinanceHandler(financeiroSvc)
 	authHandler := adminhandler.NewAuthHandler(authSvc)
 	bootstrapAPI := adminhandler.NewBootstrapAPIHandler(
@@ -163,9 +166,13 @@ func main() {
 	mux.HandleFunc("POST /login/dona", authHandler.LoginForm)
 	mux.HandleFunc("POST /login/profissional", authHandler.LoginForm)
 
+	// Alteração de senha do próprio usuário (qualquer role autenticada; sem guarda SaaS)
+	mux.Handle("POST /api/v1/auth/change-password", security.AuthenticateMiddleware(http.HandlerFunc(authHandler.ChangePassword)))
+
 	// Super Admin — API JSON + UI HTML
 	mux.Handle("GET /api/v1/admin/establishments", superAdminRoute(adminEstHandler.List))
 	mux.Handle("POST /api/v1/admin/establishments", superAdminRoute(adminEstHandler.Create))
+	mux.Handle("PUT /api/v1/admin/establishments/{id}", superAdminRoute(adminEstHandler.Update))
 	mux.Handle("PUT /api/v1/admin/establishments/{id}/status", superAdminRoute(adminEstHandler.ToggleStatus))
 	mux.Handle("PUT /api/v1/admin/establishments/{id}/toggle-whatsapp", superAdminRoute(adminEstHandler.ToggleWhatsApp))
 	mux.Handle("POST /api/v1/admin/establishments/{id}/create-dona", superAdminRoute(adminEstHandler.CreateDona))
@@ -183,6 +190,7 @@ func main() {
 	mux.Handle("POST /api/v1/specialties", donaRoute(bootstrapAPI.CreateSpecialty))
 	mux.Handle("PUT /api/v1/specialties/{id}", donaRoute(bootstrapAPI.UpdateSpecialty))
 	mux.Handle("PUT /api/v1/professionals/{id}", donaRoute(bootstrapAPI.UpdateProfessional))
+	mux.Handle("POST /api/v1/professionals/{id}/foto", donaRoute(tenantCatalogHandler.UploadProfessionalFoto))
 	mux.Handle("POST /api/v1/appointments", tenantStaffRoute(bootstrapAPI.CreateAppointment))
 	mux.Handle("POST /api/v1/appointments/{id}/cancel", tenantStaffRoute(bootstrapAPI.CancelAppointment))
 	mux.Handle("PATCH /api/v1/appointments/{id}/early-slot-preference", tenantStaffRoute(earlySlotHandler.SetPreference))
@@ -194,6 +202,8 @@ func main() {
 	mux.Handle("POST /api/v1/waitlist/{id}/notify", tenantStaffRoute(bootstrapAPI.MarkFilaNotificada))
 	mux.Handle("GET /api/v1/supplies", donaRoute(bootstrapAPI.ListInsumos))
 	mux.Handle("POST /api/v1/supplies", donaRoute(bootstrapAPI.CreateInsumo))
+	// forecast antes de /supplies/{id} para evitar colisão com path genérico
+	mux.Handle("GET /api/v1/supplies/forecast", donaRoute(estoqueHandler.ForecastSupplies))
 	mux.Handle("PUT /api/v1/supplies/{id}", donaRoute(bootstrapAPI.UpdateInsumo))
 	mux.Handle("POST /api/v1/supplies/{id}/adjust", donaRoute(bootstrapAPI.AdjustInsumoEstoque))
 	mux.Handle("DELETE /api/v1/supplies/{id}", donaRoute(bootstrapAPI.DeleteInsumo))
@@ -243,7 +253,10 @@ func main() {
 	// Dona do salão — finanças, configuração e painel gerencial
 	mux.Handle("GET /api/v1/services", donaRoute(tenantCatalogHandler.ListServices))
 	mux.Handle("POST /api/v1/services", donaRoute(tenantCatalogHandler.CreateService))
+	mux.Handle("PUT /api/v1/services/{id}", donaRoute(tenantCatalogHandler.UpdateService))
 	mux.Handle("POST /api/v1/services/{id}/additionals", donaRoute(tenantCatalogHandler.CreateServiceAdditional))
+	mux.Handle("GET /api/v1/services/{id}/supplies", donaRoute(estoqueHandler.ListServiceSupplies))
+	mux.Handle("PUT /api/v1/services/{id}/supplies", donaRoute(estoqueHandler.ReplaceServiceSupplies))
 	mux.Handle("GET /api/v1/professionals", donaRoute(tenantCatalogHandler.ListProfessionals))
 	mux.Handle("POST /api/v1/professionals", donaRoute(tenantCatalogHandler.CreateProfessional))
 	mux.Handle("GET /api/v1/finance/report", donaRoute(tenantFinanceHandler.GetReport))

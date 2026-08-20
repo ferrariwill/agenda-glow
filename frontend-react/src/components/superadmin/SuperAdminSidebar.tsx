@@ -2,12 +2,9 @@ import { forwardRef } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Building2,
-  CreditCard,
   LayoutDashboard,
   LogOut,
-  Settings,
   Sparkles,
-  Users,
   Wallet,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -15,7 +12,6 @@ import { useLogout } from '../../hooks/useLogout'
 
 const nav = [
   { to: '/superadmin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/superadmin/clientes', label: 'Clientes', icon: Users },
   { to: '/superadmin/saloes', label: 'Salões', icon: Building2 },
   { to: '/superadmin/planos', label: 'Planos', icon: Sparkles },
   { to: '/superadmin/financeiro', label: 'Financeiro', icon: Wallet },
@@ -75,21 +71,6 @@ export const SuperAdminSidebar = forwardRef<HTMLElement, SuperAdminSidebarProps>
         </nav>
 
         <div className="space-y-2 border-t border-aura-border p-4">
-          <NavLink
-            to="/superadmin/planos"
-            onClick={onNavigate}
-            className="flex min-h-touch-min w-full touch-manipulation items-center justify-center rounded-lg bg-aura-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-aura-primary-dark"
-          >
-            <CreditCard className="mr-2 h-4 w-4" />
-            Upgrade Plan
-          </NavLink>
-          <button
-            type="button"
-            className="flex min-h-touch-min w-full touch-manipulation items-center gap-3 rounded-lg px-3 py-2 text-sm text-aura-muted hover:bg-aura-surface"
-          >
-            <Settings className="h-[18px] w-[18px]" />
-            Configurações
-          </button>
           <button
             type="button"
             onClick={handleLogout}
