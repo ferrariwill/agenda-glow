@@ -2,6 +2,21 @@ package service
 
 import "testing"
 
+func TestMulMoneyByQtyArredondaAoCentavoEstavel(t *testing.T) {
+	t.Parallel()
+
+	// Caso do contrato DEV-200: float64 direto daria 140.674999… → 140.67.
+	if got := mulMoneyByQty(165.5, 0.85); got != 140.68 {
+		t.Fatalf("mulMoneyByQty(165.5, 0.85) = %.2f; esperado 140.68", got)
+	}
+	if got := mulMoneyByQty(100, 1.99); got != 199 {
+		t.Fatalf("mulMoneyByQty(100, 1.99) = %.2f; esperado 199.00", got)
+	}
+	if got := mulMoneyByQty(0, 10); got != 0 {
+		t.Fatalf("mulMoneyByQty(0, 10) = %.2f; esperado 0", got)
+	}
+}
+
 func TestCalcularComissaoArredondaAoCentavo(t *testing.T) {
 	t.Parallel()
 

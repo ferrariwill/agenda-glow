@@ -608,6 +608,13 @@ pelo Gateway.
 
 ## 14. Lacunas e exceções conhecidas
 
+### Insumos e previsão de estoque (DEV-200)
+
+- CRUD de insumos: `GET/POST/PUT/DELETE /api/v1/supplies` + `POST .../adjust` (papel **DONA**).
+- Ficha técnica (BOM): `GET/PUT /api/v1/services/{id}/supplies` — vínculos `servico_insumos` com isolamento por `estabelecimento_id`.
+- Previsão: `GET /api/v1/supplies/forecast` — média de consumo teórico (BOM × agendamentos `CONCLUIDO` na janela) e demanda futura (`AGENDADO`/`CONFIRMADO`); sugere compra quando `nivel = CRITICO`.
+- **Fora de escopo (ainda lacuna):** débito automático de estoque ao concluir atendimento; UI de previsão; notificação WhatsApp de compra.
+
 1. **Profissional não passa pelo guarda SaaS** — salão suspenso/vencido ainda acessa o dashboard da profissional.
 2. **`PAGAMENTO_PENDENTE`** ainda libera a Dona se dentro do vencimento.
 3. **`EM_APROVACAO` não reserva** o calendário para colisões e slots.
