@@ -66,7 +66,7 @@ func montarCenarioStage3(t *testing.T, db *sqlx.DB, duracaoServico int) cenarioS
 	if err != nil {
 		t.Fatalf("cadastrar profissional: %v", err)
 	}
-	servicoID, err := procSvc.CreateService(ctx, estID, "Fazer Unhas", 50, duracaoServico, nil)
+	servicoID, err := procSvc.CreateService(ctx, estID, "Fazer Unhas", 50, duracaoServico, nil, "")
 	if err != nil {
 		t.Fatalf("cadastrar serviço: %v", err)
 	}

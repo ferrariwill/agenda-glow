@@ -19,15 +19,18 @@ import (
 type TenantCatalogHandler struct {
 	profissionais *service.ProfissionalService
 	procedimentos *service.ProcedimentoService
+	categorias    *service.CategoriaServicoService
 }
 
 func NewTenantCatalogHandler(
 	profissionais *service.ProfissionalService,
 	procedimentos *service.ProcedimentoService,
+	categorias *service.CategoriaServicoService,
 ) *TenantCatalogHandler {
 	return &TenantCatalogHandler{
 		profissionais: profissionais,
 		procedimentos: procedimentos,
+		categorias:    categorias,
 	}
 }
 
@@ -36,6 +39,7 @@ type createServiceRequest struct {
 	PrecoBase       float64  `json:"preco_base"`
 	DuracaoBase     int      `json:"duracao_base_minutos"`
 	ProfissionalIDs []string `json:"profissional_ids"`
+	CategoriaID     *string  `json:"categoria_id"`
 }
 
 type updateServiceRequest struct {
@@ -44,6 +48,7 @@ type updateServiceRequest struct {
 	DuracaoBase     int       `json:"duracao_base_minutos"`
 	Ativo           bool      `json:"ativo"`
 	ProfissionalIDs *[]string `json:"profissional_ids"`
+	CategoriaID     *string   `json:"categoria_id"`
 }
 
 type createAdditionalRequest struct {
@@ -58,6 +63,11 @@ type createProfessionalRequest struct {
 	Comissao        float64 `json:"comissao_porcentagem"`
 	DataNascimento  *string `json:"data_nascimento"`
 	FotoURL         *string `json:"foto_url"`
+}
+
+type serviceCategoryRequest struct {
+	Nome  string `json:"nome"`
+	Icone string `json:"icone"`
 }
 
 type idResponse struct {
@@ -112,6 +122,11 @@ func (h *TenantCatalogHandler) CreateService(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	categoriaID := ""
+	if req.CategoriaID != nil {
+		categoriaID = *req.CategoriaID
+	}
+
 	id, err := h.procedimentos.CreateService(
 		r.Context(),
 		establishmentID,
@@ -119,10 +134,15 @@ func (h *TenantCatalogHandler) CreateService(w http.ResponseWriter, r *http.Requ
 		req.PrecoBase,
 		req.DuracaoBase,
 		req.ProfissionalIDs,
+		categoriaID,
 	)
 	if err != nil {
 		if errors.Is(err, service.ErrProfissionalVinculoInvalido) {
 			writeJSONError(w, http.StatusBadRequest, "invalid_professional")
+			return
+		}
+		if errors.Is(err, service.ErrCategoriaServicoNaoEncontrada) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_category")
 			return
 		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
@@ -161,6 +181,7 @@ func (h *TenantCatalogHandler) UpdateService(w http.ResponseWriter, r *http.Requ
 			DuracaoBase:     req.DuracaoBase,
 			Ativo:           req.Ativo,
 			ProfissionalIDs: req.ProfissionalIDs,
+			CategoriaID:     req.CategoriaID,
 		},
 	)
 	if err != nil {
@@ -170,6 +191,10 @@ func (h *TenantCatalogHandler) UpdateService(w http.ResponseWriter, r *http.Requ
 		}
 		if errors.Is(err, service.ErrProfissionalVinculoInvalido) {
 			writeJSONError(w, http.StatusBadRequest, "invalid_professional")
+			return
+		}
+		if errors.Is(err, service.ErrCategoriaServicoNaoEncontrada) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_category")
 			return
 		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
@@ -216,6 +241,96 @@ func (h *TenantCatalogHandler) CreateServiceAdditional(w http.ResponseWriter, r 
 	}
 
 	writeJSON(w, http.StatusCreated, idResponse{ID: id})
+}
+
+func (h *TenantCatalogHandler) ListServiceCategories(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	list, err := h.categorias.List(r.Context(), establishmentID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (h *TenantCatalogHandler) CreateServiceCategory(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	var req serviceCategoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	id, err := h.categorias.Create(r.Context(), establishmentID, req.Nome, req.Icone)
+	if err != nil {
+		if errors.Is(err, service.ErrCategoriaServicoNomeDuplicado) {
+			writeJSONError(w, http.StatusConflict, "duplicate_name")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusCreated, idResponse{ID: id})
+}
+
+func (h *TenantCatalogHandler) UpdateServiceCategory(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+	var req serviceCategoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	if err := h.categorias.Update(r.Context(), establishmentID, id, req.Nome, req.Icone); err != nil {
+		if errors.Is(err, service.ErrCategoriaServicoNaoEncontrada) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		if errors.Is(err, service.ErrCategoriaServicoNomeDuplicado) {
+			writeJSONError(w, http.StatusConflict, "duplicate_name")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *TenantCatalogHandler) DeleteServiceCategory(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+	if err := h.categorias.Delete(r.Context(), establishmentID, id); err != nil {
+		if errors.Is(err, service.ErrCategoriaServicoNaoEncontrada) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (h *TenantCatalogHandler) ListProfessionals(w http.ResponseWriter, r *http.Request) {

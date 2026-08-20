@@ -204,7 +204,7 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 	}
 	setProfissionalEmail(t, db, profID, "claudia.encaixe@test.local")
 
-	servicoID, err := procSvc.CreateService(ctx, estID, "Fazer Unhas", 50, 45, nil)
+	servicoID, err := procSvc.CreateService(ctx, estID, "Fazer Unhas", 50, 45, nil, "")
 	if err != nil {
 		t.Fatalf("cadastrar serviço: %v", err)
 	}

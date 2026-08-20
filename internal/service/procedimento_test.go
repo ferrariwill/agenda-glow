@@ -22,13 +22,13 @@ func TestListServicesIncluiProfissionalIDsEmBatch(t *testing.T) {
 	defer raw.Close()
 	svc := NewProcedimentoService(sqlx.NewDb(raw, "sqlmock"))
 
-	mock.ExpectQuery(`SELECT id, nome, preco_base`).
+	mock.ExpectQuery(`SELECT s.id, s.nome, s.preco_base`).
 		WithArgs("est-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "nome", "preco_base", "duracao_base_minutos", "ativo",
+			"id", "nome", "preco_base", "duracao_base_minutos", "ativo", "categoria_id", "categoria_nome",
 		}).
-			AddRow("svc-1", "Corte", 80.0, 60, true).
-			AddRow("svc-2", "Escova", 50.0, 30, true))
+			AddRow("svc-1", "Corte", 80.0, 60, true, nil, nil).
+			AddRow("svc-2", "Escova", 50.0, 30, true, nil, nil))
 
 	mock.ExpectQuery(`SELECT sa.id, sa.servico_id`).
 		WithArgs("est-1", pq.Array([]string{"svc-1", "svc-2"})).
@@ -83,7 +83,7 @@ func TestCreateServicePersisteVinculosEmTransacao(t *testing.T) {
 		WithArgs("est-1", pq.Array([]string{"prof-1", "prof-dona"})).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("prof-1").AddRow("prof-dona"))
 	mock.ExpectQuery(`INSERT INTO servicos`).
-		WithArgs("est-1", "Corte", 80.0, 60).
+		WithArgs("est-1", "Corte", 80.0, 60, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("svc-1"))
 	mock.ExpectExec(`DELETE FROM servico_profissionais`).
 		WithArgs("est-1", "svc-1").
@@ -98,7 +98,7 @@ func TestCreateServicePersisteVinculosEmTransacao(t *testing.T) {
 
 	id, err := svc.CreateService(
 		context.Background(), "est-1", "Corte", 80, 60,
-		[]string{"prof-1", "prof-dona"},
+		[]string{"prof-1", "prof-dona"}, "",
 	)
 	if err != nil {
 		t.Fatalf("CreateService: %v", err)
@@ -129,7 +129,7 @@ func TestCreateServiceRejeitaProfissionalOutroTenant(t *testing.T) {
 
 	_, err = svc.CreateService(
 		context.Background(), "est-1", "Corte", 80, 60,
-		[]string{"prof-outro"},
+		[]string{"prof-outro"}, "",
 	)
 	if !errors.Is(err, ErrProfissionalVinculoInvalido) {
 		t.Fatalf("err=%v; want ErrProfissionalVinculoInvalido", err)
@@ -171,11 +171,11 @@ func TestUpdateServiceReplaceAtomicoEIsolaTenant(t *testing.T) {
 		mock.ExpectCommit()
 
 		// BuscarServicoPorID pós-commit
-		mock.ExpectQuery(`SELECT id, nome, preco_base`).
+		mock.ExpectQuery(`SELECT s.id, s.nome, s.preco_base`).
 			WithArgs("svc-1", "est-1").
 			WillReturnRows(sqlmock.NewRows([]string{
-				"id", "nome", "preco_base", "duracao_base_minutos", "ativo",
-			}).AddRow("svc-1", "Corte", 90.0, 45, true))
+				"id", "nome", "preco_base", "duracao_base_minutos", "ativo", "categoria_id", "categoria_nome",
+			}).AddRow("svc-1", "Corte", 90.0, 45, true, nil, nil))
 		mock.ExpectQuery(`SELECT sa.id, sa.servico_id`).
 			WithArgs("est-1", "svc-1").
 			WillReturnRows(sqlmock.NewRows([]string{
@@ -250,11 +250,11 @@ func TestUpdateServiceReplaceAtomicoEIsolaTenant(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
 
-		mock.ExpectQuery(`SELECT id, nome, preco_base`).
+		mock.ExpectQuery(`SELECT s.id, s.nome, s.preco_base`).
 			WithArgs("svc-1", "est-1").
 			WillReturnRows(sqlmock.NewRows([]string{
-				"id", "nome", "preco_base", "duracao_base_minutos", "ativo",
-			}).AddRow("svc-1", "Corte", 90.0, 45, false))
+				"id", "nome", "preco_base", "duracao_base_minutos", "ativo", "categoria_id", "categoria_nome",
+			}).AddRow("svc-1", "Corte", 90.0, 45, false, nil, nil))
 		mock.ExpectQuery(`SELECT sa.id, sa.servico_id`).
 			WithArgs("est-1", "svc-1").
 			WillReturnRows(sqlmock.NewRows([]string{
