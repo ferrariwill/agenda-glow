@@ -611,7 +611,7 @@ pelo Gateway.
 ### Insumos e previsão de estoque (DEV-200)
 
 - CRUD de insumos: `GET/POST/PUT/DELETE /api/v1/supplies` + `POST .../adjust` (papel **DONA**).
-- Ficha técnica (BOM): `GET/PUT /api/v1/services/{id}/supplies` — vínculos `servico_insumos` com isolamento por `estabelecimento_id`.
+- Ficha técnica (BOM): `GET/POST /api/v1/services/{id}/supplies`, `PUT/DELETE /api/v1/services/{id}/supplies/{linkId}` (item) e `PUT /api/v1/services/{id}/supplies` (replace completo) — vínculos `servico_insumos` com isolamento por `estabelecimento_id`.
 - Previsão: `GET /api/v1/supplies/forecast` — média de consumo teórico (BOM × agendamentos `CONCLUIDO` na janela) e demanda futura (`AGENDADO`/`CONFIRMADO`); sugere compra quando `nivel = CRITICO`.
 - **Fora de escopo (ainda lacuna):** débito automático de estoque ao concluir atendimento; UI de previsão; notificação WhatsApp de compra.
 
