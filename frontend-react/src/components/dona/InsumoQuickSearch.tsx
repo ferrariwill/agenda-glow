@@ -18,6 +18,7 @@ export function InsumoQuickSearch({
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -40,7 +41,8 @@ export function InsumoQuickSearch({
           if (cancelled) return
           const exclude = new Set(excludeKey ? excludeKey.split(',') : [])
           setResults(list.filter((i) => i.ativo && !exclude.has(i.id)))
-          setOpen(true)
+          // Só abre se o input estiver focado — evita dropdown no mount.
+          if (document.activeElement === inputRef.current) setOpen(true)
         } catch {
           if (!cancelled) setResults([])
         } finally {
@@ -57,6 +59,7 @@ export function InsumoQuickSearch({
   return (
     <div ref={wrapRef} className="relative">
       <input
+        ref={inputRef}
         type="search"
         value={query}
         disabled={disabled}
