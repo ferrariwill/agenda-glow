@@ -35,6 +35,54 @@ type loginResponse struct {
 	} `json:"user"`
 }
 
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+// ChangePassword POST /api/v1/auth/change-password
+// Altera a senha do usuário autenticado (claims.UserID). Válido para qualquer role.
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	claims, ok := security.ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == "" {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	current := strings.TrimSpace(req.CurrentPassword)
+	newPassword := strings.TrimSpace(req.NewPassword)
+	confirm := strings.TrimSpace(req.ConfirmPassword)
+
+	if current == "" || newPassword == "" || confirm == "" ||
+		len(newPassword) < 8 ||
+		newPassword != confirm ||
+		newPassword == current {
+		writeJSONError(w, http.StatusBadRequest, "validation_error")
+		return
+	}
+
+	if err := h.auth.ChangePassword(r.Context(), claims.UserID, current, newPassword); err != nil {
+		switch {
+		case errors.Is(err, service.ErrCredenciaisInvalidas):
+			writeJSONError(w, http.StatusUnauthorized, "invalid_credentials")
+		case errors.Is(err, service.ErrUsuarioInativo):
+			writeJSONError(w, http.StatusForbidden, "user_inactive")
+		default:
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Login POST /api/v1/auth/login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest

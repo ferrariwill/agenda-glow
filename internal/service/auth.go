@@ -86,6 +86,41 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*Login
 	return &LoginResult{Token: token, User: *user}, nil
 }
 
+// ChangePassword atualiza a senha do próprio usuário autenticado (por ID do JWT).
+func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" || currentPassword == "" || newPassword == "" {
+		return ErrCredenciaisInvalidas
+	}
+
+	user, err := s.buscarPorID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrCredenciaisInvalidas
+		}
+		return err
+	}
+
+	if !user.Ativo {
+		return ErrUsuarioInativo
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return ErrCredenciaisInvalidas
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash da senha: %w", err)
+	}
+
+	const update = `UPDATE users SET password_hash = $1 WHERE id = $2`
+	if _, err := s.db.ExecContext(ctx, update, string(hash), user.ID); err != nil {
+		return fmt.Errorf("atualizar senha: %w", err)
+	}
+	return nil
+}
+
 // CreateUser cadastra credencial com hash bcrypt (uso administrativo / seed).
 func (s *AuthService) CreateUser(ctx context.Context, email, password, role string, estabelecimentoID, profissionalID *string) (string, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
@@ -121,6 +156,19 @@ WHERE LOWER(email) = LOWER($1)
 `
 	var user UserCredential
 	if err := s.db.GetContext(ctx, &user, query, email); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (s *AuthService) buscarPorID(ctx context.Context, id string) (*UserCredential, error) {
+	const query = `
+SELECT id, email, password_hash, role, estabelecimento_id, profissional_id, ativo
+FROM users
+WHERE id = $1
+`
+	var user UserCredential
+	if err := s.db.GetContext(ctx, &user, query, id); err != nil {
 		return nil, err
 	}
 	return &user, nil
