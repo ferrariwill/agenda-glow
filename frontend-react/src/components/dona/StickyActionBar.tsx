@@ -9,6 +9,9 @@ export interface StickyActionBarProps {
   hasUnsavedChanges?: boolean
 }
 
+/** Padding inferior do conteúdo para não cobrir preview/footer com a barra fixa. */
+export const STICKY_ACTION_BAR_SPACE = 'pb-32'
+
 export function StickyActionBar({
   onSave,
   onCancel,
@@ -25,10 +28,12 @@ export function StickyActionBar({
       aria-label="Ações do formulário"
       aria-busy={isSaving}
       className={[
-        'sticky z-30 w-full border-t border-[#e5d3c8]/50 bg-white/95 backdrop-blur-md',
+        'fixed z-30 border-t border-[#e5d3c8]/50 bg-white/95 backdrop-blur-md',
         'shadow-[0_-4px_20px_rgba(0,0,0,0.06)]',
-        /* Acima da BottomNav no mobile; encostado no rodapé em lg+ (já dentro da coluna do layout) */
-        'bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:bottom-0',
+        /* Viewport-fixed: sempre visível durante a rolagem (precedente ClienteDetalheDona / BookingStickyBar) */
+        'left-0 right-0',
+        /* Acima da BottomNav + safe-area no mobile; rodapé com offset da sidebar em lg+ */
+        'bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:bottom-0 lg:left-64',
       ].join(' ')}
     >
       <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6">

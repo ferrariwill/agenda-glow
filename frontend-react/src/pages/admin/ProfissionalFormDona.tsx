@@ -16,7 +16,7 @@ import {
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { QuickSpecialtyModal } from '../../components/dona/QuickSpecialtyModal'
-import { StickyActionBar } from '../../components/dona/StickyActionBar'
+import { StickyActionBar, STICKY_ACTION_BAR_SPACE } from '../../components/dona/StickyActionBar'
 import { Alert } from '../../components/ui/Alert'
 import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
@@ -431,6 +431,7 @@ export function ProfissionalFormDona() {
         </div>
       )}
 
+      <div className={STICKY_ACTION_BAR_SPACE}>
       <div className="grid grid-cols-12 gap-8">
         {/* Coluna esquerda */}
         <div className="col-span-12 space-y-8 xl:col-span-8">
@@ -872,6 +873,7 @@ export function ProfissionalFormDona() {
       </div>
 
       <DonaFooter />
+      </div>
 
       <StickyActionBar
         onSave={() => void save()}
