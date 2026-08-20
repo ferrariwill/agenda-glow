@@ -48,11 +48,15 @@ describe('BottomNav', () => {
     expect(render('profissional')).toContain('Início')
   })
 
-  it('superadmin: 5 destinos sem Mais', () => {
+  it('superadmin: 4 destinos sem Mais nem Clientes', () => {
     const html = render('superadmin')
+    expect(html).toContain('Início')
     expect(html).toContain('Salões')
     expect(html).toContain('Planos')
+    expect(html).toContain('Caixa')
     expect(html).not.toContain('>Mais<')
+    expect(html).not.toContain('/superadmin/clientes')
+    expect(html).not.toMatch(/>Clientes</)
   })
 
   it('drawer aberto marca nav como inert', () => {
