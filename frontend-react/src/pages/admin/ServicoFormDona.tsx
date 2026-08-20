@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronRight,
   Clock,
@@ -16,9 +16,11 @@ import { Alert } from '../../components/ui/Alert'
 import { Modal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
 import { ApiError } from '../../lib/api'
+import type { Profissional } from '../../types'
 import {
   createServico,
   getDb,
+  getDonaProfissional,
   getServicoById,
   replaceServiceSupplies,
   updateServico,
@@ -38,6 +40,26 @@ const STOCK_IMAGES = [
   'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800&q=80',
 ]
 
+function buildProfissionaisPicker(
+  tenantId: string,
+  all: Profissional[],
+): Profissional[] {
+  const ativos = all.filter((p) => p.tenant_id === tenantId && p.ativo)
+  const byId = new Map(ativos.map((p) => [p.id, p]))
+
+  const dona = getDonaProfissional(tenantId)
+  const tenant = getDb().tenants.find((t) => t.id === tenantId)
+  const incluirDona =
+    (dona?.ativo && dona.eh_dona) ||
+    (Boolean(dona) && Boolean(tenant?.dona_atua_como_profissional))
+
+  if (incluirDona && dona && !byId.has(dona.id)) {
+    byId.set(dona.id, dona)
+  }
+
+  return Array.from(byId.values()).sort((a, b) => a.nome.localeCompare(b.nome))
+}
+
 export function ServicoFormDona() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -48,7 +70,10 @@ export function ServicoFormDona() {
 
   const db = getDb()
   const existing = isEdit ? getServicoById(tenantId, id!) : undefined
-  const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
+  const profissionais = useMemo(
+    () => buildProfissionaisPicker(tenantId, db.profissionais),
+    [tenantId, db.profissionais],
+  )
 
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
@@ -65,9 +90,26 @@ export function ServicoFormDona() {
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(!isEdit)
 
+  const existingId = existing?.id
+  const existingSnapshot = existing
+    ? [
+        existing.id,
+        existing.nome,
+        existing.descricao ?? '',
+        existing.categoria_id ?? '',
+        existing.duracao_minutos,
+        existing.preco,
+        existing.ativo,
+        existing.exibir_catalogo_publico ?? true,
+        existing.permitir_agendamento_online ?? true,
+        (existing.profissional_ids ?? []).join(','),
+        existing.imagem_url ?? '',
+      ].join('|')
+    : ''
+
   useEffect(() => {
     if (!isEdit) return
-    if (!existing) {
+    if (!existingId || !existing) {
       setLoaded(true)
       return
     }
@@ -82,10 +124,20 @@ export function ServicoFormDona() {
     setProfissionalIds(existing.profissional_ids ?? [])
     setImagemUrl(existing.imagem_url ?? DEFAULT_IMG)
     setLoaded(true)
-  }, [isEdit, existing])
+    // Load once per serviço / snapshot estável — evita reset por referência nova a cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional stable snapshot deps
+  }, [isEdit, existingId, existingSnapshot])
+
+  const profById = useMemo(
+    () => new Map(profissionais.map((p) => [p.id, p])),
+    [profissionais],
+  )
 
   const profsDisponiveis = profissionais.filter((p) => !profissionalIds.includes(p.id))
-  const profsSelecionados = profissionais.filter((p) => profissionalIds.includes(p.id))
+  const selectedKnown = profissionalIds
+    .map((pid) => profById.get(pid))
+    .filter((p): p is Profissional => Boolean(p))
+  const orphanIds = profissionalIds.filter((pid) => !profById.has(pid))
 
   if (isEdit && !existing && loaded) {
     return <Navigate to="/admin/servicos" replace />
@@ -160,6 +212,29 @@ export function ServicoFormDona() {
 
   const pageTitle = isEdit ? 'Editar serviço' : 'Novo serviço'
   const breadcrumbLabel = isEdit ? nome || 'Serviço' : 'Novo serviço'
+
+  const renderProfChip = (p: Profissional) => (
+    <div
+      key={p.id}
+      className="flex items-center gap-2 rounded-lg border border-[#d6c2bd]/20 bg-[#f4f3f2] p-2 pr-3"
+    >
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#efdcd1] text-xs font-bold text-[#7d5141]">
+        {initials(p.nome)}
+      </div>
+      <span className="text-sm font-medium">
+        {p.nome}
+        {p.eh_dona ? ' (Dona)' : ''}
+      </span>
+      <button
+        type="button"
+        onClick={() => setProfissionalIds((ids) => ids.filter((x) => x !== p.id))}
+        className="ml-1 rounded-full p-0.5 text-[#83746f] hover:bg-[#e9e8e7] hover:text-[#7d5141]"
+        aria-label={`Remover ${p.nome}`}
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
 
   return (
     <DonaLayout searchPlaceholder="Buscar serviços, preços ou categorias…">
@@ -288,20 +363,23 @@ export function ServicoFormDona() {
               Profissionais habilitados
             </h2>
             <div className="flex flex-wrap items-center gap-3">
-              {profsSelecionados.map((p) => (
+              {selectedKnown.map(renderProfChip)}
+              {orphanIds.map((pid) => (
                 <div
-                  key={p.id}
-                  className="flex items-center gap-2 rounded-lg border border-[#d6c2bd]/20 bg-[#f4f3f2] p-2 pr-3"
+                  key={pid}
+                  className="flex items-center gap-2 rounded-lg border border-amber-200/60 bg-amber-50 p-2 pr-3"
                 >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#efdcd1] text-xs font-bold text-[#7d5141]">
-                    {initials(p.nome)}
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-800">
+                    ?
                   </div>
-                  <span className="text-sm font-medium">{p.nome}</span>
+                  <span className="text-sm font-medium text-amber-900">
+                    Profissional indisponível
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setProfissionalIds((ids) => ids.filter((x) => x !== p.id))}
-                    className="ml-1 rounded-full p-0.5 text-[#83746f] hover:bg-[#e9e8e7] hover:text-[#7d5141]"
-                    aria-label={`Remover ${p.nome}`}
+                    onClick={() => setProfissionalIds((ids) => ids.filter((x) => x !== pid))}
+                    className="ml-1 rounded-full p-0.5 text-amber-700 hover:bg-amber-100"
+                    aria-label="Remover profissional indisponível"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -318,7 +396,7 @@ export function ServicoFormDona() {
                 </button>
               )}
             </div>
-            {profsSelecionados.length === 0 && (
+            {selectedKnown.length === 0 && orphanIds.length === 0 && (
               <p className="mt-3 text-sm text-[#83746f]">
                 Nenhum profissional vinculado. Adicione quem pode realizar este serviço.
               </p>
@@ -426,7 +504,10 @@ export function ServicoFormDona() {
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#efdcd1] text-xs font-bold text-[#7d5141]">
                   {initials(p.nome)}
                 </div>
-                <span className="font-medium">{p.nome}</span>
+                <span className="font-medium">
+                  {p.nome}
+                  {p.eh_dona ? ' (Dona)' : ''}
+                </span>
               </button>
             ))
           )}

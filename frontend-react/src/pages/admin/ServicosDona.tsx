@@ -88,9 +88,14 @@ export function ServicosDona() {
   const pageItems = servicos.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE)
 
   const toggleAtivo = async (s: Servico) => {
-    await updateServico(s.id, { ativo: !s.ativo })
-    refresh()
-    setSuccess(s.ativo ? 'Serviço desativado.' : 'Serviço reativado.')
+    try {
+      await updateServico(s.id, { ativo: !s.ativo })
+      refresh()
+      setSuccess(s.ativo ? 'Serviço desativado.' : 'Serviço reativado.')
+    } catch (err) {
+      refresh()
+      setSuccess(err instanceof Error ? err.message : 'Não foi possível atualizar o serviço.')
+    }
   }
 
   const confirmDelete = async () => {

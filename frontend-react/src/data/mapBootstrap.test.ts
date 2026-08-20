@@ -214,4 +214,87 @@ describe('mapTenantBootstrap', () => {
       ultimo_lembrete_enviado_em: null,
     })
   })
+
+  it('mapeia profissional_ids, eh_dona e dona_atua_como_profissional do bootstrap', () => {
+    const payload: TenantPayload = {
+      ...tenantPayload('ATIVO'),
+      tenant: {
+        ...tenantPayload('ATIVO').tenant,
+        dona_atua_como_profissional: true,
+      },
+      profissionais: [
+        {
+          id: 'prof-dona',
+          nome: 'Maria Dona',
+          especialidade_id: 'esp-1',
+          especialidade: 'Geral',
+          comissao_porcentagem: 0,
+          ativo: true,
+          eh_dona: true,
+          user_id: 'user-dona',
+          expedientes: [],
+        },
+        {
+          id: 'prof-1',
+          nome: 'Ana',
+          especialidade_id: 'esp-1',
+          especialidade: 'Geral',
+          comissao_porcentagem: 40,
+          ativo: true,
+          eh_dona: false,
+          expedientes: [],
+        },
+      ],
+      servicos: [
+        {
+          id: 'srv-1',
+          nome: 'Corte',
+          preco_base: 80,
+          duracao_base_minutos: 45,
+          ativo: true,
+          categoria_id: 'cat-1',
+          profissional_ids: ['prof-dona', 'prof-1'],
+        },
+        {
+          id: 'srv-2',
+          nome: 'Escova',
+          preco_base: 50,
+          duracao_base_minutos: 30,
+          ativo: true,
+          profissional_ids: [],
+        },
+      ],
+    }
+
+    const db = mapTenantBootstrap(payload, emptyDb())
+
+    expect(db.tenants[0].dona_atua_como_profissional).toBe(true)
+    expect(db.profissionais.find((p) => p.id === 'prof-dona')).toMatchObject({
+      eh_dona: true,
+      user_id: 'user-dona',
+    })
+    expect(db.servicos.find((s) => s.id === 'srv-1')).toMatchObject({
+      categoria_id: 'cat-1',
+      profissional_ids: ['prof-dona', 'prof-1'],
+    })
+    expect(db.servicos.find((s) => s.id === 'srv-2')?.profissional_ids).toEqual([])
+  })
+
+  it('usa profissional_ids vazio quando o campo falta no JSON (legado)', () => {
+    const payload: TenantPayload = {
+      ...tenantPayload('ATIVO'),
+      servicos: [
+        {
+          id: 'srv-legado',
+          nome: 'Legado',
+          preco_base: 10,
+          duracao_base_minutos: 15,
+          ativo: true,
+        },
+      ],
+    }
+
+    const db = mapTenantBootstrap(payload, emptyDb())
+    expect(db.servicos[0].profissional_ids).toEqual([])
+  })
 })
