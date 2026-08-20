@@ -1,9 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import {
+  maskBRLInput,
   maskPhoneBRInput,
+  parseBRLInput,
   phoneDigitsToMaskInput,
   toWhatsAppDigits,
 } from './format'
+
+describe('maskBRLInput', () => {
+  it('retorna vazio sem dígitos', () => {
+    expect(maskBRLInput('')).toBe('')
+    expect(maskBRLInput('abc')).toBe('')
+    expect(maskBRLInput('R$')).toBe('')
+  })
+
+  it('formata centavos da direita', () => {
+    expect(maskBRLInput('1')).toBe('0,01')
+    expect(maskBRLInput('12')).toBe('0,12')
+    expect(maskBRLInput('123')).toBe('1,23')
+    expect(maskBRLInput('123456')).toBe('1.234,56')
+  })
+
+  it('ignora não-dígitos e round-trip com parseBRLInput', () => {
+    expect(maskBRLInput('R$ 1.234,56')).toBe('1.234,56')
+    expect(parseBRLInput(maskBRLInput('123456'))).toBe(1234.56)
+  })
+})
 
 describe('maskPhoneBRInput', () => {
   it('ignora letras e formata progressivamente', () => {

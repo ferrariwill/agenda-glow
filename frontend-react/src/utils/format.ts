@@ -56,6 +56,17 @@ export function parseBRLInput(raw: string): number {
   return Number(s)
 }
 
+/** Digits-only → "1.234,56" (centavos da direita). Sem prefixo R$. */
+export function maskBRLInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return ''
+  const value = Number(digits) / 100
+  return value.toLocaleString(PT_BR_LOCALE, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
 /** ISO → "14 mar. de 2024" */
 export function formatDateShortBR(iso: string) {
   if (!iso) return ''
