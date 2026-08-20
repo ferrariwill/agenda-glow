@@ -17,20 +17,23 @@ import (
 )
 
 type TenantCatalogHandler struct {
-	profissionais *service.ProfissionalService
-	procedimentos *service.ProcedimentoService
-	categorias    *service.CategoriaServicoService
+	profissionais  *service.ProfissionalService
+	procedimentos  *service.ProcedimentoService
+	servicoInsumos *service.ServicoInsumoService
+	categorias     *service.CategoriaServicoService
 }
 
 func NewTenantCatalogHandler(
 	profissionais *service.ProfissionalService,
 	procedimentos *service.ProcedimentoService,
+	servicoInsumos *service.ServicoInsumoService,
 	categorias *service.CategoriaServicoService,
 ) *TenantCatalogHandler {
 	return &TenantCatalogHandler{
-		profissionais: profissionais,
-		procedimentos: procedimentos,
-		categorias:    categorias,
+		profissionais:  profissionais,
+		procedimentos:  procedimentos,
+		servicoInsumos: servicoInsumos,
+		categorias:     categorias,
 	}
 }
 
@@ -68,6 +71,15 @@ type createProfessionalRequest struct {
 type serviceCategoryRequest struct {
 	Nome  string `json:"nome"`
 	Icone string `json:"icone"`
+}
+
+type serviceSupplyRequest struct {
+	InsumoID      string  `json:"insumo_id"`
+	QuantidadeUso float64 `json:"quantidade_uso"`
+}
+
+type updateServiceSupplyRequest struct {
+	QuantidadeUso float64 `json:"quantidade_uso"`
 }
 
 type idResponse struct {
@@ -328,6 +340,101 @@ func (h *TenantCatalogHandler) DeleteServiceCategory(w http.ResponseWriter, r *h
 			return
 		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *TenantCatalogHandler) ListServiceSupplies(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	serviceID := strings.TrimSpace(r.PathValue("id"))
+	if serviceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_service_id")
+		return
+	}
+	list, err := h.servicoInsumos.List(r.Context(), establishmentID, serviceID)
+	if err != nil {
+		if errors.Is(err, service.ErrServicoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+		} else {
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (h *TenantCatalogHandler) CreateServiceSupply(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	serviceID := strings.TrimSpace(r.PathValue("id"))
+	var req serviceSupplyRequest
+	if serviceID == "" || json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	id, err := h.servicoInsumos.Create(r.Context(), establishmentID, serviceID, req.InsumoID, req.QuantidadeUso)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrServicoNaoEncontrado), errors.Is(err, service.ErrInsumoNaoEncontrado):
+			writeJSONError(w, http.StatusNotFound, "not_found")
+		case errors.Is(err, service.ErrServicoInsumoDuplicado):
+			writeJSONError(w, http.StatusConflict, "duplicate_link")
+		default:
+			writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, idResponse{ID: id})
+}
+
+func (h *TenantCatalogHandler) UpdateServiceSupply(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	serviceID, linkID := strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("linkId"))
+	var req updateServiceSupplyRequest
+	if serviceID == "" || linkID == "" || json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	if err := h.servicoInsumos.Update(r.Context(), establishmentID, serviceID, linkID, req.QuantidadeUso); err != nil {
+		if errors.Is(err, service.ErrServicoInsumoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+		} else {
+			writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *TenantCatalogHandler) DeleteServiceSupply(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	serviceID, linkID := strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("linkId"))
+	if serviceID == "" || linkID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+	if err := h.servicoInsumos.Delete(r.Context(), establishmentID, serviceID, linkID); err != nil {
+		if errors.Is(err, service.ErrServicoInsumoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+		} else {
+			writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
