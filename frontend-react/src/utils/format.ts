@@ -44,27 +44,39 @@ export function formatCompactBRL(v: number) {
   return formatBRL(v)
 }
 
-/** Converte texto digitado (180,50 · 180.50 · 1.234,56) em número. */
+/** Converte texto digitado (180,50 · 180.50 · 1.234,56 · 1.000) em número (reais). */
 export function parseBRLInput(raw: string): number {
   let s = raw.trim().replace(/[R$\s]/g, '')
   if (!s) return NaN
   if (s.includes(',') && s.includes('.')) {
+    // milhar `.`, decimal `,`
     s = s.replace(/\./g, '').replace(',', '.')
   } else if (s.includes(',')) {
     s = s.replace(',', '.')
+  } else if (s.includes('.') && /^\d{1,3}(\.\d{3})+$/.test(s)) {
+    // milhar BR sem centavos: "1.000" → 1000 (não 1)
+    s = s.replace(/\./g, '')
   }
+  // senão: decimal com ponto (ex. "1.5") ou inteiro
   return Number(s)
 }
 
 /** Digits-only → "1.234,56" (centavos da direita). Sem prefixo R$. */
 export function maskBRLInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
+  const digits = raw.replace(/\D/g, '').slice(0, 12)
   if (!digits) return ''
   const value = Number(digits) / 100
   return value.toLocaleString(PT_BR_LOCALE, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+}
+
+/** Número em reais → texto mascarado para inputs controlados. */
+export function formatBRLInputValue(reais: number): string {
+  if (!Number.isFinite(reais)) return ''
+  const cents = Math.round(Math.abs(reais) * 100)
+  return maskBRLInput(String(cents))
 }
 
 /** ISO → "14 mar. de 2024" */
