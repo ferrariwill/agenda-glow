@@ -36,9 +36,15 @@ export function Modal({
   maxWidthClass = 'max-w-md',
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
   const titleId = useId()
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -67,19 +73,19 @@ export function Modal({
   useEffect(() => {
     if (!open) return
 
-    restoreFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     const panel = panelRef.current
-    const focusables = panel ? getFocusable(panel) : []
-    const initial = focusables[0] ?? closeBtnRef.current
+    const body = bodyRef.current
+    const contentFocusables = body ? getFocusable(body) : []
+    const initial = contentFocusables[0] ?? panel ?? closeBtnRef.current
     initial?.focus()
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab' || !panel) return
@@ -87,7 +93,7 @@ export function Modal({
       const nodes = getFocusable(panel)
       if (nodes.length === 0) {
         e.preventDefault()
-        closeBtnRef.current?.focus()
+        panel.focus()
         return
       }
 
@@ -112,7 +118,7 @@ export function Modal({
       restoreFocusRef.current?.focus()
       restoreFocusRef.current = null
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
@@ -130,6 +136,7 @@ export function Modal({
       />
       <div
         ref={panelRef}
+        tabIndex={-1}
         className={[
           'relative z-10 flex max-h-[min(92dvh,100%)] w-full flex-col rounded-t-xl border border-aura-border bg-white shadow-xl sm:max-h-[min(90dvh,100%)] sm:rounded-lg',
           maxWidthClass,
@@ -151,7 +158,10 @@ export function Modal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+        <div
+          ref={bodyRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
+        >
           {children}
         </div>
 
