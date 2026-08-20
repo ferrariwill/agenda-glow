@@ -166,6 +166,7 @@ func main() {
 	// Super Admin — API JSON + UI HTML
 	mux.Handle("GET /api/v1/admin/establishments", superAdminRoute(adminEstHandler.List))
 	mux.Handle("POST /api/v1/admin/establishments", superAdminRoute(adminEstHandler.Create))
+	mux.Handle("PUT /api/v1/admin/establishments/{id}", superAdminRoute(adminEstHandler.Update))
 	mux.Handle("PUT /api/v1/admin/establishments/{id}/status", superAdminRoute(adminEstHandler.ToggleStatus))
 	mux.Handle("PUT /api/v1/admin/establishments/{id}/toggle-whatsapp", superAdminRoute(adminEstHandler.ToggleWhatsApp))
 	mux.Handle("POST /api/v1/admin/establishments/{id}/assign-plan", superAdminRoute(adminPlansHandler.AssignPlan))

@@ -43,7 +43,9 @@ type ConfigEstabelecimentoInput struct {
 	EstabelecimentoID string
 	NomeComercial     string
 	Slug              string
-	LogoURL           *string // nil = mantém logo atual
+	// LogoURL: nil = mantém logo atual; ponteiro para string não-vazia = seta URL;
+	// ponteiro para "" = limpa (logo_url = NULL).
+	LogoURL *string
 }
 
 type CreateEstablishmentInput struct {
@@ -360,10 +362,29 @@ ORDER BY sa.nome
 	}, nil
 }
 
-// AtualizarConfig persiste nome, slug e logo do estabelecimento em transação segura.
+// AtualizarConfig persiste nome, slug e logo do estabelecimento ativo (REGRAS §2.4).
 func (s *EstabelecimentoService) AtualizarConfig(
 	ctx context.Context,
 	input ConfigEstabelecimentoInput,
+) (*Estabelecimento, error) {
+	return s.atualizarIdentidade(ctx, input, true)
+}
+
+// AtualizarIdentidadeAdmin atualiza nome/slug/logo por id, inclusive salão inativo/suspenso.
+func (s *EstabelecimentoService) AtualizarIdentidadeAdmin(
+	ctx context.Context,
+	input ConfigEstabelecimentoInput,
+) (*Estabelecimento, error) {
+	return s.atualizarIdentidade(ctx, input, false)
+}
+
+// atualizarIdentidade compartilha validação de slug, unicidade e update de identidade.
+// requireAtivo=true trava com FOR UPDATE apenas salões ativos (rota da dona);
+// requireAtivo=false trava só por id (SuperAdmin).
+func (s *EstabelecimentoService) atualizarIdentidade(
+	ctx context.Context,
+	input ConfigEstabelecimentoInput,
+	requireAtivo bool,
 ) (*Estabelecimento, error) {
 	if err := ValidarSlug(input.Slug); err != nil {
 		return nil, err
@@ -375,11 +396,13 @@ func (s *EstabelecimentoService) AtualizarConfig(
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	const lockEstabelecimento = `
-SELECT id FROM estabelecimentos WHERE id = $1 AND ativo = TRUE FOR UPDATE
-`
+	lockSQL := `SELECT id FROM estabelecimentos WHERE id = $1 FOR UPDATE`
+	if requireAtivo {
+		lockSQL = `SELECT id FROM estabelecimentos WHERE id = $1 AND ativo = TRUE FOR UPDATE`
+	}
+
 	var id string
-	if err := tx.GetContext(ctx, &id, lockEstabelecimento, input.EstabelecimentoID); err != nil {
+	if err := tx.GetContext(ctx, &id, lockSQL, input.EstabelecimentoID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEstabelecimentoNaoEncontrado
 		}
@@ -399,7 +422,20 @@ SELECT id FROM estabelecimentos WHERE slug = $1 AND id <> $2 LIMIT 1
 	}
 
 	var atualizado Estabelecimento
-	if input.LogoURL != nil {
+	switch {
+	case input.LogoURL != nil && strings.TrimSpace(*input.LogoURL) == "":
+		const updateClearLogo = `
+UPDATE estabelecimentos
+SET nome_comercial = $2, slug = $3, logo_url = NULL
+WHERE id = $1
+RETURNING id, nome_comercial, slug, logo_url
+`
+		if err := tx.GetContext(ctx, &atualizado, updateClearLogo,
+			input.EstabelecimentoID, input.NomeComercial, input.Slug,
+		); err != nil {
+			return nil, fmt.Errorf("atualizar estabelecimento: %w", err)
+		}
+	case input.LogoURL != nil:
 		const updateComLogo = `
 UPDATE estabelecimentos
 SET nome_comercial = $2, slug = $3, logo_url = $4
@@ -407,11 +443,11 @@ WHERE id = $1
 RETURNING id, nome_comercial, slug, logo_url
 `
 		if err := tx.GetContext(ctx, &atualizado, updateComLogo,
-			input.EstabelecimentoID, input.NomeComercial, input.Slug, *input.LogoURL,
+			input.EstabelecimentoID, input.NomeComercial, input.Slug, strings.TrimSpace(*input.LogoURL),
 		); err != nil {
 			return nil, fmt.Errorf("atualizar estabelecimento: %w", err)
 		}
-	} else {
+	default:
 		const updateSemLogo = `
 UPDATE estabelecimentos
 SET nome_comercial = $2, slug = $3
