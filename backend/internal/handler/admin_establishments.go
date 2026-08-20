@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/agendaglow/agendaglow/internal/service"
@@ -43,6 +44,19 @@ type toggleWhatsAppRequest struct {
 	WhatsAppEnabled *bool `json:"whatsapp_enabled"`
 }
 
+type updateEstablishmentRequest struct {
+	NomeComercial string  `json:"nome_comercial"`
+	Slug          string  `json:"slug"`
+	LogoURL       *string `json:"logo_url"`
+}
+
+type updateEstablishmentResponse struct {
+	ID            string  `json:"id"`
+	NomeComercial string  `json:"nome_comercial"`
+	Slug          string  `json:"slug"`
+	LogoURL       *string `json:"logo_url,omitempty"`
+}
+
 // List serve GET /api/v1/admin/establishments
 func (h *AdminEstablishmentsHandler) List(w http.ResponseWriter, r *http.Request) {
 	lista, err := h.estabelecimentos.ListAllEstablishments(r.Context())
@@ -78,6 +92,55 @@ func (h *AdminEstablishmentsHandler) Create(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, createEstablishmentResponse{
 		ID:   id,
 		Slug: slugFinal,
+	})
+}
+
+// Update serve PUT /api/v1/admin/establishments/{id}
+func (h *AdminEstablishmentsHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+
+	var req updateEstablishmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	nome := strings.TrimSpace(req.NomeComercial)
+	if nome == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_nome_comercial")
+		return
+	}
+
+	slug := strings.TrimSpace(req.Slug)
+	atualizado, err := h.estabelecimentos.AtualizarIdentidadeAdmin(r.Context(), service.ConfigEstabelecimentoInput{
+		EstabelecimentoID: id,
+		NomeComercial:     nome,
+		Slug:              slug,
+		LogoURL:           req.LogoURL,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrEstabelecimentoNaoEncontrado):
+			writeJSONError(w, http.StatusNotFound, "not_found")
+		case errors.Is(err, service.ErrSlugEmUso), errors.Is(err, service.ErrSlugAlreadyExists):
+			writeJSONError(w, http.StatusConflict, "slug_already_exists")
+		case errors.Is(err, service.ErrSlugInvalido):
+			writeJSONError(w, http.StatusBadRequest, "invalid_slug")
+		default:
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updateEstablishmentResponse{
+		ID:            atualizado.ID,
+		NomeComercial: atualizado.NomeComercial,
+		Slug:          atualizado.Slug,
+		LogoURL:       atualizado.LogoURL,
 	})
 }
 
