@@ -33,7 +33,7 @@ import {
   renewAllExpired,
   renewTenant,
   suspendTenant,
-  updateTenant,
+  updateTenantIdentity,
 } from '../../utils/mockDb'
 import { formatDateBR, initials, todayISO } from '../../utils/format'
 import { matchesTenantStatusFilter, type TenantStatusFilter } from '../../utils/tenantStatus'
@@ -170,7 +170,7 @@ export function GerenciamentoSaloes() {
       if (logoChanged) {
         patch.logo_url = logoPreview
       }
-      await updateTenant(editOpen.id, patch)
+      await updateTenantIdentity(editOpen.id, patch)
       refresh()
       setEditOpen(null)
       resetIdentityForm()
@@ -434,7 +434,11 @@ export function GerenciamentoSaloes() {
           </>
         }
       >
-        {error && createOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
+        {error && createOpen && (
+          <p className="mb-3 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        )}
         <TenantIdentityForm
           {...identityFormProps}
           showPlano
@@ -468,7 +472,11 @@ export function GerenciamentoSaloes() {
           </>
         }
       >
-        {error && editOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
+        {error && editOpen && (
+          <p className="mb-3 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        )}
         <TenantIdentityForm {...identityFormProps} showPlano={false} />
       </Modal>
 
