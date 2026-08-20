@@ -4268,7 +4268,29 @@ export function getRetornoProfissionalMensal(
   }
 }
 
-export function updateTenant(id: string, patch: Partial<Tenant>): Tenant {
+export async function updateTenant(
+  id: string,
+  patch: Partial<Tenant>,
+): Promise<Tenant> {
+  if (!IS_MOCK) {
+    if (patch.nome === undefined || patch.slug === undefined) {
+      throw new Error('Atualização de identidade requer nome e slug')
+    }
+    const body: { nome_comercial: string; slug: string; logo_url?: string } = {
+      nome_comercial: patch.nome,
+      slug: patch.slug,
+    }
+    if ('logo_url' in patch) body.logo_url = patch.logo_url
+    await apiFetch(`/api/v1/admin/establishments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
+    await syncAdminBootstrap()
+    const tenant = getDb().tenants.find((t) => t.id === id)
+    if (!tenant) throw new Error('Salão não encontrado')
+    return tenant
+  }
+
   const db = getDb()
   const idx = db.tenants.findIndex((t) => t.id === id)
   if (idx < 0) throw new Error('Salão não encontrado')
