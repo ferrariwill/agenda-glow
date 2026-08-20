@@ -16,6 +16,7 @@ import {
   Wallet,
   MessageCircle,
 } from 'lucide-react'
+import { ChangePasswordEntry } from '../auth/ChangePasswordEntry'
 import { useAuth } from '../../contexts/AuthContext'
 import { useLogout } from '../../hooks/useLogout'
 
@@ -103,6 +104,7 @@ export const DonaSidebar = forwardRef<HTMLElement, DonaSidebarProps>(
             <CreditCard className="mr-2 h-4 w-4" />
             Upgrade de plano
           </NavLink>
+          <ChangePasswordEntry onNavigate={onNavigate} />
           <button
             type="button"
             onClick={handleLogout}

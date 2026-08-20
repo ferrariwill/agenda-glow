@@ -7,6 +7,7 @@ import {
   Sparkles,
   Wallet,
 } from 'lucide-react'
+import { ChangePasswordEntry } from '../auth/ChangePasswordEntry'
 import { useAuth } from '../../contexts/AuthContext'
 import { useLogout } from '../../hooks/useLogout'
 
@@ -71,6 +72,7 @@ export const SuperAdminSidebar = forwardRef<HTMLElement, SuperAdminSidebarProps>
         </nav>
 
         <div className="space-y-2 border-t border-aura-border p-4">
+          <ChangePasswordEntry onNavigate={onNavigate} />
           <button
             type="button"
             onClick={handleLogout}

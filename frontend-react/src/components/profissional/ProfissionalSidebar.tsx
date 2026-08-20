@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Calendar, LayoutDashboard, LogOut } from 'lucide-react'
+import { ChangePasswordEntry } from '../auth/ChangePasswordEntry'
 import { useAuth } from '../../contexts/AuthContext'
 import { useLogout } from '../../hooks/useLogout'
 
@@ -61,6 +62,7 @@ export const ProfissionalSidebar = forwardRef<HTMLElement, Props>(
 
         <div className="border-t border-aura-border p-3">
           <p className="mb-2 truncate px-3 text-xs text-aura-muted">{session?.user.nome}</p>
+          <ChangePasswordEntry onNavigate={onNavigate} className="py-2.5 transition-colors" />
           <button
             type="button"
             onClick={handleLogout}
