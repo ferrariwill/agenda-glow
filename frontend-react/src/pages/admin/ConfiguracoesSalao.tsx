@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { CreditCard, MapPin, Scissors, Upload } from 'lucide-react'
 import { DonaLayout, DonaFooter, PageHeader } from '../../components/dona/DonaLayout'
 import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
+import { Modal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
 import { PlanLimitExceededError } from '../../types'
 import {
+  assignPlanToTenant,
   getDb,
   getDonaProfissional,
   getPlano,
@@ -28,6 +31,7 @@ const defaultExpedientes = [1, 2, 3, 4, 5].map((dia) => ({
 
 export function ConfiguracoesSalao() {
   const { session, refreshSession } = useAuth()
+  const location = useLocation()
   const tenantId = session?.user.tenant_id ?? ''
   const userId = session?.user.id ?? ''
   const [db, setDb] = useState(getDb())
@@ -37,6 +41,9 @@ export function ConfiguracoesSalao() {
   const donaProf = getDonaProfissional(tenantId)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
+  const [planoModalOpen, setPlanoModalOpen] = useState(false)
+  const [selectedPlanoId, setSelectedPlanoId] = useState('')
+  const [savingPlano, setSavingPlano] = useState(false)
 
   const [atuaComoProf, setAtuaComoProf] = useState(!!tenant?.dona_atua_como_profissional)
   const [espId, setEspId] = useState(donaProf?.especialidade_id ?? especialidades[0]?.id ?? '')
@@ -54,6 +61,11 @@ export function ConfiguracoesSalao() {
     logo_url: tenant?.logo_url ?? '',
   })
 
+  const planosDisponiveis = useMemo(
+    () => db.planos.filter((p) => p.ativo && p.id !== tenant?.plano_id),
+    [db.planos, tenant?.plano_id],
+  )
+
   useEffect(() => {
     const t = getDb().tenants.find((x) => x.id === tenantId)
     const prof = getDonaProfissional(tenantId)
@@ -65,7 +77,39 @@ export function ConfiguracoesSalao() {
     }
   }, [tenantId, db])
 
+  useEffect(() => {
+    if (location.hash !== '#assinatura') return
+    const el = document.getElementById('assinatura')
+    if (!el) return
+    const timer = window.setTimeout(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [location.hash, location.pathname])
+
   const refresh = () => setDb(getDb())
+
+  const openPlanoModal = () => {
+    setError('')
+    setSelectedPlanoId(planosDisponiveis[0]?.id ?? '')
+    setPlanoModalOpen(true)
+  }
+
+  const confirmAlterarPlano = async () => {
+    if (!tenantId || !selectedPlanoId) return
+    setSavingPlano(true)
+    setError('')
+    try {
+      await assignPlanToTenant(tenantId, selectedPlanoId)
+      refresh()
+      setPlanoModalOpen(false)
+      setMsg('Plano alterado com sucesso!')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível alterar o plano.')
+    } finally {
+      setSavingPlano(false)
+    }
+  }
 
   const save = () => {
     if (!tenantId) return
@@ -247,7 +291,10 @@ export function ConfiguracoesSalao() {
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-lg border border-aura-border bg-white p-6 shadow-sm">
+          <div
+            id="assinatura"
+            className="scroll-mt-24 rounded-lg border border-aura-border bg-white p-6 shadow-sm"
+          >
             <h2 className="mb-4 font-display text-lg font-semibold">Assinatura e Perfil</h2>
             <p className="text-sm text-aura-muted">Plano atual</p>
             <p className="font-display text-xl font-semibold text-aura-primary">{plano?.nome ?? '—'}</p>
@@ -271,7 +318,9 @@ export function ConfiguracoesSalao() {
               >
                 Renovar Assinatura
               </Button>
-              <Button fullWidth variant="ghost">Alterar Plano</Button>
+              <Button fullWidth variant="ghost" onClick={openPlanoModal}>
+                Alterar Plano
+              </Button>
             </div>
           </div>
 
@@ -285,6 +334,50 @@ export function ConfiguracoesSalao() {
           </div>
         </div>
       </div>
+
+      <Modal
+        open={planoModalOpen}
+        onClose={() => setPlanoModalOpen(false)}
+        title="Alterar plano"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPlanoModalOpen(false)} disabled={savingPlano}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmAlterarPlano}
+              disabled={savingPlano || !selectedPlanoId || planosDisponiveis.length === 0}
+            >
+              {savingPlano ? 'Salvando…' : 'Confirmar'}
+            </Button>
+          </>
+        }
+      >
+        {planosDisponiveis.length === 0 ? (
+          <p className="text-sm text-aura-muted">Não há outros planos ativos disponíveis no momento.</p>
+        ) : (
+          <>
+            <p className="mb-3 text-sm text-aura-muted">
+              Plano atual: <strong>{plano?.nome ?? '—'}</strong>
+            </p>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="alterar-plano-select">
+              Novo plano
+            </label>
+            <select
+              id="alterar-plano-select"
+              value={selectedPlanoId}
+              onChange={(e) => setSelectedPlanoId(e.target.value)}
+              className="w-full rounded-lg border border-aura-border px-3 py-2.5 text-sm"
+            >
+              {planosDisponiveis.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome} — {formatBRL(p.preco_mensal)}/mês · {p.limite_profissionais} profissionais
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+      </Modal>
 
       <DonaFooter />
     </DonaLayout>
