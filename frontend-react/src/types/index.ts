@@ -97,6 +97,20 @@ export interface Profissional {
   valor_fixo_atendimento?: number
 }
 
+/** Ficha técnica BOM (contrato API GET/PUT …/services/{id}/supplies). */
+export interface ServicoBomItem {
+  insumo_id: string
+  nome: string
+  unidade: string
+  quantidade_uso: number
+}
+
+export interface ServicoBomInput {
+  insumo_id: string
+  quantidade_uso: number
+}
+
+/** @deprecated Mock-only cost rows; use ServicoBomItem for API BOM. */
 export interface ServicoInsumo {
   id: string
   nome: string
@@ -128,12 +142,14 @@ export interface Servico {
   duracao_minutos: number
   preco: number
   ativo: boolean
-  categoria_id?: string
+  categoria_id?: string | null
+  categoria_nome?: string
   imagem_url?: string
   descricao?: string
   profissional_ids?: string[]
   exibir_catalogo_publico?: boolean
   permitir_agendamento_online?: boolean
+  /** @deprecated Mock-only; API BOM vive em ServicoBomItem via …/supplies. */
   insumos?: ServicoInsumo[]
 }
 
