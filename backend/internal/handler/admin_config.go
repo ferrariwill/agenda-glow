@@ -117,7 +117,7 @@ func (h *AdminConfigHandler) CreateServico(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	id, err := h.procedimentos.CreateService(r.Context(), estID, r.FormValue("nome"), preco, duracao)
+	id, err := h.procedimentos.CreateService(r.Context(), estID, r.FormValue("nome"), preco, duracao, nil)
 	if err != nil {
 		http.Error(w, "Erro ao cadastrar serviço", http.StatusBadRequest)
 		return

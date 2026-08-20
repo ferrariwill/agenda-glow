@@ -11,6 +11,11 @@ import (
 	"github.com/lib/pq"
 )
 
+var (
+	// ErrProfissionalVinculoInvalido: profissional inexistente, outro tenant ou inativo.
+	ErrProfissionalVinculoInvalido = errors.New("invalid_professional")
+)
+
 type ProcedimentoService struct {
 	db *sqlx.DB
 }
@@ -20,28 +25,31 @@ func NewProcedimentoService(db *sqlx.DB) *ProcedimentoService {
 }
 
 type Servico struct {
-	ID                 string              `db:"id" json:"id"`
-	Nome               string              `db:"nome" json:"nome"`
-	PrecoBase          float64             `db:"preco_base" json:"preco_base"`
-	DuracaoBaseMinutos int                 `db:"duracao_base_minutos" json:"duracao_base_minutos"`
-	Ativo              bool                `db:"ativo" json:"ativo"`
-	Adicionais         []ServicoAdicional  `json:"adicionais,omitempty"`
+	ID                 string             `db:"id" json:"id"`
+	Nome               string             `db:"nome" json:"nome"`
+	PrecoBase          float64            `db:"preco_base" json:"preco_base"`
+	DuracaoBaseMinutos int                `db:"duracao_base_minutos" json:"duracao_base_minutos"`
+	Ativo              bool               `db:"ativo" json:"ativo"`
+	Adicionais         []ServicoAdicional `json:"adicionais"`
+	ProfissionalIDs    []string           `json:"profissional_ids"`
 }
 
 type ServicoAdicional struct {
-	ID                        string  `db:"id" json:"id"`
-	ServicoID                 string  `db:"servico_id" json:"servico_id"`
-	Nome                      string  `db:"nome" json:"nome"`
-	PrecoAdicional            float64 `db:"preco_adicional" json:"preco_adicional"`
-	DuracaoAdicionalMinutos   int     `db:"duracao_adicional_minutos" json:"duracao_adicional_minutos"`
+	ID                      string  `db:"id" json:"id"`
+	ServicoID               string  `db:"servico_id" json:"servico_id"`
+	Nome                    string  `db:"nome" json:"nome"`
+	PrecoAdicional          float64 `db:"preco_adicional" json:"preco_adicional"`
+	DuracaoAdicionalMinutos int     `db:"duracao_adicional_minutos" json:"duracao_adicional_minutos"`
 }
 
 // CreateService cadastra um serviço base vinculado ao estabelecimento.
+// profissionalIDs opcional: omitido/vazio → sem vínculos em servico_profissionais.
 func (s *ProcedimentoService) CreateService(
 	ctx context.Context,
 	establishmentID, nome string,
 	precoBase float64,
 	duracaoBase int,
+	profissionalIDs []string,
 ) (string, error) {
 	nome = strings.TrimSpace(nome)
 	if nome == "" {
@@ -54,17 +62,128 @@ func (s *ProcedimentoService) CreateService(
 		return "", fmt.Errorf("duração base inválida")
 	}
 
+	ids, err := normalizeProfissionalIDs(profissionalIDs)
+	if err != nil {
+		return "", err
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if err := s.validarProfissionaisAtivosDoTenant(ctx, tx, establishmentID, ids); err != nil {
+		return "", err
+	}
+
 	const insert = `
 INSERT INTO servicos (estabelecimento_id, nome, preco_base, duracao_base_minutos, ativo)
 VALUES ($1, $2, $3, $4, TRUE)
 RETURNING id
 `
 	var id string
-	if err := s.db.GetContext(ctx, &id, insert, establishmentID, nome, precoBase, duracaoBase); err != nil {
+	if err := tx.GetContext(ctx, &id, insert, establishmentID, nome, precoBase, duracaoBase); err != nil {
 		return "", fmt.Errorf("cadastrar serviço: %w", err)
 	}
 
+	if err := s.replaceServicoProfissionais(ctx, tx, establishmentID, id, ids); err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("confirmar transação: %w", err)
+	}
+
 	return id, nil
+}
+
+// UpdateServiceInput campos para PUT /api/v1/services/{id}.
+// ProfissionalIDs nil = mantém vínculos; não-nil = replace atômico do set.
+type UpdateServiceInput struct {
+	Nome            string
+	PrecoBase       float64
+	DuracaoBase     int
+	Ativo           bool
+	ProfissionalIDs *[]string
+}
+
+// UpdateService atualiza serviço do tenant e, se solicitado, substitui vínculos.
+func (s *ProcedimentoService) UpdateService(
+	ctx context.Context,
+	establishmentID, serviceID string,
+	in UpdateServiceInput,
+) (*Servico, error) {
+	nome := strings.TrimSpace(in.Nome)
+	if nome == "" {
+		return nil, fmt.Errorf("nome do serviço é obrigatório")
+	}
+	if in.PrecoBase < 0 {
+		return nil, fmt.Errorf("preço base inválido")
+	}
+	if in.DuracaoBase <= 0 {
+		return nil, fmt.Errorf("duração base inválida")
+	}
+
+	var replaceIDs []string
+	replaceLinks := false
+	if in.ProfissionalIDs != nil {
+		ids, err := normalizeProfissionalIDs(*in.ProfissionalIDs)
+		if err != nil {
+			return nil, err
+		}
+		replaceIDs = ids
+		replaceLinks = true
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	const lock = `
+SELECT id FROM servicos
+WHERE id = $1 AND estabelecimento_id = $2
+FOR UPDATE
+`
+	var lockedID string
+	if err := tx.GetContext(ctx, &lockedID, lock, serviceID, establishmentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrServicoNaoEncontrado
+		}
+		return nil, fmt.Errorf("bloquear serviço: %w", err)
+	}
+
+	if replaceLinks {
+		if err := s.validarProfissionaisAtivosDoTenant(ctx, tx, establishmentID, replaceIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	const update = `
+UPDATE servicos
+SET nome = $3, preco_base = $4, duracao_base_minutos = $5, ativo = $6
+WHERE id = $1 AND estabelecimento_id = $2
+`
+	if _, err := tx.ExecContext(
+		ctx, update,
+		serviceID, establishmentID, nome, in.PrecoBase, in.DuracaoBase, in.Ativo,
+	); err != nil {
+		return nil, fmt.Errorf("atualizar serviço: %w", err)
+	}
+
+	if replaceLinks {
+		if err := s.replaceServicoProfissionais(ctx, tx, establishmentID, serviceID, replaceIDs); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("confirmar atualização: %w", err)
+	}
+
+	return s.BuscarServicoPorID(ctx, establishmentID, serviceID)
 }
 
 // CreateServiceAdditional cadastra variação/adicional em serviço do estabelecimento.
@@ -132,7 +251,78 @@ FOR UPDATE
 	return nil
 }
 
-// ListServices retorna serviços e adicionais isolados por estabelecimento.
+func normalizeProfissionalIDs(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return []string{}, nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, id := range raw {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, ErrProfissionalVinculoInvalido
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func (s *ProcedimentoService) validarProfissionaisAtivosDoTenant(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	establishmentID string,
+	profissionalIDs []string,
+) error {
+	if len(profissionalIDs) == 0 {
+		return nil
+	}
+	const query = `
+SELECT id FROM profissionais
+WHERE estabelecimento_id = $1 AND id = ANY($2) AND ativo = TRUE
+`
+	var found []string
+	if err := tx.SelectContext(ctx, &found, query, establishmentID, pq.Array(profissionalIDs)); err != nil {
+		return fmt.Errorf("validar profissionais: %w", err)
+	}
+	if len(found) != len(profissionalIDs) {
+		return ErrProfissionalVinculoInvalido
+	}
+	return nil
+}
+
+func (s *ProcedimentoService) replaceServicoProfissionais(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	establishmentID, serviceID string,
+	profissionalIDs []string,
+) error {
+	const del = `
+DELETE FROM servico_profissionais
+WHERE estabelecimento_id = $1 AND servico_id = $2
+`
+	if _, err := tx.ExecContext(ctx, del, establishmentID, serviceID); err != nil {
+		return fmt.Errorf("limpar vínculos serviço-profissional: %w", err)
+	}
+	if len(profissionalIDs) == 0 {
+		return nil
+	}
+	const insert = `
+INSERT INTO servico_profissionais (estabelecimento_id, servico_id, profissional_id)
+VALUES ($1, $2, $3)
+`
+	for _, pid := range profissionalIDs {
+		if _, err := tx.ExecContext(ctx, insert, establishmentID, serviceID, pid); err != nil {
+			return fmt.Errorf("vincular profissional ao serviço: %w", err)
+		}
+	}
+	return nil
+}
+
+// ListServices retorna serviços, adicionais e profissional_ids isolados por estabelecimento.
 func (s *ProcedimentoService) ListServices(ctx context.Context, establishmentID string) ([]Servico, error) {
 	const queryServicos = `
 SELECT id, nome, preco_base, duracao_base_minutos, ativo
@@ -154,6 +344,7 @@ ORDER BY nome ASC
 		ids[i] = serv.ID
 		index[serv.ID] = i
 		servicos[i].Adicionais = []ServicoAdicional{}
+		servicos[i].ProfissionalIDs = []string{}
 	}
 
 	const queryAdicionais = `
@@ -174,5 +365,46 @@ ORDER BY sa.nome ASC
 		}
 	}
 
+	if err := s.attachProfissionalIDs(ctx, establishmentID, servicos); err != nil {
+		return nil, err
+	}
+
 	return servicos, nil
+}
+
+func (s *ProcedimentoService) attachProfissionalIDs(
+	ctx context.Context,
+	establishmentID string,
+	servicos []Servico,
+) error {
+	if len(servicos) == 0 {
+		return nil
+	}
+	ids := make([]string, len(servicos))
+	index := make(map[string]int, len(servicos))
+	for i := range servicos {
+		ids[i] = servicos[i].ID
+		index[servicos[i].ID] = i
+	}
+
+	const query = `
+SELECT servico_id, profissional_id
+FROM servico_profissionais
+WHERE estabelecimento_id = $1 AND servico_id = ANY($2)
+ORDER BY profissional_id ASC
+`
+	type row struct {
+		ServicoID      string `db:"servico_id"`
+		ProfissionalID string `db:"profissional_id"`
+	}
+	var rows []row
+	if err := s.db.SelectContext(ctx, &rows, query, establishmentID, pq.Array(ids)); err != nil {
+		return fmt.Errorf("listar vínculos serviço-profissional: %w", err)
+	}
+	for _, r := range rows {
+		if idx, ok := index[r.ServicoID]; ok {
+			servicos[idx].ProfissionalIDs = append(servicos[idx].ProfissionalIDs, r.ProfissionalID)
+		}
+	}
+	return nil
 }

@@ -32,9 +32,18 @@ func NewTenantCatalogHandler(
 }
 
 type createServiceRequest struct {
-	Nome        string  `json:"nome"`
-	PrecoBase   float64 `json:"preco_base"`
-	DuracaoBase int     `json:"duracao_base_minutos"`
+	Nome            string   `json:"nome"`
+	PrecoBase       float64  `json:"preco_base"`
+	DuracaoBase     int      `json:"duracao_base_minutos"`
+	ProfissionalIDs []string `json:"profissional_ids"`
+}
+
+type updateServiceRequest struct {
+	Nome            string    `json:"nome"`
+	PrecoBase       float64   `json:"preco_base"`
+	DuracaoBase     int       `json:"duracao_base_minutos"`
+	Ativo           bool      `json:"ativo"`
+	ProfissionalIDs *[]string `json:"profissional_ids"`
 }
 
 type createAdditionalRequest struct {
@@ -109,13 +118,65 @@ func (h *TenantCatalogHandler) CreateService(w http.ResponseWriter, r *http.Requ
 		req.Nome,
 		req.PrecoBase,
 		req.DuracaoBase,
+		req.ProfissionalIDs,
 	)
 	if err != nil {
+		if errors.Is(err, service.ErrProfissionalVinculoInvalido) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_professional")
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, idResponse{ID: id})
+}
+
+func (h *TenantCatalogHandler) UpdateService(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+
+	serviceID := strings.TrimSpace(r.PathValue("id"))
+	if serviceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_service_id")
+		return
+	}
+
+	var req updateServiceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	serv, err := h.procedimentos.UpdateService(
+		r.Context(),
+		establishmentID,
+		serviceID,
+		service.UpdateServiceInput{
+			Nome:            req.Nome,
+			PrecoBase:       req.PrecoBase,
+			DuracaoBase:     req.DuracaoBase,
+			Ativo:           req.Ativo,
+			ProfissionalIDs: req.ProfissionalIDs,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, service.ErrServicoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "service_not_found")
+			return
+		}
+		if errors.Is(err, service.ErrProfissionalVinculoInvalido) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_professional")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, serv)
 }
 
 func (h *TenantCatalogHandler) CreateServiceAdditional(w http.ResponseWriter, r *http.Request) {

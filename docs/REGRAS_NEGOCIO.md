@@ -274,9 +274,20 @@ Cadastro **por estabelecimento**; usado na equipe via seleção (não texto livr
 | Nome | Obrigatório |
 | `preco_base` | ≥ 0 |
 | `duracao_base_minutos` | > 0 |
-| Status | Criado **ativo** |
+| Status | Criado **ativo**; no `PUT` o campo `ativo` é obrigatório |
+| `profissional_ids` | Opcional no `POST` (omitido/`[]` = sem vínculos). No `PUT`, se a chave vier no JSON → **replace atômico** em `servico_profissionais` (DELETE + INSERT no tenant); se omitida → mantém vínculos. Cada ID deve existir no mesmo `estabelecimento_id` e estar **ativo** (inclui profissional com `eh_dona=true`). |
 
-**Onde:** `internal/service/procedimento.go`, migração `000001`.
+**API**
+
+| Método | Rota | Resposta |
+|--------|------|----------|
+| `GET` | `/api/v1/services` e bootstrap `servicos[]` | Inclui sempre `profissional_ids` (array; `[]` se vazio) + `adicionais` |
+| `POST` | `/api/v1/services` | `201 { "id" }`; persiste vínculos em transação |
+| `PUT` | `/api/v1/services/{id}` | `200` com `Servico` completo; escopo `WHERE id AND estabelecimento_id` |
+
+Erros de vínculo/cross-tenant: `400 invalid_professional`; serviço inexistente/outro tenant: `404 service_not_found`.
+
+**Onde:** `internal/service/procedimento.go`, `backend/internal/handler/tenant_catalog.go`, migrações `000001` + `000017` (`servico_profissionais`).
 
 ### 7.2 Adicionais (`servico_adicionais`)
 

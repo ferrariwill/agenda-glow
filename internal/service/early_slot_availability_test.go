@@ -34,9 +34,9 @@ func TestTenantBootstrapPublishesCanonicalEarlySlotSignal(t *testing.T) {
 			mock.ExpectQuery(regexp.QuoteMeta(`FROM estabelecimentos e`)).
 				WithArgs("tenant-1").
 				WillReturnRows(sqlmock.NewRows([]string{
-					"id", "nome_comercial", "slug", "logo_url",
+					"id", "nome_comercial", "slug", "logo_url", "dona_atua_como_profissional",
 					"plano_id", "data_vencimento", "assinatura_status",
-				}).AddRow("tenant-1", "Glow", "glow", nil, nil, nil, nil))
+				}).AddRow("tenant-1", "Glow", "glow", nil, false, nil, nil, nil))
 			mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(whatsapp_enabled, FALSE)`)).
 				WithArgs("tenant-1").
 				WillReturnRows(sqlmock.NewRows([]string{"whatsapp_enabled"}).AddRow(tc.enabled))
@@ -78,9 +78,9 @@ func TestTenantBootstrapGateFailureIsFailClosedWithoutPayloadError(t *testing.T)
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM estabelecimentos e`)).
 		WithArgs("tenant-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "nome_comercial", "slug", "logo_url",
+			"id", "nome_comercial", "slug", "logo_url", "dona_atua_como_profissional",
 			"plano_id", "data_vencimento", "assinatura_status",
-		}).AddRow("tenant-1", "Glow", "glow", nil, nil, nil, nil))
+		}).AddRow("tenant-1", "Glow", "glow", nil, false, nil, nil, nil))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(whatsapp_enabled, FALSE)`)).
 		WithArgs("tenant-1").
 		WillReturnError(context.DeadlineExceeded)

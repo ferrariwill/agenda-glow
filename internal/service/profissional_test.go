@@ -134,9 +134,9 @@ func TestListProfessionalsIncluiFotoEData(t *testing.T) {
 	data := "1992-03-15"
 	rows := sqlmock.NewRows([]string{
 		"id", "nome", "especialidade_id", "especialidade_nome",
-		"comissao_porcentagem", "ativo", "pendente_aprovacao",
+		"comissao_porcentagem", "ativo", "pendente_aprovacao", "eh_dona",
 		"foto_url", "data_nascimento",
-	}).AddRow("prof-1", "Ana", "esp-1", "Manicure", 40.0, true, false, foto, data)
+	}).AddRow("prof-1", "Ana", "esp-1", "Manicure", 40.0, true, false, true, foto, data)
 
 	mock.ExpectQuery(`SELECT p.id, p.nome`).
 		WithArgs("est-1").
@@ -154,6 +154,9 @@ func TestListProfessionalsIncluiFotoEData(t *testing.T) {
 	}
 	if lista[0].DataNascimento == nil || *lista[0].DataNascimento != data {
 		t.Fatalf("data_nascimento=%v; want %s", lista[0].DataNascimento, data)
+	}
+	if !lista[0].EhDona {
+		t.Fatalf("eh_dona=%v; want true", lista[0].EhDona)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
