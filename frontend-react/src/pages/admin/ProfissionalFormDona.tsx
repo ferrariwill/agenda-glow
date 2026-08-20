@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ChevronRight,
   DollarSign,
-  Edit3,
-  ImagePlus,
   Info,
   Link2,
   Percent,
@@ -15,32 +13,29 @@ import {
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
+import { ProfissionalAvatarField } from '../../components/dona/ProfissionalAvatarField'
 import { Alert } from '../../components/ui/Alert'
 import { useAuth } from '../../contexts/AuthContext'
+import { ApiError } from '../../lib/api'
 import { PlanLimitExceededError, type Expediente, type Profissional } from '../../types'
 import {
   createProfissional,
   getDb,
   getProfissionalById,
   updateProfissional,
+  uploadProfissionalFoto,
 } from '../../utils/mockDb'
 import {
   initials,
   maskPhoneBRInput,
   phoneDigitsToMaskInput,
+  todayISO,
   toWhatsAppDigits,
 } from '../../utils/format'
 import { validateAllExpedientes } from './ExpedienteForm'
 
 const GLASS =
   'rounded-xl border border-[#e5d3c8]/30 bg-white shadow-[0px_4px_20px_rgba(183,132,114,0.08)]'
-
-const STOCK_AVATARS = [
-  'https://images.unsplash.com/photo-1595476108010-b4d1f102b1b1?w=400&q=80',
-  'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=400&q=80',
-  'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=400&q=80',
-  'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=400&q=80',
-]
 
 const WEEK_DAYS: { dia: number; label: string }[] = [
   { dia: 1, label: 'SEG' },
@@ -147,9 +142,11 @@ export function ProfissionalFormDona() {
   const [weekDays, setWeekDays] = useState<DayRow[]>(defaultWeek)
   const [almoco, setAlmoco] = useState({ inicio: '12:00', fim: '13:00' })
   const [ativo, setAtivo] = useState(true)
-  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false)
+  const [pendingFotoFile, setPendingFotoFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(!isEdit)
+  const maxBirthDate = todayISO()
 
   useEffect(() => {
     if (!isEdit) return
@@ -234,42 +231,73 @@ export function ProfissionalFormDona() {
       setError('Informe um valor fixo válido por atendimento.')
       return
     }
-
-    const payload: Omit<Profissional, 'id' | 'tenant_id'> = {
-      nome: nome.trim(),
-      email: email.trim() || undefined,
-      telefone: telefone.replace(/\D/g, '')
-        ? toWhatsAppDigits(telefone)
-        : undefined,
-      data_nascimento: dataNascimento || undefined,
-      biografia: biografia.trim() || undefined,
-      foto_url: fotoUrl || undefined,
-      especialidade_id: espIds[0],
-      especialidade_ids: espIds,
-      portfolio_url: portfolioUrl.trim() || undefined,
-      data_contratacao: dataContratacao || undefined,
-      modelo_pagamento: modeloPagamento,
-      comissao_percent: modeloPagamento === 'PERCENTUAL' ? comissao : 0,
-      valor_fixo_atendimento: modeloPagamento === 'FIXO' ? valorFixo : undefined,
-      ativo: existing?.pendente_aprovacao ? false : ativo,
-      pendente_aprovacao: existing?.pendente_aprovacao,
-      expedientes,
+    if (dataNascimento && dataNascimento > maxBirthDate) {
+      setError('A data de nascimento não pode ser no futuro.')
+      return
     }
 
+    // Em edição com arquivo pendente: upload primeiro; stock/remoção via foto_url no PUT.
+    let resolvedFotoUrl = fotoUrl
+    setSaving(true)
     try {
+      if (isEdit && existing && pendingFotoFile) {
+        const uploaded = await uploadProfissionalFoto(existing.id, pendingFotoFile)
+        resolvedFotoUrl = uploaded.foto_url
+        setFotoUrl(uploaded.foto_url)
+        setPendingFotoFile(null)
+      }
+
+      const payload: Omit<Profissional, 'id' | 'tenant_id'> = {
+        nome: nome.trim(),
+        email: email.trim() || undefined,
+        telefone: telefone.replace(/\D/g, '')
+          ? toWhatsAppDigits(telefone)
+          : undefined,
+        data_nascimento: dataNascimento || undefined,
+        biografia: biografia.trim() || undefined,
+        // Com arquivo uploadado no edit, o endpoint /foto já persistiu; evita reenviar blob URL.
+        foto_url: pendingFotoFile && !isEdit ? undefined : resolvedFotoUrl || undefined,
+        especialidade_id: espIds[0],
+        especialidade_ids: espIds,
+        portfolio_url: portfolioUrl.trim() || undefined,
+        data_contratacao: dataContratacao || undefined,
+        modelo_pagamento: modeloPagamento,
+        comissao_percent: modeloPagamento === 'PERCENTUAL' ? comissao : 0,
+        valor_fixo_atendimento: modeloPagamento === 'FIXO' ? valorFixo : undefined,
+        ativo: existing?.pendente_aprovacao ? false : ativo,
+        pendente_aprovacao: existing?.pendente_aprovacao,
+        expedientes,
+      }
+
       if (isEdit && existing) {
         await updateProfissional(existing.id, payload)
         navigate('/admin/equipe', { state: { success: 'Profissional atualizado.' } })
       } else {
-        await createProfissional({ tenant_id: tenantId, ...payload, ativo: true })
+        const created = await createProfissional({
+          tenant_id: tenantId,
+          ...payload,
+          ativo: true,
+        })
+        if (pendingFotoFile) {
+          await uploadProfissionalFoto(created.id, pendingFotoFile)
+          setPendingFotoFile(null)
+        }
         navigate('/admin/equipe', { state: { success: 'Profissional cadastrado.' } })
       }
     } catch (err) {
       if (err instanceof PlanLimitExceededError) {
         setError('Limite de profissionais do plano atingido. Faça upgrade do plano SaaS.')
+      } else if (err instanceof ApiError && err.code === 'birthdate_in_future') {
+        setError('A data de nascimento não pode ser no futuro.')
+      } else if (err instanceof ApiError && (err.code === 'invalid_image' || err.status === 400)) {
+        setError('Imagem inválida ou maior que 2MB. Use PNG, JPG ou WebP.')
+      } else if (err instanceof ApiError && err.status === 502) {
+        setError('Não foi possível enviar a foto. Tente de novo.')
       } else {
         setError(err instanceof Error ? err.message : 'Erro ao salvar')
       }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -305,9 +333,14 @@ export function ProfissionalFormDona() {
           <button
             type="button"
             onClick={save}
-            className="rounded-lg bg-[#7d5141] px-8 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 active:scale-[0.98]"
+            disabled={saving}
+            className="rounded-lg bg-[#7d5141] px-8 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60"
           >
-            {isEdit ? 'Salvar alterações' : 'Salvar Profissional'}
+            {saving
+              ? 'Salvando…'
+              : isEdit
+                ? 'Salvar alterações'
+                : 'Salvar Profissional'}
           </button>
         </div>
       </header>
@@ -325,69 +358,14 @@ export function ProfissionalFormDona() {
           <section className={`p-6 sm:p-8 ${GLASS}`}>
             <SectionHeader icon={User} title="Informações Pessoais" />
             <div className="grid grid-cols-2 gap-6">
-              <div className="col-span-2 mb-2 flex flex-col items-start gap-6 sm:flex-row sm:items-center">
-                <button
-                  type="button"
-                  onClick={() => setAvatarPickerOpen((o) => !o)}
-                  className="group relative shrink-0"
-                >
-                  <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-[#d6c2bd] bg-[#f4f3f2] transition-colors group-hover:border-[#7d5141]">
-                    {fotoUrl ? (
-                      <img src={fotoUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <ImagePlus className="h-10 w-10 text-[#83746f] group-hover:text-[#7d5141]" />
-                    )}
-                  </div>
-                  <span className="absolute bottom-0 right-0 rounded-full border-2 border-white bg-[#7d5141] p-1 text-white shadow-sm">
-                    <Edit3 className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-                <div className="flex-1">
-                  <p className="text-xs font-bold uppercase tracking-widest text-[#514440]">
-                    Foto do Perfil
-                  </p>
-                  <p className="mt-1 text-sm text-[#514440]">
-                    Recomendado: JPG ou PNG, min. 400×400px. Máx 5MB.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setAvatarPickerOpen((o) => !o)}
-                    className="mt-2 text-sm font-bold text-[#7d5141] hover:underline"
-                  >
-                    Carregar imagem
-                  </button>
-                </div>
-              </div>
-              {avatarPickerOpen && (
-                <div className="col-span-2 flex flex-wrap gap-2">
-                  {STOCK_AVATARS.map((url) => (
-                    <button
-                      key={url}
-                      type="button"
-                      onClick={() => {
-                        setFotoUrl(url)
-                        setAvatarPickerOpen(false)
-                      }}
-                      className={[
-                        'h-14 w-14 overflow-hidden rounded-full border-2',
-                        fotoUrl === url ? 'border-[#7d5141]' : 'border-transparent',
-                      ].join(' ')}
-                    >
-                      <img src={url} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFotoUrl('')
-                      setAvatarPickerOpen(false)
-                    }}
-                    className="rounded-lg border border-dashed border-[#d6c2bd] px-3 py-1 text-xs text-[#514440]"
-                  >
-                    Remover
-                  </button>
-                </div>
-              )}
+              <ProfissionalAvatarField
+                fotoUrl={fotoUrl}
+                onFotoUrlChange={setFotoUrl}
+                onPendingFileChange={setPendingFotoFile}
+                profissionalId={isEdit ? existing?.id : undefined}
+                disabled={saving}
+                onError={setError}
+              />
 
               <Field label="Nome Completo" className="col-span-2 sm:col-span-1">
                 <input
@@ -423,6 +401,7 @@ export function ProfissionalFormDona() {
                 <input
                   type="date"
                   value={dataNascimento}
+                  max={maxBirthDate}
                   onChange={(e) => setDataNascimento(e.target.value)}
                   className={fieldInputClass}
                 />
