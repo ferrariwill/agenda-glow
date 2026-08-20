@@ -4268,14 +4268,12 @@ export function getRetornoProfissionalMensal(
   }
 }
 
-export async function updateTenant(
+/** SuperAdmin: atualiza nome/slug/logo via PUT admin. Não usar na Dona. */
+export async function updateTenantIdentity(
   id: string,
-  patch: Partial<Tenant>,
+  patch: Pick<Tenant, 'nome' | 'slug'> & { logo_url?: string },
 ): Promise<Tenant> {
   if (!IS_MOCK) {
-    if (patch.nome === undefined || patch.slug === undefined) {
-      throw new Error('Atualização de identidade requer nome e slug')
-    }
     const body: { nome_comercial: string; slug: string; logo_url?: string } = {
       nome_comercial: patch.nome,
       slug: patch.slug,
@@ -4291,6 +4289,11 @@ export async function updateTenant(
     return tenant
   }
 
+  return updateTenant(id, patch)
+}
+
+/** Mock / Configurações da Dona — não chama PUT admin (token Dona é proibido). */
+export function updateTenant(id: string, patch: Partial<Tenant>): Tenant {
   const db = getDb()
   const idx = db.tenants.findIndex((t) => t.id === id)
   if (idx < 0) throw new Error('Salão não encontrado')
