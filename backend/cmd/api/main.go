@@ -163,6 +163,9 @@ func main() {
 	mux.HandleFunc("POST /login/dona", authHandler.LoginForm)
 	mux.HandleFunc("POST /login/profissional", authHandler.LoginForm)
 
+	// Alteração de senha do próprio usuário (qualquer role autenticada; sem guarda SaaS)
+	mux.Handle("POST /api/v1/auth/change-password", security.AuthenticateMiddleware(http.HandlerFunc(authHandler.ChangePassword)))
+
 	// Super Admin — API JSON + UI HTML
 	mux.Handle("GET /api/v1/admin/establishments", superAdminRoute(adminEstHandler.List))
 	mux.Handle("POST /api/v1/admin/establishments", superAdminRoute(adminEstHandler.Create))
