@@ -209,6 +209,21 @@ export function formatRelativeDate(iso: string) {
   return formatDateBR(iso)
 }
 
+/** Timestamp relativo curto (notificações, feeds). */
+export function formatRelativeShort(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(ms)) return ''
+  const minutes = Math.floor(ms / 60000)
+  if (minutes < 1) return 'agora'
+  if (minutes < 60) return `há ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `há ${hours} h`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'há 1 dia'
+  if (days < 30) return `há ${days} dias`
+  return formatDateBR(iso)
+}
+
 /** DD/MM/AAAA → ISO (yyyy-mm-dd) ou null */
 export function parseDateBR(text: string): string | null {
   const cleaned = text.trim()

@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Bell, Menu, RefreshCw, Search, X } from 'lucide-react'
+import { Menu, RefreshCw, Search, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { useSuperAdminNotifications } from '../../hooks/useSuperAdminNotifications'
+import { NotificationBell } from '../ui/NotificationBell'
 import { initials } from '../../utils/format'
 
 interface SuperAdminTopBarProps {
@@ -25,6 +27,7 @@ export function SuperAdminTopBar({
   const { session } = useAuth()
   const name = session?.user.nome ?? 'Admin'
   const [searchOpen, setSearchOpen] = useState(false)
+  const { items, unreadCount, loading, markRead } = useSuperAdminNotifications()
 
   return (
     <div className="sticky top-0 z-30 border-b border-aura-border bg-white px-4 py-3 sm:px-6">
@@ -84,14 +87,12 @@ export function SuperAdminTopBar({
             </button>
           </>
         )}
-        <button
-          type="button"
-          className="relative rounded-lg p-2 text-aura-muted hover:bg-aura-surface"
-          aria-label="Notificações"
-        >
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
-        </button>
+        <NotificationBell
+          items={items}
+          unreadCount={unreadCount}
+          loading={loading}
+          onMarkRead={markRead}
+        />
         <div
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aura-primary/15 text-xs font-semibold text-aura-primary-dark"
           title={name}

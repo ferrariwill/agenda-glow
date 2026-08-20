@@ -351,6 +351,15 @@ export interface ClienteGaleriaItem {
 
 export type FaturaSaasStatus = 'SUCESSO' | 'PENDENTE' | 'FALHA'
 
+/** Aviso / inbox do Super Admin (contrato alinhado ao futuro endpoint Back). */
+export interface SuperAdminNotification {
+  id: string
+  title: string
+  body?: string
+  created_at: string
+  read_at: string | null
+}
+
 /** Cobrança mensal SaaS de um salão (visão Super Admin). */
 export interface FaturaSaas {
   id: string
