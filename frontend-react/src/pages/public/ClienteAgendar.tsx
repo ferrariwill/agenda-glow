@@ -13,7 +13,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { IS_MOCK } from '../../lib/config'
 import { ApiError } from '../../lib/api'
 import { useStoreDb } from '../../data/store'
-import { fetchPublicSlots } from '../../data/sync'
+import { fetchPublicSlots, syncPublicCatalog } from '../../data/sync'
 import { enviarConfirmacaoAgendamento } from '../../services/whatsappService'
 import {
   AgendaConflitoError,
@@ -30,6 +30,40 @@ const GLASS =
 
 type SlotsStatus = 'idle' | 'loading' | 'empty' | 'error' | 'ready'
 type Step = 1 | 2 | 3 | 4
+
+const CATALOG_STALE_CODES = new Set([
+  'professional_not_found',
+  'service_not_found',
+  'invalid_additionals',
+])
+
+function slotsErrorMessage(err: unknown): { message: string; catalogStale: boolean } {
+  if (err instanceof ApiError) {
+    if (err.code && CATALOG_STALE_CODES.has(err.code)) {
+      return {
+        message: 'Catálogo desatualizado — recarregue e tente de novo.',
+        catalogStale: true,
+      }
+    }
+    if (err.code === 'missing_query_params' || err.code === 'invalid_date') {
+      return {
+        message: 'Não foi possível montar a busca de horários. Ajuste data, profissional e serviço.',
+        catalogStale: false,
+      }
+    }
+    if (err.code === 'internal_error' || err.status >= 500) {
+      return {
+        message: 'O servidor não conseguiu carregar os horários agora. Tente de novo em instantes.',
+        catalogStale: false,
+      }
+    }
+  }
+  return {
+    message:
+      'Não foi possível carregar os horários. Sua seleção de serviço, profissional e data foi mantida.',
+    catalogStale: false,
+  }
+}
 
 function useOnlineStatus() {
   const [online, setOnline] = useState(
@@ -76,6 +110,7 @@ export function ClienteAgendar() {
   const [step, setStep] = useState<Step>(1)
   const [profId, setProfId] = useState('')
   const [servicoIds, setServicoIds] = useState<string[]>([])
+  const [adicionalIds, setAdicionalIds] = useState<string[]>([])
   const [data, setData] = useState(todayISO())
   const [hora, setHora] = useState('')
   const [aceitaAdiantar, setAceitaAdiantar] = useState(false)
@@ -85,7 +120,10 @@ export function ClienteAgendar() {
   const [managementUrl, setManagementUrl] = useState('')
   const [horarios, setHorarios] = useState<string[]>([])
   const [slotsStatus, setSlotsStatus] = useState<SlotsStatus>('idle')
+  const [slotsErrorMsg, setSlotsErrorMsg] = useState('')
+  const [slotsCatalogStale, setSlotsCatalogStale] = useState(false)
   const [slotsRetry, setSlotsRetry] = useState(0)
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false)
 
   const profissionais = tenant
     ? db.profissionais.filter((p) => p.tenant_id === tenant.id && p.ativo)
@@ -95,6 +133,18 @@ export function ClienteAgendar() {
   const servicosProf = useMemo(
     () => (profId && tenant ? getServicosDoProfissional(tenant.id, profId, allServicos) : []),
     [profId, tenant?.id, allServicos],
+  )
+
+  const procedimentoId = servicoIds[0] ?? ''
+
+  const adicionaisDoServico = useMemo(() => {
+    if (!procedimentoId) return []
+    return db.adicionais.filter((a) => a.servico_id === procedimentoId)
+  }, [db.adicionais, procedimentoId])
+
+  const adicionaisSelecionados = useMemo(
+    () => adicionaisDoServico.filter((a) => adicionalIds.includes(a.id)),
+    [adicionaisDoServico, adicionalIds],
   )
 
   useEffect(() => {
@@ -109,32 +159,48 @@ export function ClienteAgendar() {
       return
     }
     setServicoIds((prev) => {
+      if (!IS_MOCK) {
+        const stillValid = prev[0] && servicosProf.some((s) => s.id === prev[0])
+        return stillValid ? [prev[0]] : [servicosProf[0].id]
+      }
       const valid = prev.filter((id) => servicosProf.some((s) => s.id === id))
       if (valid.length > 0) return valid
       return [servicosProf[0].id]
     })
   }, [servicosProf])
 
+  useEffect(() => {
+    setAdicionalIds((prev) => prev.filter((id) => adicionaisDoServico.some((a) => a.id === id)))
+  }, [adicionaisDoServico])
+
   const servicosSelecionados = useMemo(
     () => servicosProf.filter((s) => servicoIds.includes(s.id)),
     [servicosProf, servicoIds],
   )
-  const totalDuracao = servicosSelecionados.reduce((s, x) => s + x.duracao_minutos, 0)
-  const totalPreco = servicosSelecionados.reduce((s, x) => s + x.preco, 0)
+  const totalDuracao =
+    servicosSelecionados.reduce((s, x) => s + x.duracao_minutos, 0) +
+    adicionaisSelecionados.reduce((s, x) => s + x.duracao_minutos, 0)
+  const totalPreco =
+    servicosSelecionados.reduce((s, x) => s + x.preco, 0) +
+    adicionaisSelecionados.reduce((s, x) => s + x.preco, 0)
 
   useEffect(() => {
     if (!profId || servicoIds.length === 0 || totalDuracao === 0) {
       setHorarios([])
       setSlotsStatus('idle')
+      setSlotsErrorMsg('')
+      setSlotsCatalogStale(false)
       return
     }
     if (IS_MOCK) {
       const slots = getHorariosDisponiveis(profId, data, totalDuracao)
       setHorarios(slots)
       setSlotsStatus(slots.length === 0 ? 'empty' : 'ready')
+      setSlotsErrorMsg('')
+      setSlotsCatalogStale(false)
       return
     }
-    if (!slug) {
+    if (!slug || !procedimentoId) {
       setHorarios([])
       setSlotsStatus('idle')
       return
@@ -142,21 +208,36 @@ export function ClienteAgendar() {
     let cancelled = false
     setSlotsStatus('loading')
     setHorarios([])
-    fetchPublicSlots(slug, profId, data, servicoIds[0])
+    setSlotsErrorMsg('')
+    setSlotsCatalogStale(false)
+    fetchPublicSlots(slug, profId, data, procedimentoId, adicionalIds)
       .then((slots) => {
         if (cancelled) return
         setHorarios(slots)
         setSlotsStatus(slots.length === 0 ? 'empty' : 'ready')
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return
+        const mapped = slotsErrorMessage(err)
         setHorarios([])
         setSlotsStatus('error')
+        setSlotsErrorMsg(mapped.message)
+        setSlotsCatalogStale(mapped.catalogStale)
       })
     return () => {
       cancelled = true
     }
-  }, [profId, data, totalDuracao, servicoIds, slug, db.agendamentos, slotsRetry])
+  }, [
+    profId,
+    data,
+    totalDuracao,
+    servicoIds,
+    adicionalIds,
+    procedimentoId,
+    slug,
+    db.agendamentos,
+    slotsRetry,
+  ])
 
   const maxReachable: Step = (() => {
     if (!hora) {
@@ -165,6 +246,12 @@ export function ClienteAgendar() {
     }
     return 4
   })()
+
+  const selectServico = (id: string) => {
+    setServicoIds([id])
+    setAdicionalIds([])
+    setHora('')
+  }
 
   const toggleServico = (id: string) => {
     setServicoIds((prev) => {
@@ -177,6 +264,13 @@ export function ClienteAgendar() {
     setHora('')
   }
 
+  const toggleAdicional = (id: string) => {
+    setAdicionalIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+    setHora('')
+  }
+
   const selectProf = (id: string) => {
     setProfId(id)
     setHora('')
@@ -185,6 +279,22 @@ export function ClienteAgendar() {
   const refreshSlots = () => {
     setHora('')
     setSlotsRetry((n) => n + 1)
+  }
+
+  const retrySlotsWithCatalog = async () => {
+    if (!slug || IS_MOCK) {
+      refreshSlots()
+      return
+    }
+    setCatalogRefreshing(true)
+    try {
+      await syncPublicCatalog(slug)
+    } catch {
+      /* UI de slots permanece em error; usuário pode tentar de novo */
+    } finally {
+      setCatalogRefreshing(false)
+      refreshSlots()
+    }
   }
 
   const confirmar = async () => {
@@ -205,7 +315,8 @@ export function ClienteAgendar() {
         {
           tenant_id: tenant.id,
           profissional_id: profId,
-          servico_ids: servicoIds,
+          servico_ids: IS_MOCK ? servicoIds : [procedimentoId],
+          adicional_ids: adicionalIds,
           cliente_nome: session.user.nome,
           cliente_telefone: session.user.telefone ?? '',
           data,
@@ -219,7 +330,10 @@ export function ClienteAgendar() {
       await enviarConfirmacaoAgendamento({
         telefone: session.user.telefone ?? '',
         clienteNome: session.user.nome,
-        servico: servicosSelecionados.map((s) => s.nome).join(' + '),
+        servico: [
+          ...servicosSelecionados.map((s) => s.nome),
+          ...adicionaisSelecionados.map((a) => a.nome),
+        ].join(' + '),
         profissional: prof?.nome ?? '',
         data,
         hora,
@@ -271,7 +385,11 @@ export function ClienteAgendar() {
             Agendamento confirmado!
           </h1>
           <p className="mt-2 text-sm text-[#514440]">
-            {formatDateTimeBR(data, hora)} · {servicosSelecionados.map((s) => s.nome).join(' + ')}
+            {formatDateTimeBR(data, hora)} ·{' '}
+            {[
+              ...servicosSelecionados.map((s) => s.nome),
+              ...adicionaisSelecionados.map((a) => a.nome),
+            ].join(' + ')}
           </p>
           {aceitaAdiantar && (
             <p className="mt-2 text-sm text-[#514440]">
@@ -322,7 +440,9 @@ export function ClienteAgendar() {
         Agendar horário
       </h1>
       <p className="mb-4 text-sm text-[#514440]">
-        Escolha a profissional, os serviços e o melhor horário para você.
+        {IS_MOCK
+          ? 'Escolha a profissional, os serviços e o melhor horário para você.'
+          : 'Escolha a profissional, o serviço e o melhor horário para você.'}
       </p>
 
       <BookingStepper
@@ -401,9 +521,14 @@ export function ClienteAgendar() {
         {step === 2 && (
           <section className={GLASS + ' p-4'}>
             <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-[#514440]">
-              2 · Serviços
+              2 · {IS_MOCK ? 'Serviços' : 'Serviço'}
             </h2>
             <p className="mb-2 text-xs text-[#514440]">Com {profNome}</p>
+            {!IS_MOCK && (
+              <p className="mb-3 text-xs text-[#514440]">
+                Selecione um serviço principal. Opcionalmente, marque adicionais do catálogo.
+              </p>
+            )}
             {servicosProf.length === 0 ? (
               <p className="text-sm text-[#514440]">
                 Nenhum serviço online para esta profissional.
@@ -411,10 +536,43 @@ export function ClienteAgendar() {
             ) : (
               <div className="space-y-1">
                 {servicosProf.map((s) => {
-                  const checked = servicoIds.includes(s.id)
+                  const selected = IS_MOCK
+                    ? servicoIds.includes(s.id)
+                    : procedimentoId === s.id
                   return (
                     <label
                       key={s.id}
+                      className={[
+                        'flex min-h-touch-min cursor-pointer touch-manipulation items-center gap-3 rounded-lg px-2 py-2 text-sm',
+                        selected ? 'bg-[#efdcd1]/40' : 'hover:bg-white/60',
+                      ].join(' ')}
+                    >
+                      <input
+                        type={IS_MOCK ? 'checkbox' : 'radio'}
+                        name="servico-publico"
+                        checked={selected}
+                        onChange={() => (IS_MOCK ? toggleServico(s.id) : selectServico(s.id))}
+                        className="h-5 w-5 rounded border-[#d6c2bd] text-[#7d5141]"
+                      />
+                      <span className="flex-1 font-medium text-[#1a1c1c]">{s.nome}</span>
+                      <span className="text-xs text-[#514440]">
+                        {s.duracao_minutos} min · {formatBRL(s.preco)}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            {!IS_MOCK && adicionaisDoServico.length > 0 && (
+              <div className="mt-4 space-y-1 border-t border-[#efdcd1]/50 pt-3">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-[#514440]">
+                  Adicionais
+                </p>
+                {adicionaisDoServico.map((a) => {
+                  const checked = adicionalIds.includes(a.id)
+                  return (
+                    <label
+                      key={a.id}
                       className={[
                         'flex min-h-touch-min cursor-pointer touch-manipulation items-center gap-3 rounded-lg px-2 py-2 text-sm',
                         checked ? 'bg-[#efdcd1]/40' : 'hover:bg-white/60',
@@ -423,12 +581,12 @@ export function ClienteAgendar() {
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => toggleServico(s.id)}
+                        onChange={() => toggleAdicional(a.id)}
                         className="h-5 w-5 rounded border-[#d6c2bd] text-[#7d5141]"
                       />
-                      <span className="flex-1 font-medium text-[#1a1c1c]">{s.nome}</span>
+                      <span className="flex-1 font-medium text-[#1a1c1c]">{a.nome}</span>
                       <span className="text-xs text-[#514440]">
-                        {s.duracao_minutos} min · {formatBRL(s.preco)}
+                        +{a.duracao_minutos} min · {formatBRL(a.preco)}
                       </span>
                     </label>
                   )
@@ -491,11 +649,16 @@ export function ClienteAgendar() {
               {slotsStatus === 'error' && (
                 <div className="space-y-3">
                   <p className="text-sm text-[#514440]">
-                    Não foi possível carregar os horários. Sua seleção de serviço, profissional e
-                    data foi mantida.
+                    {slotsErrorMsg ||
+                      'Não foi possível carregar os horários. Sua seleção de serviço, profissional e data foi mantida.'}
                   </p>
-                  <Button variant="secondary" fullWidth onClick={refreshSlots}>
-                    Tentar horários de novo
+                  <Button
+                    variant="secondary"
+                    fullWidth
+                    loading={catalogRefreshing}
+                    onClick={slotsCatalogStale ? retrySlotsWithCatalog : refreshSlots}
+                  >
+                    {slotsCatalogStale ? 'Recarregar catálogo e horários' : 'Tentar horários de novo'}
                   </Button>
                 </div>
               )}
@@ -553,9 +716,12 @@ export function ClienteAgendar() {
                   <dd className="font-medium text-[#1a1c1c]">{profNome}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <dt>Serviços</dt>
+                  <dt>{IS_MOCK ? 'Serviços' : 'Serviço'}</dt>
                   <dd className="text-right font-medium text-[#1a1c1c]">
-                    {servicosSelecionados.map((s) => s.nome).join(' + ')}
+                    {[
+                      ...servicosSelecionados.map((s) => s.nome),
+                      ...adicionaisSelecionados.map((a) => a.nome),
+                    ].join(' + ')}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">
