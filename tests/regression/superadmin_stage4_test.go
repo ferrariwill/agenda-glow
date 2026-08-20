@@ -861,7 +861,7 @@ func TestStage4MenuAcoesTenantReact(t *testing.T) {
 	if !strings.Contains(menu, "ActionsDropdown") {
 		t.Fatalf("TenantActionsMenu deveria usar ActionsDropdown (portal)")
 	}
-	for _, item := range []string{"Atribuir plano", "Renovar +12 meses", "Suspender", "Ativar", "Criar dona", "Ver catálogo"} {
+	for _, item := range []string{"Editar", "Atribuir plano", "Renovar +12 meses", "Suspender", "Ativar", "Criar dona", "Ver catálogo"} {
 		if !strings.Contains(menu, item) {
 			t.Fatalf("ação %q ausente do menu do tenant", item)
 		}

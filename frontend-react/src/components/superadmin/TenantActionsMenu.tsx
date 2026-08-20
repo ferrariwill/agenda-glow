@@ -1,10 +1,11 @@
-import { ExternalLink, MoreHorizontal, RefreshCw, Shield, UserPlus, Wallet } from 'lucide-react'
+import { ExternalLink, MoreHorizontal, Pencil, RefreshCw, Shield, UserPlus, Wallet } from 'lucide-react'
 import { ActionsDropdown } from '../ui/ActionsDropdown'
 import type { TenantStatus } from '../../types'
 
 interface TenantActionsMenuProps {
   status: TenantStatus
   slug: string
+  onEdit: () => void
   onAssignPlan: () => void
   onRenew: () => void
   onToggleStatus: () => void
@@ -14,6 +15,7 @@ interface TenantActionsMenuProps {
 export function TenantActionsMenu({
   status,
   slug,
+  onEdit,
   onAssignPlan,
   onRenew,
   onToggleStatus,
@@ -24,6 +26,7 @@ export function TenantActionsMenu({
       icon={MoreHorizontal}
       minWidth={192}
       items={[
+        { label: 'Editar', icon: Pencil, onClick: onEdit },
         { label: 'Atribuir plano', icon: Wallet, onClick: onAssignPlan },
         { label: 'Renovar +12 meses', icon: RefreshCw, onClick: onRenew },
         {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Upload } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import {
   SuperAdminLayout,
   SuperAdminFooter,
@@ -8,6 +8,7 @@ import {
   TablePagination,
 } from '../../components/superadmin/SuperAdminLayout'
 import { TenantActionsMenu } from '../../components/superadmin/TenantActionsMenu'
+import { TenantIdentityForm } from '../../components/superadmin/TenantIdentityForm'
 import { Alert } from '../../components/ui/Alert'
 import { Badge, statusTenantBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -18,6 +19,7 @@ import {
   type EntityColumn,
 } from '../../components/ui/ResponsiveEntityList'
 import { ToastFeedback } from '../../components/ui/ToastFeedback'
+import { ApiError } from '../../lib/api'
 import type { Tenant } from '../../types'
 import {
   SLUG_REGEX,
@@ -31,6 +33,7 @@ import {
   renewAllExpired,
   renewTenant,
   suspendTenant,
+  updateTenant,
 } from '../../utils/mockDb'
 import { formatDateBR, initials, todayISO } from '../../utils/format'
 import { matchesTenantStatusFilter, type TenantStatusFilter } from '../../utils/tenantStatus'
@@ -48,6 +51,7 @@ export function GerenciamentoSaloes() {
   const [renewLoading, setRenewLoading] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState<Tenant | null>(null)
   const [assignOpen, setAssignOpen] = useState<Tenant | null>(null)
   const [donaOpen, setDonaOpen] = useState<Tenant | null>(null)
   const [assignPlanoId, setAssignPlanoId] = useState('')
@@ -58,6 +62,7 @@ export function GerenciamentoSaloes() {
   const [slug, setSlug] = useState('')
   const [planoId, setPlanoId] = useState(db.planos[0]?.id ?? '')
   const [logoPreview, setLogoPreview] = useState<string>()
+  const [logoChanged, setLogoChanged] = useState(false)
 
   const stats = useMemo(() => getSuperAdminStats(), [db])
   const refresh = () => setDb(getDb())
@@ -81,6 +86,13 @@ export function GerenciamentoSaloes() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const slice = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  const resetIdentityForm = () => {
+    setNome('')
+    setSlug('')
+    setLogoPreview(undefined)
+    setLogoChanged(false)
+  }
+
   const handleLogo = (file: File | null) => {
     if (!file) return
     if (!['image/png', 'image/jpeg'].includes(file.type)) {
@@ -92,8 +104,20 @@ export function GerenciamentoSaloes() {
       return
     }
     const reader = new FileReader()
-    reader.onload = () => setLogoPreview(reader.result as string)
+    reader.onload = () => {
+      setLogoPreview(reader.result as string)
+      setLogoChanged(true)
+    }
     reader.readAsDataURL(file)
+  }
+
+  const openEdit = (t: Tenant) => {
+    setError('')
+    setNome(t.nome)
+    setSlug(t.slug)
+    setLogoPreview(t.logo_url)
+    setLogoChanged(false)
+    setEditOpen(t)
   }
 
   const handleCreate = async () => {
@@ -106,23 +130,54 @@ export function GerenciamentoSaloes() {
       setError('Este slug já está em uso')
       return
     }
-    const today = todayISO()
-    await createTenant({
-      nome,
-      slug,
-      status: 'ATIVO',
-      plano_id: planoId,
-      logo_url: logoPreview,
-      bio: '',
-      data_vencimento: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
-      criado_em: today,
-    })
-    refresh()
-    setCreateOpen(false)
-    setNome('')
-    setSlug('')
-    setLogoPreview(undefined)
-    setSuccess('Salão cadastrado com sucesso!')
+    try {
+      const today = todayISO()
+      await createTenant({
+        nome,
+        slug,
+        status: 'ATIVO',
+        plano_id: planoId,
+        logo_url: logoPreview,
+        bio: '',
+        data_vencimento: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+        criado_em: today,
+      })
+      refresh()
+      setCreateOpen(false)
+      resetIdentityForm()
+      setSuccess('Salão cadastrado com sucesso!')
+    } catch (err) {
+      setError(mapTenantError(err))
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!editOpen) return
+    setError('')
+    if (!SLUG_REGEX.test(slug)) {
+      setError('Slug inválido. Use apenas letras minúsculas, números e hífens.')
+      return
+    }
+    if (db.tenants.some((t) => t.slug === slug && t.id !== editOpen.id)) {
+      setError('Este slug já está em uso')
+      return
+    }
+    try {
+      const patch: Pick<Tenant, 'nome' | 'slug'> & { logo_url?: string } = {
+        nome,
+        slug,
+      }
+      if (logoChanged) {
+        patch.logo_url = logoPreview
+      }
+      await updateTenant(editOpen.id, patch)
+      refresh()
+      setEditOpen(null)
+      resetIdentityForm()
+      setSuccess('Salão atualizado com sucesso!')
+    } catch (err) {
+      setError(mapTenantError(err))
+    }
   }
 
   const handleRenewAll = async () => {
@@ -137,6 +192,7 @@ export function GerenciamentoSaloes() {
     <TenantActionsMenu
       status={t.status}
       slug={t.slug}
+      onEdit={() => openEdit(t)}
       onAssignPlan={() => {
         setAssignPlanoId(t.plano_id)
         setAssignOpen(t)
@@ -241,6 +297,15 @@ export function GerenciamentoSaloes() {
     </div>
   )
 
+  const identityFormProps = {
+    nome,
+    slug,
+    logoPreview,
+    onNomeChange: setNome,
+    onSlugChange: setSlug,
+    onLogoFile: handleLogo,
+  }
+
   return (
     <SuperAdminLayout
       searchPlaceholder="Buscar salões…"
@@ -252,7 +317,7 @@ export function GerenciamentoSaloes() {
       onRenewAll={handleRenewAll}
       renewLoading={renewLoading}
     >
-      {error && (
+      {error && !createOpen && !editOpen && (
         <Alert variant="error" className="mb-4" onDismiss={() => setError('')}>
           {error}
         </Alert>
@@ -263,7 +328,14 @@ export function GerenciamentoSaloes() {
         title="Gestão de Salões"
         subtitle="Visualize e gerencie os tenants da plataforma Aura Beauty."
         action={
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button
+            onClick={() => {
+              setError('')
+              resetIdentityForm()
+              setPlanoId(db.planos[0]?.id ?? '')
+              setCreateOpen(true)
+            }}
+          >
             <Plus className="h-4 w-4" />
             Novo Salão
           </Button>
@@ -315,7 +387,14 @@ export function GerenciamentoSaloes() {
           columns={columns}
           emptyTitle="Nenhum salão encontrado."
           emptyAction={
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button
+              onClick={() => {
+                setError('')
+                resetIdentityForm()
+                setPlanoId(db.planos[0]?.id ?? '')
+                setCreateOpen(true)
+              }}
+            >
               <Plus className="h-4 w-4" />
               Novo Salão
             </Button>
@@ -335,50 +414,62 @@ export function GerenciamentoSaloes() {
 
       <Modal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          setError('')
+        }}
         title="Novo Salão"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCreateOpen(false)
+                setError('')
+              }}
+            >
               Cancelar
             </Button>
             <Button onClick={handleCreate}>Cadastrar</Button>
           </>
         }
       >
-        <div className="space-y-4">
-          <Input label="Nome do salão" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <Input
-            label="Slug público"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value.toLowerCase())}
-            placeholder="meu-salao-luxo"
-          />
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Plano SaaS</label>
-            <select
-              value={planoId}
-              onChange={(e) => setPlanoId(e.target.value)}
-              className="w-full rounded-lg border border-aura-border px-3 py-2.5 text-sm"
+        {error && createOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
+        <TenantIdentityForm
+          {...identityFormProps}
+          showPlano
+          planoId={planoId}
+          onPlanoChange={setPlanoId}
+          planos={db.planos.map((p) => ({ id: p.id, nome: p.nome }))}
+        />
+      </Modal>
+
+      <Modal
+        open={!!editOpen}
+        onClose={() => {
+          setEditOpen(null)
+          resetIdentityForm()
+          setError('')
+        }}
+        title="Editar Salão"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setEditOpen(null)
+                resetIdentityForm()
+                setError('')
+              }}
             >
-              {db.planos.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-aura-border p-4">
-            <Upload className="h-5 w-5 text-aura-muted" />
-            <span className="text-sm text-aura-muted">Logo PNG/JPG (&lt; 2MB)</span>
-            <input
-              type="file"
-              accept=".png,.jpg,.jpeg"
-              className="hidden"
-              onChange={(e) => handleLogo(e.target.files?.[0] ?? null)}
-            />
-          </label>
-        </div>
+              Cancelar
+            </Button>
+            <Button onClick={handleUpdate}>Salvar</Button>
+          </>
+        }
+      >
+        {error && editOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
+        <TenantIdentityForm {...identityFormProps} showPlano={false} />
       </Modal>
 
       <Modal
@@ -459,4 +550,20 @@ export function GerenciamentoSaloes() {
       </Modal>
     </SuperAdminLayout>
   )
+}
+
+function mapTenantError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 409 || err.code === 'slug_already_exists') {
+      return 'Este slug já está em uso'
+    }
+    if (err.code === 'invalid_slug') {
+      return 'Slug inválido. Use apenas letras minúsculas, números e hífens.'
+    }
+    if (err.code === 'missing_nome_comercial') {
+      return 'Informe o nome do salão.'
+    }
+  }
+  if (err instanceof Error && err.message) return err.message
+  return 'Não foi possível salvar o salão. Tente novamente.'
 }
