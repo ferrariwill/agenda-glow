@@ -261,6 +261,20 @@ export function parseTimeBR(text: string): string | null {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
+/** HH:mm → minutos desde 00:00 (UI / pickers; mockDb tem equivalente). */
+export function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h || 0) * 60 + (m || 0)
+}
+
+/** Minutos desde 00:00 → HH:mm. */
+export function minutesToTime(mins: number): string {
+  const clamped = Math.max(0, Math.min(mins, 23 * 60 + 59))
+  const h = Math.floor(clamped / 60)
+  const m = clamped % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
 /** Máscara parcial enquanto digita data */
 export function maskDateBRInput(raw: string): string {
   const digits = raw.replace(/\D/g, '').slice(0, 8)

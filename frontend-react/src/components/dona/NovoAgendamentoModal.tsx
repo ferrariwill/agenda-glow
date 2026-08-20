@@ -327,7 +327,7 @@ export function NovoAgendamentoModal({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <DateInput label="Data" value={data} onChange={setData} minDate={todayISO()} />
-          <TimeInput label="Horário" value={hora} onChange={setHora} />
+          <TimeInput label="Horário" value={hora} onChange={setHora} withPicker />
         </div>
       </div>
     </Modal>
