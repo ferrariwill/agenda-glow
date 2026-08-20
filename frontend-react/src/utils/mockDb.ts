@@ -3706,28 +3706,55 @@ export async function activateTenant(tenantId: string): Promise<Tenant> {
   return db.tenants[idx]
 }
 
-export function createDonaForTenant(
+export async function createDonaForTenant(
   tenantId: string,
   nome: string,
   email: string,
-): void {
+): Promise<void> {
+  const nomeTrim = nome.trim()
+  const emailTrim = email.trim().toLowerCase()
+  if (!nomeTrim) throw new Error('Informe o nome da dona.')
+  if (!emailTrim) throw new Error('Informe o e-mail da dona.')
+
+  if (!IS_MOCK) {
+    await apiFetch(`/api/v1/admin/establishments/${tenantId}/create-dona`, {
+      method: 'POST',
+      body: JSON.stringify({ nome: nomeTrim, email: emailTrim }),
+    })
+    await syncAdminBootstrap()
+    return
+  }
+
   const db = getDb()
   const idx = db.tenants.findIndex((t) => t.id === tenantId)
   if (idx < 0) throw new Error('Salão não encontrado')
-  if (db.users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+  if (db.users.some((u) => u.email.toLowerCase() === emailTrim)) {
     throw new Error('E-mail já cadastrado')
   }
-  db.tenants[idx].dona_nome = nome
-  db.tenants[idx].dona_email = email
+  db.tenants[idx].dona_nome = nomeTrim
+  db.tenants[idx].dona_email = emailTrim
   db.users.push({
     id: uid(),
-    email,
+    email: emailTrim,
     password: 'AgendaGlow@2026',
     role: 'DONA',
     tenant_id: tenantId,
-    nome,
+    nome: nomeTrim,
   })
   persistDb(db)
+}
+
+export async function uploadTenantLogo(tenantId: string, file: File): Promise<string> {
+  if (IS_MOCK) {
+    throw new Error('uploadTenantLogo só é suportado em modo API')
+  }
+  const form = new FormData()
+  form.append('logo', file)
+  const res = await apiFetch<{ logo_url: string }>(
+    `/api/v1/admin/establishments/${tenantId}/logo`,
+    { method: 'POST', body: form },
+  )
+  return res.logo_url
 }
 
 export async function createTenant(data: Omit<Tenant, 'id'>): Promise<Tenant> {
@@ -3753,6 +3780,101 @@ export async function createTenant(data: Omit<Tenant, 'id'>): Promise<Tenant> {
   db.tenants.push(tenant)
   persistDb(db)
   return tenant
+}
+
+/** Cria salão + dona (+ logo). Em API: create → assign-plan → create-dona → logo multipart. */
+export async function createTenantWithOwner(input: {
+  nome: string
+  slug: string
+  plano_id: string
+  dona_nome: string
+  dona_email: string
+  logoFile?: File | null
+  logoPreview?: string
+}): Promise<Tenant> {
+  const criadoEm = today()
+
+  if (!IS_MOCK) {
+    let establishmentId = ''
+    try {
+      const res = await apiFetch<{ id: string; slug: string }>('/api/v1/admin/establishments', {
+        method: 'POST',
+        body: JSON.stringify({ nome_comercial: input.nome, slug: input.slug }),
+      })
+      establishmentId = res.id
+
+      if (input.plano_id) {
+        await apiFetch(`/api/v1/admin/establishments/${res.id}/assign-plan`, {
+          method: 'POST',
+          body: JSON.stringify({ plano_id: input.plano_id, meses: 12 }),
+        })
+      }
+
+      try {
+        await apiFetch(`/api/v1/admin/establishments/${res.id}/create-dona`, {
+          method: 'POST',
+          body: JSON.stringify({ nome: input.dona_nome, email: input.dona_email }),
+        })
+      } catch (err) {
+        const detail =
+          err instanceof Error && err.message
+            ? err.message
+            : 'erro desconhecido'
+        throw new Error(`Salão criado, falha ao criar dona: ${detail}`)
+      }
+
+      if (input.logoFile) {
+        try {
+          await uploadTenantLogo(res.id, input.logoFile)
+        } catch (err) {
+          const detail =
+            err instanceof Error && err.message
+              ? err.message
+              : 'erro desconhecido'
+          throw new Error(`Salão e dona criados, falha ao enviar logo: ${detail}`)
+        }
+      }
+
+      await syncAdminBootstrap()
+      const tenant = getDb().tenants.find((t) => t.id === res.id || t.slug === res.slug)
+      if (tenant) return tenant
+      return {
+        id: res.id,
+        nome: input.nome,
+        slug: res.slug,
+        status: 'ATIVO',
+        plano_id: input.plano_id,
+        bio: '',
+        data_vencimento: addMonths(criadoEm, 12),
+        criado_em: criadoEm,
+        dona_nome: input.dona_nome,
+        dona_email: input.dona_email,
+      }
+    } catch (err) {
+      if (establishmentId) {
+        try {
+          await syncAdminBootstrap()
+        } catch {
+          /* best-effort refresh após falha parcial */
+        }
+      }
+      throw err
+    }
+  }
+
+  const tenant = await createTenant({
+    nome: input.nome,
+    slug: input.slug,
+    status: 'ATIVO',
+    plano_id: input.plano_id,
+    logo_url: input.logoPreview,
+    bio: '',
+    data_vencimento: addMonths(criadoEm, 12),
+    criado_em: criadoEm,
+  })
+  await createDonaForTenant(tenant.id, input.dona_nome, input.dona_email)
+  const refreshed = getDb().tenants.find((t) => t.id === tenant.id)
+  return refreshed ?? tenant
 }
 
 export function renewAllExpired(): number {

@@ -7,6 +7,7 @@ import {
   MetricCard,
   TablePagination,
 } from '../../components/superadmin/SuperAdminLayout'
+import { NovoSalaoModal } from '../../components/superadmin/NovoSalaoModal'
 import { TenantActionsMenu } from '../../components/superadmin/TenantActionsMenu'
 import { TenantIdentityForm } from '../../components/superadmin/TenantIdentityForm'
 import { Alert } from '../../components/ui/Alert'
@@ -26,7 +27,6 @@ import {
   activateTenant,
   assignPlanToTenant,
   createDonaForTenant,
-  createTenant,
   getDb,
   getPlano,
   getSuperAdminStats,
@@ -35,7 +35,7 @@ import {
   suspendTenant,
   updateTenantIdentity,
 } from '../../utils/mockDb'
-import { formatDateBR, initials, todayISO } from '../../utils/format'
+import { formatDateBR, initials } from '../../utils/format'
 import { matchesTenantStatusFilter, type TenantStatusFilter } from '../../utils/tenantStatus'
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024
@@ -57,10 +57,10 @@ export function GerenciamentoSaloes() {
   const [assignPlanoId, setAssignPlanoId] = useState('')
   const [donaNome, setDonaNome] = useState('')
   const [donaEmail, setDonaEmail] = useState('')
+  const [donaSubmitting, setDonaSubmitting] = useState(false)
 
   const [nome, setNome] = useState('')
   const [slug, setSlug] = useState('')
-  const [planoId, setPlanoId] = useState(db.planos[0]?.id ?? '')
   const [logoPreview, setLogoPreview] = useState<string>()
   const [logoChanged, setLogoChanged] = useState(false)
 
@@ -120,37 +120,6 @@ export function GerenciamentoSaloes() {
     setEditOpen(t)
   }
 
-  const handleCreate = async () => {
-    setError('')
-    if (!SLUG_REGEX.test(slug)) {
-      setError('Slug inválido. Use apenas letras minúsculas, números e hífens.')
-      return
-    }
-    if (db.tenants.some((t) => t.slug === slug)) {
-      setError('Este slug já está em uso')
-      return
-    }
-    try {
-      const today = todayISO()
-      await createTenant({
-        nome,
-        slug,
-        status: 'ATIVO',
-        plano_id: planoId,
-        logo_url: logoPreview,
-        bio: '',
-        data_vencimento: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
-        criado_em: today,
-      })
-      refresh()
-      setCreateOpen(false)
-      resetIdentityForm()
-      setSuccess('Salão cadastrado com sucesso!')
-    } catch (err) {
-      setError(mapTenantError(err))
-    }
-  }
-
   const handleUpdate = async () => {
     if (!editOpen) return
     setError('')
@@ -186,6 +155,11 @@ export function GerenciamentoSaloes() {
     refresh()
     setRenewLoading(false)
     setSuccess(n > 0 ? `${n} assinatura(s) renovada(s).` : 'Nenhuma assinatura vencida.')
+  }
+
+  const openCreate = () => {
+    setError('')
+    setCreateOpen(true)
   }
 
   const renderActions = (t: Tenant) => (
@@ -317,7 +291,7 @@ export function GerenciamentoSaloes() {
       onRenewAll={handleRenewAll}
       renewLoading={renewLoading}
     >
-      {error && !createOpen && !editOpen && (
+      {error && !createOpen && !editOpen && !donaOpen && (
         <Alert variant="error" className="mb-4" onDismiss={() => setError('')}>
           {error}
         </Alert>
@@ -328,14 +302,7 @@ export function GerenciamentoSaloes() {
         title="Gestão de Salões"
         subtitle="Visualize e gerencie os tenants da plataforma Aura Beauty."
         action={
-          <Button
-            onClick={() => {
-              setError('')
-              resetIdentityForm()
-              setPlanoId(db.planos[0]?.id ?? '')
-              setCreateOpen(true)
-            }}
-          >
+          <Button onClick={openCreate}>
             <Plus className="h-4 w-4" />
             Novo Salão
           </Button>
@@ -387,14 +354,7 @@ export function GerenciamentoSaloes() {
           columns={columns}
           emptyTitle="Nenhum salão encontrado."
           emptyAction={
-            <Button
-              onClick={() => {
-                setError('')
-                resetIdentityForm()
-                setPlanoId(db.planos[0]?.id ?? '')
-                setCreateOpen(true)
-              }}
-            >
+            <Button onClick={openCreate}>
               <Plus className="h-4 w-4" />
               Novo Salão
             </Button>
@@ -412,41 +372,20 @@ export function GerenciamentoSaloes() {
 
       <SuperAdminFooter />
 
-      <Modal
+      <NovoSalaoModal
         open={createOpen}
         onClose={() => {
           setCreateOpen(false)
           setError('')
         }}
-        title="Novo Salão"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setCreateOpen(false)
-                setError('')
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button onClick={handleCreate}>Cadastrar</Button>
-          </>
-        }
-      >
-        {error && createOpen && (
-          <p className="mb-3 text-sm text-red-600" role="alert">
-            {error}
-          </p>
-        )}
-        <TenantIdentityForm
-          {...identityFormProps}
-          showPlano
-          planoId={planoId}
-          onPlanoChange={setPlanoId}
-          planos={db.planos.map((p) => ({ id: p.id, nome: p.nome }))}
-        />
-      </Modal>
+        planos={db.planos.map((p) => ({ id: p.id, nome: p.nome }))}
+        existingSlugs={db.tenants.map((t) => t.slug)}
+        onSuccess={() => {
+          refresh()
+          setSuccess('Salão cadastrado com sucesso! Senha da dona: AgendaGlow@2026')
+        }}
+        onError={setError}
+      />
 
       <Modal
         open={!!editOpen}
@@ -521,23 +460,36 @@ export function GerenciamentoSaloes() {
 
       <Modal
         open={!!donaOpen}
-        onClose={() => setDonaOpen(null)}
+        onClose={() => {
+          if (donaSubmitting) return
+          setDonaOpen(null)
+        }}
         title="Criar dona do salão"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setDonaOpen(null)}>
+            <Button
+              variant="secondary"
+              disabled={donaSubmitting}
+              onClick={() => setDonaOpen(null)}
+            >
               Cancelar
             </Button>
             <Button
-              onClick={() => {
+              loading={donaSubmitting}
+              disabled={donaSubmitting}
+              onClick={async () => {
                 if (!donaOpen) return
+                setError('')
+                setDonaSubmitting(true)
                 try {
-                  createDonaForTenant(donaOpen.id, donaNome, donaEmail)
+                  await createDonaForTenant(donaOpen.id, donaNome, donaEmail)
                   refresh()
                   setDonaOpen(null)
                   setSuccess('Dona criada. Senha padrão: AgendaGlow@2026')
                 } catch (err) {
                   setError(err instanceof Error ? err.message : 'Erro ao criar dona')
+                } finally {
+                  setDonaSubmitting(false)
                 }
               }}
             >
@@ -546,6 +498,11 @@ export function GerenciamentoSaloes() {
           </>
         }
       >
+        {error && donaOpen && (
+          <p className="mb-3 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        )}
         <div className="space-y-4">
           <Input label="Nome" value={donaNome} onChange={(e) => setDonaNome(e.target.value)} />
           <Input
