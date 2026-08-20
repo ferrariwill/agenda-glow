@@ -43,6 +43,9 @@ import {
   formatPhoneBR,
   formatTimeBR,
   initials,
+  maskPhoneBRInput,
+  phoneDigitsToMaskInput,
+  toWhatsAppDigits,
 } from '../../utils/format'
 
 type TabId = 'history' | 'gallery' | 'notes'
@@ -132,7 +135,7 @@ export function ClienteDetalheDona() {
 
   const openEdit = () => {
     setNome(cliente.nome)
-    setTelefone(cliente.telefone)
+    setTelefone(phoneDigitsToMaskInput(cliente.telefone))
     setEmail(cliente.email ?? '')
     setError('')
     setEditOpen(true)
@@ -144,8 +147,13 @@ export function ClienteDetalheDona() {
       setError('Nome e telefone são obrigatórios')
       return
     }
+    const telefoneDigits = toWhatsAppDigits(telefone)
+    if (telefoneDigits.length < 12) {
+      setError('Informe um WhatsApp completo com DDD (ex.: (11) 99999-9999)')
+      return
+    }
     try {
-      updateCliente(cliente.id, { nome, telefone, email })
+      updateCliente(cliente.id, { nome, telefone: telefoneDigits, email })
       setSuccess('Perfil atualizado!')
       setEditOpen(false)
       setTick((t) => t + 1)
@@ -602,7 +610,16 @@ export function ClienteDetalheDona() {
         {error && editOpen && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <div className="space-y-4">
           <Input label="Nome completo" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <Input label="WhatsApp" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+          <Input
+            label="WhatsApp"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel"
+            maxLength={15}
+            value={telefone}
+            onChange={(e) => setTelefone(maskPhoneBRInput(e.target.value))}
+            placeholder="(11) 99999-9999"
+          />
           <Input label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
       </Modal>

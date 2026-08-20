@@ -81,6 +81,39 @@ export function formatPhoneBR(phone: string) {
   return phone
 }
 
+/**
+ * Máscara progressiva de celular/fixo BR enquanto digita.
+ * Aceita colagem com prefixo 55 (≥12 dígitos) e limita a 11 dígitos locais.
+ */
+export function maskPhoneBRInput(raw: string): string {
+  let digits = raw.replace(/\D/g, '')
+  if (digits.startsWith('55') && digits.length >= 12) {
+    digits = digits.slice(2)
+  }
+  digits = digits.slice(0, 11)
+
+  if (digits.length === 0) return ''
+  if (digits.length <= 2) return `(${digits}`
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  }
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
+/** Normaliza máscara ou raw para dígitos com país (55…) para a API. */
+export function toWhatsAppDigits(maskedOrRaw: string): string {
+  const digits = maskedOrRaw.replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.startsWith('55')) return digits
+  return `55${digits}`
+}
+
+/** Hidrata o input mascarado a partir do valor persistido (dígitos/E.164). */
+export function phoneDigitsToMaskInput(stored: string): string {
+  return maskPhoneBRInput(stored)
+}
+
 export function formatBirthDateBR(iso: string) {
   if (!iso) return ''
   const d = new Date(`${iso}T12:00:00`)
