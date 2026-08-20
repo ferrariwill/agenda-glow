@@ -94,12 +94,12 @@ export const DonaSidebar = forwardRef<HTMLElement, DonaSidebarProps>(
 
         <div className="space-y-2 border-t border-aura-border p-4">
           <NavLink
-            to="/admin/configuracoes"
+            to="/admin/configuracoes#assinatura"
             onClick={onNavigate}
             className="flex min-h-touch-min w-full touch-manipulation items-center justify-center rounded-lg bg-aura-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-aura-primary-dark"
           >
             <CreditCard className="mr-2 h-4 w-4" />
-            Upgrade Plan
+            Upgrade de plano
           </NavLink>
           <button
             type="button"

@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarCheck,
-  CheckCircle2,
   Download,
   Info,
   Send,
@@ -98,10 +97,6 @@ export function DashboardDona() {
 
   const handleExport = () => {
     setToast('Resumo exportado com sucesso para o e-mail cadastrado.')
-  }
-
-  const handleEncerrar = () => {
-    setToast('Expediente encerrado. Resumo do dia salvo.')
   }
 
   const handleSalvarNota = () => {
@@ -240,14 +235,6 @@ export function DashboardDona() {
           >
             <Download className="h-4 w-4" />
             Exportar PDF
-          </button>
-          <button
-            type="button"
-            onClick={handleEncerrar}
-            className="flex items-center gap-2 rounded-lg bg-[#7d5141] px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95"
-          >
-            <CheckCircle2 className="h-4 w-4 fill-current" />
-            Encerrar expediente
           </button>
         </div>
       </div>
