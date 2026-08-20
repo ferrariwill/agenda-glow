@@ -8,6 +8,7 @@ import {
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
 import { Alert } from '../../components/ui/Alert'
+import { MoneyInput } from '../../components/ui/MoneyInput'
 import { useAuth } from '../../contexts/AuthContext'
 import type {
   FrequenciaRecorrencia,
@@ -26,7 +27,7 @@ import {
   LancamentoValidationError,
   updateLancamento,
 } from '../../utils/mockDb'
-import { parseBRLInput, todayISO } from '../../utils/format'
+import { formatBRLInputValue, parseBRLInput, todayISO } from '../../utils/format'
 import {
   CATEGORIAS_DESPESA,
   CATEGORIAS_RECEITA,
@@ -93,7 +94,7 @@ export function TransacaoFormDona() {
     setCategoria(lancamentoCategoria(existing))
     setMetodo(existing.metodo_pagamento ?? 'PIX')
     setData(existing.data)
-    setValor(existing.valor.toFixed(2).replace('.', ','))
+    setValor(formatBRLInputValue(existing.valor))
     setFornecedor(existing.fornecedor ?? '')
     setProfissionalId(existing.profissional_id ?? '')
     setNatureza(naturezaFromLanc(existing))
@@ -306,20 +307,14 @@ export function TransacaoFormDona() {
                   </div>
                   <div>
                     <FieldLabel>Valor (R$)</FieldLabel>
-                    <div className="relative">
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#514440]">
-                        R$
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={valor}
-                        onChange={(e) => setValor(e.target.value)}
-                        placeholder="0,00"
-                        className={`${FIELD_INPUT} pl-8`}
-                        required
-                      />
-                    </div>
+                    <MoneyInput
+                      bare
+                      value={valor}
+                      onChange={setValor}
+                      placeholder="0,00"
+                      className={FIELD_INPUT}
+                      required
+                    />
                   </div>
                   <div>
                     <FieldLabel>Status</FieldLabel>
