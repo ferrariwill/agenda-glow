@@ -5,7 +5,9 @@ import { DateInput } from '../ui/DateInput'
 import { Input } from '../ui/Input'
 import { Modal } from '../ui/Modal'
 import { TimeInput } from '../ui/TimeInput'
+import { ApiError } from '../../lib/api'
 import { enviarAlertaEncaixe, enviarConfirmacaoAgendamento } from '../../services/whatsappService'
+import type { UserRole } from '../../types'
 import {
   AgendaConflitoError,
   createAgendamento,
@@ -33,6 +35,8 @@ interface Props {
   onSuccess?: (msg: string) => void
   profissionalFixo?: string
   cadastrarClienteNovo?: boolean
+  /** Contexto de API — só AgendaProfissional passa PROFISSIONAL. */
+  apiRole?: UserRole
 }
 
 export function NovoAgendamentoModal({
@@ -43,6 +47,7 @@ export function NovoAgendamentoModal({
   onSuccess,
   profissionalFixo,
   cadastrarClienteNovo = false,
+  apiRole,
 }: Props) {
   const db = getDb()
   const [error, setError] = useState('')
@@ -148,15 +153,18 @@ export function NovoAgendamentoModal({
         }
       }
 
-      const ag = await createAgendamento({
-        tenant_id: tenantId,
-        profissional_id: profissionalEfetivo,
-        servico_ids: servicoIds,
-        cliente_nome: cliente.nome,
-        cliente_telefone: cliente.telefone,
-        data,
-        hora_inicio: hora,
-      })
+      const ag = await createAgendamento(
+        {
+          tenant_id: tenantId,
+          profissional_id: profissionalEfetivo,
+          servico_ids: servicoIds,
+          cliente_nome: cliente.nome,
+          cliente_telefone: cliente.telefone,
+          data,
+          hora_inicio: hora,
+        },
+        apiRole ? { role: apiRole } : undefined,
+      )
       const nomesServicos = servicosSelecionados.map((s) => s.nome).join(' + ')
       const prof = profissionais.find((p) => p.id === profissionalEfetivo)
       if (ag.status === 'EM_APROVACAO') {
@@ -182,6 +190,12 @@ export function NovoAgendamentoModal({
     } catch (err) {
       if (err instanceof AgendaConflitoError) {
         setError(err.message)
+      } else if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        (err.code === 'slot_unavailable' || apiRole === 'PROFISSIONAL')
+      ) {
+        setError('Esse horário acabou de ser ocupado. Escolha outro.')
       } else {
         setError(err instanceof Error ? err.message : 'Erro ao agendar')
       }

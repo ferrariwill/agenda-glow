@@ -2342,27 +2342,33 @@ export async function createAgendamento(
     forcar_status?: AgendamentoStatus
     aceita_adiantar?: boolean
   },
-  opts?: { publicSlug?: string },
+  opts?: { publicSlug?: string; role?: import('../types').UserRole },
 ): Promise<Agendamento> {
   if (!IS_MOCK) {
     const servicoId = input.servico_ids[0]
+    const asProfissional = opts?.role === 'PROFISSIONAL'
     const path = opts?.publicSlug
       ? `/api/v1/public/${opts.publicSlug}/appointments`
-      : '/api/v1/appointments'
+      : asProfissional
+        ? '/api/v1/professional/appointments'
+        : '/api/v1/appointments'
+    const body: Record<string, unknown> = {
+      cliente_nome: input.cliente_nome,
+      cliente_telefone: input.cliente_telefone,
+      servico_id: servicoId,
+      adicional_ids: input.adicional_ids ?? [],
+      data: input.data,
+      hora_inicio: input.hora_inicio.slice(0, 5),
+      aceita_adiantar: input.aceita_adiantar,
+    }
+    if (!asProfissional) {
+      body.profissional_id = input.profissional_id
+    }
     const result = await apiFetch<{ id: string; status: string; management_url?: string }>(path, {
       method: 'POST',
-      body: JSON.stringify({
-        cliente_nome: input.cliente_nome,
-        cliente_telefone: input.cliente_telefone,
-        profissional_id: input.profissional_id,
-        servico_id: servicoId,
-        adicional_ids: input.adicional_ids ?? [],
-        data: input.data,
-        hora_inicio: input.hora_inicio.slice(0, 5),
-        aceita_adiantar: input.aceita_adiantar,
-      }),
+      body: JSON.stringify(body),
     })
-    await refreshAfterMutation()
+    await refreshAfterMutation(opts?.role)
     const ag = getDb().agendamentos.find((a) => a.id === result.id)
     if (ag) return { ...ag, management_url: result.management_url }
     return {
