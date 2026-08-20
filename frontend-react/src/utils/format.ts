@@ -128,7 +128,8 @@ export function maskPhoneBRInput(raw: string): string {
 export function toWhatsAppDigits(maskedOrRaw: string): string {
   const digits = maskedOrRaw.replace(/\D/g, '')
   if (!digits) return ''
-  if (digits.startsWith('55')) return digits
+  // só considerar país se já for E.164 (55 + 10/11 locais)
+  if (digits.startsWith('55') && digits.length >= 12) return digits
   return `55${digits}`
 }
 

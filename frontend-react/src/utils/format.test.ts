@@ -94,8 +94,14 @@ describe('toWhatsAppDigits', () => {
     expect(toWhatsAppDigits('(11) 9999-9999')).toBe('551199999999')
   })
 
-  it('mantém 55 já presente', () => {
+  it('mantém 55 já presente (E.164 completo)', () => {
     expect(toWhatsAppDigits('5511999999999')).toBe('5511999999999')
+  })
+
+  it('trata DDD local 55 como local, não como país', () => {
+    expect(toWhatsAppDigits('(55) 99999-9999')).toBe('5555999999999')
+    expect(toWhatsAppDigits('55999999999')).toBe('5555999999999')
+    expect(toWhatsAppDigits('(55) 9999-9999')).toBe('555599999999')
   })
 
   it('retorna vazio para entrada sem dígitos', () => {
@@ -110,5 +116,12 @@ describe('phoneDigitsToMaskInput round-trip', () => {
     const digits = toWhatsAppDigits(masked)
     expect(digits).toBe('5511987654321')
     expect(phoneDigitsToMaskInput(digits)).toBe('(11) 98765-4321')
+  })
+
+  it('round-trip com DDD 55', () => {
+    const masked = maskPhoneBRInput('55987654321')
+    const digits = toWhatsAppDigits(masked)
+    expect(digits).toBe('5555987654321')
+    expect(phoneDigitsToMaskInput(digits)).toBe('(55) 98765-4321')
   })
 })
