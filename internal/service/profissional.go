@@ -33,6 +33,7 @@ type Profissional struct {
 	ComissaoPorcentagem float64 `db:"comissao_porcentagem" json:"comissao_porcentagem"`
 	Ativo               bool    `db:"ativo" json:"ativo"`
 	PendenteAprovacao   bool    `db:"pendente_aprovacao" json:"pendente_aprovacao"`
+	EhDona              bool    `db:"eh_dona" json:"eh_dona"`
 	FotoURL             *string `db:"foto_url" json:"foto_url,omitempty"`
 	DataNascimento      *string `db:"data_nascimento" json:"data_nascimento,omitempty"`
 }
@@ -333,7 +334,7 @@ FOR UPDATE OF ae
 func (s *ProfissionalService) ListProfessionals(ctx context.Context, establishmentID string) ([]Profissional, error) {
 	const query = `
 SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
-       p.comissao_porcentagem, p.ativo, p.pendente_aprovacao,
+       p.comissao_porcentagem, p.ativo, p.pendente_aprovacao, p.eh_dona,
        NULLIF(TRIM(p.foto_url), '') AS foto_url,
        CASE WHEN p.data_nascimento IS NULL THEN NULL
             ELSE to_char(p.data_nascimento, 'YYYY-MM-DD') END AS data_nascimento

@@ -31,6 +31,7 @@ type TenantBootstrapView struct {
 	LogoURL                      *string `json:"logo_url,omitempty"`
 	PlanoID                      *string `json:"plano_id,omitempty"`
 	DataVencimento               *string `json:"data_vencimento,omitempty"`
+	DonaAtuaComoProfissional     bool    `json:"dona_atua_como_profissional"`
 	EarlySlotQueueActive         bool    `json:"early_slot_queue_active"`
 	EarlySlotQueueInactiveReason *string `json:"early_slot_queue_inactive_reason"`
 }
@@ -221,6 +222,7 @@ SELECT
     e.nome_comercial,
     e.slug,
     e.logo_url,
+    COALESCE(e.dona_atua_como_profissional, FALSE) AS dona_atua_como_profissional,
     ae.plano_id,
     ae.data_vencimento,
     ae.status AS assinatura_status
@@ -229,13 +231,14 @@ LEFT JOIN assinaturas_estabelecimentos ae ON ae.estabelecimento_id = e.id
 WHERE e.id = $1 AND e.ativo = TRUE
 `
 	var row struct {
-		ID               string     `db:"id"`
-		NomeComercial    string     `db:"nome_comercial"`
-		Slug             string     `db:"slug"`
-		LogoURL          *string    `db:"logo_url"`
-		PlanoID          *string    `db:"plano_id"`
-		DataVencimento   *time.Time `db:"data_vencimento"`
-		AssinaturaStatus *string    `db:"assinatura_status"`
+		ID                       string     `db:"id"`
+		NomeComercial            string     `db:"nome_comercial"`
+		Slug                     string     `db:"slug"`
+		LogoURL                  *string    `db:"logo_url"`
+		DonaAtuaComoProfissional bool       `db:"dona_atua_como_profissional"`
+		PlanoID                  *string    `db:"plano_id"`
+		DataVencimento           *time.Time `db:"data_vencimento"`
+		AssinaturaStatus         *string    `db:"assinatura_status"`
 	}
 	if err := s.db.GetContext(ctx, &row, query, establishmentID); err != nil {
 		return nil, fmt.Errorf("carregar estabelecimento: %w", err)
@@ -271,6 +274,7 @@ WHERE e.id = $1 AND e.ativo = TRUE
 		LogoURL:                      row.LogoURL,
 		PlanoID:                      row.PlanoID,
 		DataVencimento:               venc,
+		DonaAtuaComoProfissional:     row.DonaAtuaComoProfissional,
 		EarlySlotQueueActive:         earlySlotActive,
 		EarlySlotQueueInactiveReason: inactiveReason,
 	}, nil
