@@ -15,6 +15,23 @@ export async function syncAdminBootstrap(): Promise<void> {
   setStoreDb(mapAdminBootstrap(payload, getStoreDb()))
 }
 
+type PublicCatalogAdicional = {
+  id: string
+  servico_id?: string
+  nome: string
+  preco_adicional: number
+  duracao_adicional_minutos: number
+}
+
+type PublicCatalogServico = {
+  id: string
+  nome: string
+  preco_base: number
+  duracao_base_minutos: number
+  permitir_agendamento_online?: boolean
+  adicionais?: PublicCatalogAdicional[]
+}
+
 export async function syncPublicCatalog(slug: string): Promise<void> {
   const catalog = await apiFetch<{
     estabelecimento: {
@@ -25,13 +42,7 @@ export async function syncPublicCatalog(slug: string): Promise<void> {
       early_slot_notifications_available?: boolean
     }
     profissionais: { id: string; nome: string; especialidade: string }[]
-    servicos: {
-      id: string
-      nome: string
-      preco_base: number
-      duracao_base_minutos: number
-      adicionais?: unknown[]
-    }[]
+    servicos: PublicCatalogServico[]
   }>(`/api/v1/public/${slug}/catalog`)
 
   const tenantId = catalog.estabelecimento.id
@@ -48,6 +59,28 @@ export async function syncPublicCatalog(slug: string): Promise<void> {
     criado_em: '',
   }
 
+  const servicos = catalog.servicos.map((s) => ({
+    id: s.id,
+    tenant_id: tenantId,
+    nome: s.nome,
+    preco: s.preco_base,
+    duracao_minutos: s.duracao_base_minutos,
+    ativo: true,
+    permitir_agendamento_online: s.permitir_agendamento_online ?? true,
+  }))
+
+  const adicionais = catalog.servicos.flatMap((s) =>
+    (s.adicionais ?? []).map((a) => ({
+      id: a.id,
+      servico_id: a.servico_id ?? s.id,
+      nome: a.nome,
+      duracao_minutos: a.duracao_adicional_minutos,
+      preco: a.preco_adicional,
+    })),
+  )
+
+  const servicoIds = new Set(servicos.map((s) => s.id))
+
   setStoreDb({
     ...prev,
     tenants: [...prev.tenants.filter((t) => t.id !== tenantId), tenant],
@@ -63,17 +96,10 @@ export async function syncPublicCatalog(slug: string): Promise<void> {
         expedientes: [],
       })),
     ],
-    servicos: [
-      ...prev.servicos.filter((s) => s.tenant_id !== tenantId),
-      ...catalog.servicos.map((s) => ({
-        id: s.id,
-        tenant_id: tenantId,
-        nome: s.nome,
-        preco: s.preco_base,
-        duracao_minutos: s.duracao_base_minutos,
-        ativo: true,
-        permitir_agendamento_online: true,
-      })),
+    servicos: [...prev.servicos.filter((s) => s.tenant_id !== tenantId), ...servicos],
+    adicionais: [
+      ...prev.adicionais.filter((a) => !servicoIds.has(a.servico_id)),
+      ...adicionais,
     ],
   })
 }
@@ -91,12 +117,16 @@ export async function fetchPublicSlots(
   profissionalId: string,
   data: string,
   procedimentoId: string,
+  adicionais?: string[],
 ): Promise<string[]> {
   const params = new URLSearchParams({
     data,
     profissional_id: profissionalId,
     procedimento_id: procedimentoId,
   })
+  for (const id of adicionais ?? []) {
+    if (id) params.append('adicionais', id)
+  }
   const slots = await apiFetch<string[]>(`/api/v1/public/${slug}/slots?${params}`)
   return slots ?? []
 }

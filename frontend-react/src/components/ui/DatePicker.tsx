@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   MONTH_NAMES_PT,
@@ -131,8 +139,16 @@ export function DatePicker({ value, onChange, minDate, maxDate, className = '' }
 interface DatePickerPopoverProps extends DatePickerProps {
   open: boolean
   onClose: () => void
-  anchorRef: React.RefObject<HTMLElement | null>
+  anchorRef: RefObject<HTMLElement | null>
 }
+
+type PopoverCoords = {
+  top: number
+  left: number
+}
+
+/** Camada do popover fora de stacking contexts (glass/blur). */
+export const DATE_PICKER_POPOVER_LAYER = 'fixed z-[200]'
 
 export function DatePickerPopover({
   open,
@@ -144,22 +160,73 @@ export function DatePickerPopover({
   maxDate,
 }: DatePickerPopoverProps) {
   const popRef = useRef<HTMLDivElement>(null)
+  const [coords, setCoords] = useState<PopoverCoords>({ top: 0, left: 0 })
+
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current
+    const pop = popRef.current
+    if (!anchor || !pop) return
+
+    const rect = anchor.getBoundingClientRect()
+    const gap = 4
+    const pad = 8
+    const popWidth = pop.offsetWidth
+    const popHeight = pop.offsetHeight
+
+    let top = rect.bottom + gap
+    let left = rect.left
+
+    if (top + popHeight > window.innerHeight - pad) {
+      const above = rect.top - popHeight - gap
+      if (above >= pad) top = above
+    }
+
+    left = Math.max(pad, Math.min(left, window.innerWidth - popWidth - pad))
+    setCoords({ top, left })
+  }, [anchorRef])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePosition()
+  }, [open, value, updatePosition])
 
   useEffect(() => {
     if (!open) return
-    const close = (e: MouseEvent) => {
+
+    const onScrollOrResize = () => updatePosition()
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    const onPointerDown = (e: MouseEvent) => {
       const t = e.target as Node
       if (popRef.current?.contains(t) || anchorRef.current?.contains(t)) return
       onClose()
     }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open, onClose, anchorRef])
+
+    window.addEventListener('scroll', onScrollOrResize, true)
+    window.addEventListener('resize', onScrollOrResize)
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true)
+      window.removeEventListener('resize', onScrollOrResize)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [open, onClose, anchorRef, updatePosition])
 
   if (!open) return null
 
-  return (
-    <div ref={popRef} className="absolute left-0 top-full z-50 mt-1">
+  return createPortal(
+    <div
+      ref={popRef}
+      className={DATE_PICKER_POPOVER_LAYER}
+      style={{ top: coords.top, left: coords.left }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Calendário"
+    >
       <DatePicker
         value={value}
         minDate={minDate}
@@ -169,6 +236,7 @@ export function DatePickerPopover({
           onClose()
         }}
       />
-    </div>
+    </div>,
+    document.body,
   )
 }
