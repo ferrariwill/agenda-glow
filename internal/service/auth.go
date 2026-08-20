@@ -123,7 +123,17 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPasswor
 
 // CreateUser cadastra credencial com hash bcrypt (uso administrativo / seed).
 func (s *AuthService) CreateUser(ctx context.Context, email, password, role string, estabelecimentoID, profissionalID *string) (string, error) {
+	return s.CreateUserWithNome(ctx, email, password, role, "", estabelecimentoID, profissionalID)
+}
+
+// CreateUserWithNome cadastra credencial incluindo users.nome.
+func (s *AuthService) CreateUserWithNome(
+	ctx context.Context,
+	email, password, role, nome string,
+	estabelecimentoID, profissionalID *string,
+) (string, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
+	nome = strings.TrimSpace(nome)
 	if email == "" || password == "" {
 		return "", fmt.Errorf("email e senha são obrigatórios")
 	}
@@ -133,19 +143,92 @@ func (s *AuthService) CreateUser(ctx context.Context, email, password, role stri
 		return "", fmt.Errorf("hash da senha: %w", err)
 	}
 
+	var nomeArg any
+	if nome != "" {
+		nomeArg = nome
+	}
+
 	const insert = `
-INSERT INTO users (email, password_hash, role, estabelecimento_id, profissional_id, ativo)
-VALUES ($1, $2, $3, $4, $5, TRUE)
+INSERT INTO users (email, password_hash, role, estabelecimento_id, profissional_id, nome, ativo)
+VALUES ($1, $2, $3, $4, $5, $6, TRUE)
 RETURNING id
 `
 	var id string
-	if err := s.db.GetContext(ctx, &id, insert, email, string(hash), role, estabelecimentoID, profissionalID); err != nil {
+	if err := s.db.GetContext(ctx, &id, insert, email, string(hash), role, estabelecimentoID, profissionalID, nomeArg); err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return "", ErrEmailJaCadastrado
 		}
 		return "", fmt.Errorf("criar usuário: %w", err)
 	}
 	return id, nil
+}
+
+// CreateDonaForEstablishment cria usuária DONA com nome e atualiza dona_nome/dona_email do salão.
+func (s *AuthService) CreateDonaForEstablishment(
+	ctx context.Context,
+	estabelecimentoID, nome, email, password string,
+) (string, error) {
+	estabelecimentoID = strings.TrimSpace(estabelecimentoID)
+	nome = strings.TrimSpace(nome)
+	email = strings.TrimSpace(strings.ToLower(email))
+	if estabelecimentoID == "" {
+		return "", fmt.Errorf("estabelecimento_id é obrigatório")
+	}
+	if nome == "" {
+		return "", fmt.Errorf("nome é obrigatório")
+	}
+	if email == "" || password == "" {
+		return "", fmt.Errorf("email e senha são obrigatórios")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash da senha: %w", err)
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	const lockEstabelecimento = `
+SELECT id FROM estabelecimentos WHERE id = $1 FOR UPDATE
+`
+	var estID string
+	if err := tx.GetContext(ctx, &estID, lockEstabelecimento, estabelecimentoID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrEstabelecimentoNaoEncontrado
+		}
+		return "", fmt.Errorf("bloquear estabelecimento: %w", err)
+	}
+
+	const insert = `
+INSERT INTO users (email, password_hash, role, estabelecimento_id, profissional_id, nome, ativo)
+VALUES ($1, $2, $3, $4, NULL, $5, TRUE)
+RETURNING id
+`
+	var userID string
+	if err := tx.GetContext(ctx, &userID, insert, email, string(hash), security.RoleDona, estabelecimentoID, nome); err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			return "", ErrEmailJaCadastrado
+		}
+		return "", fmt.Errorf("criar usuária dona: %w", err)
+	}
+
+	const updateDona = `
+UPDATE estabelecimentos
+SET dona_nome = $2, dona_email = $3
+WHERE id = $1
+`
+	if _, err := tx.ExecContext(ctx, updateDona, estabelecimentoID, nome, email); err != nil {
+		return "", fmt.Errorf("atualizar contato da dona: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("confirmar transação: %w", err)
+	}
+	return userID, nil
 }
 
 func (s *AuthService) buscarPorEmail(ctx context.Context, email string) (*UserCredential, error) {

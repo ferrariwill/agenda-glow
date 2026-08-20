@@ -29,7 +29,7 @@ func newUpdateEstablishmentMux(t *testing.T) (http.Handler, sqlmock.Sqlmock) {
 
 	db := sqlx.NewDb(rawDB, "sqlmock")
 	gate := security.NewWhatsAppGate(db, time.Minute)
-	handler := NewAdminEstablishmentsHandler(service.NewEstabelecimentoService(db), gate)
+	handler := NewAdminEstablishmentsHandler(service.NewEstabelecimentoService(db), service.NewAuthService(db), gate)
 
 	mux := http.NewServeMux()
 	mux.Handle(updateEstablishmentPattern, security.RequireSuperAdmin(http.HandlerFunc(handler.Update)))
