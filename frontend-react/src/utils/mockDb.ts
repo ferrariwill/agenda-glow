@@ -24,7 +24,7 @@ import { refreshAfterMutation, syncAdminBootstrap } from '../data/sync'
 import { apiFetch } from '../lib/api'
 
 const STORAGE_KEY = 'agendaglow_mock_db'
-const SEED_VERSION = 13
+const SEED_VERSION = 14
 const FECHAMENTO_NOTA_KEY = 'agendaglow_fechamento_nota'
 const SEED_VERSION_KEY = 'agendaglow_mock_db_seed_v'
 
@@ -44,6 +44,7 @@ function buildFaturasSaas(
 ): FaturaSaas[] {
   const statusByTenant: Record<string, FaturaSaasStatus[]> = {
     'tenant-glow': ['SUCESSO', 'SUCESSO', 'SUCESSO', 'SUCESSO'],
+    'tenant-rede-beta': ['SUCESSO', 'SUCESSO', 'SUCESSO', 'SUCESSO'],
     'tenant-vencido': ['PENDENTE', 'FALHA', 'SUCESSO', 'FALHA'],
   }
   const faturas: FaturaSaas[] = []
@@ -629,6 +630,23 @@ function seedDatabase(): MockDatabase {
     cep: '13320-000',
     logradouro: 'Rua das Flores, 120',
     cidade: 'Salto',
+    uf: 'SP',
+    whatsapp_status: 'DESCONECTADO',
+  }
+
+  const tenantRedeBeta: Tenant = {
+    id: 'tenant-rede-beta',
+    nome: 'Salão Rede Beta',
+    slug: 'salao-rede-beta',
+    status: 'ATIVO',
+    plano_id: planoEssencial.id,
+    bio: 'Segundo salão da rede — use para demo de cadastro ativo em outro salão.',
+    data_vencimento: addMonths(today(), 10),
+    dona_nome: 'Dona Beta',
+    dona_email: 'dona@redebeta.local',
+    criado_em: addMonths(today(), -6),
+    email_contato: 'contato@salaoredebeta.com.br',
+    cidade: 'Campinas',
     uf: 'SP',
     whatsapp_status: 'DESCONECTADO',
   }
@@ -1783,7 +1801,7 @@ function seedDatabase(): MockDatabase {
     },
   ]
 
-  const tenants = [tenantGlow, tenantVencido]
+  const tenants = [tenantGlow, tenantRedeBeta, tenantVencido]
   const planos = [planoEssencial, planoProfissional, planoElite]
 
   const cliente_notas: ClienteNotaInterna[] = [
@@ -3248,11 +3266,54 @@ export function findContaClienteByTelefone(telefone: string): ContaCliente | und
   return getDb().contas_cliente.find((c) => c.telefone === tel)
 }
 
+export interface SalaoRedeResumo {
+  id: string
+  nome: string
+  slug: string
+}
+
 export interface PerfilGlobalCliente {
   nome: string
   email?: string
   hasConta: boolean
   conta_id?: string
+}
+
+/** Salões ATIVOS onde o telefone já é cliente ativo, excluindo o tenant atual. */
+export function listSaloesAtivosDaRede(
+  telefone: string,
+  excludeTenantId: string,
+): SalaoRedeResumo[] {
+  const tel = normalizeTelefone(telefone)
+  if (tel.length < 10) return []
+
+  const db = getDb()
+  const seen = new Set<string>()
+  const result: SalaoRedeResumo[] = []
+
+  for (const cliente of db.clientes) {
+    if (!cliente.ativo || cliente.telefone !== tel) continue
+    if (cliente.tenant_id === excludeTenantId) continue
+    if (seen.has(cliente.tenant_id)) continue
+
+    const tenant = db.tenants.find((t) => t.id === cliente.tenant_id)
+    if (!tenant || tenant.status !== 'ATIVO') continue
+
+    seen.add(tenant.id)
+    result.push({ id: tenant.id, nome: tenant.nome, slug: tenant.slug })
+  }
+
+  return result
+}
+
+/** Mesma lógica a partir da conta global (telefone da conta). */
+export function listSaloesAtivosDaConta(
+  contaId: string,
+  excludeTenantId: string,
+): SalaoRedeResumo[] {
+  const conta = getDb().contas_cliente.find((c) => c.id === contaId)
+  if (!conta) return []
+  return listSaloesAtivosDaRede(conta.telefone, excludeTenantId)
 }
 
 /** Busca dados em contas globais ou cadastros de salões (cross-tenant por telefone). */
