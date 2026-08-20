@@ -73,3 +73,33 @@ export function apiAuthErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
   return 'Falha no login'
 }
+
+export async function changePasswordWithApi(input: {
+  current_password: string
+  new_password: string
+  confirm_password: string
+}): Promise<void> {
+  await apiFetch('/api/v1/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function changePasswordErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'invalid_credentials':
+        return 'Senha atual incorreta'
+      case 'validation_error':
+        return 'Verifique os campos: mínima 8 caracteres, confirmação igual e diferente da atual'
+      case 'user_inactive':
+        return 'Usuário inativo. Entre em contato com o suporte.'
+      case 'invalid_json':
+        return 'Verifique os campos e tente novamente'
+      default:
+        return err.message || 'Não foi possível alterar a senha'
+    }
+  }
+  if (err instanceof Error) return err.message
+  return 'Não foi possível alterar a senha'
+}
