@@ -22,6 +22,7 @@ interface TenantBootstrapApi {
     logo_url?: string
     plano_id?: string
     data_vencimento?: string
+    dona_atua_como_profissional?: boolean
     early_slot_queue_active?: boolean
     early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   }
@@ -44,6 +45,9 @@ interface TenantBootstrapApi {
     comissao_porcentagem: number
     ativo: boolean
     pendente_aprovacao?: boolean
+    eh_dona?: boolean
+    user_id?: string
+    foto_url?: string
     expedientes: {
       dia_semana: number
       horario_entrada: string
@@ -172,6 +176,7 @@ export function mapTenantBootstrap(
     logo_url: payload.tenant.logo_url,
     plano_id: payload.tenant.plano_id ?? '',
     data_vencimento: payload.tenant.data_vencimento ?? '',
+    dona_atua_como_profissional: payload.tenant.dona_atua_como_profissional,
     early_slot_queue_active: queueActive,
     early_slot_queue_inactive_reason: queueInactiveReason,
     criado_em: prev.tenants.find((t) => t.id === tenantId)?.criado_em ?? '',
@@ -198,6 +203,9 @@ export function mapTenantBootstrap(
     comissao_percent: p.comissao_porcentagem,
     ativo: p.ativo,
     pendente_aprovacao: p.pendente_aprovacao,
+    eh_dona: p.eh_dona,
+    user_id: p.user_id,
+    foto_url: p.foto_url,
     expedientes: (p.expedientes ?? []).map((ex) => ({
       dia_semana: ex.dia_semana,
       horario_entrada: ex.horario_entrada.slice(0, 5),
@@ -216,7 +224,7 @@ export function mapTenantBootstrap(
     ativo: s.ativo,
     categoria_id: s.categoria_id ?? null,
     categoria_nome: s.categoria_nome ?? undefined,
-    profissional_ids: s.profissional_ids ?? [],
+    profissional_ids: Array.isArray(s.profissional_ids) ? s.profissional_ids : [],
     permitir_agendamento_online: true,
   }))
 
