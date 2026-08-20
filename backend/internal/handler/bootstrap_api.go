@@ -279,9 +279,12 @@ type updateProfessionalRequest struct {
 	EspecialidadeID string  `json:"especialidade_id"`
 	Comissao        float64 `json:"comissao_porcentagem"`
 	Ativo           bool    `json:"ativo"`
+	DataNascimento  *string `json:"data_nascimento"`
+	FotoURL         *string `json:"foto_url"`
 }
 
 // UpdateProfessional PUT /api/v1/professionals/{id}
+// data_nascimento / foto_url omitidos ou null → não alteram; string válida → define; data futura → 400 birthdate_in_future.
 func (h *BootstrapAPIHandler) UpdateProfessional(w http.ResponseWriter, r *http.Request) {
 	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
 	if !ok {
@@ -294,12 +297,28 @@ func (h *BootstrapAPIHandler) UpdateProfessional(w http.ResponseWriter, r *http.
 		writeJSONError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
-	if err := h.prof.UpdateProfessional(r.Context(), establishmentID, profID, req.Nome, req.EspecialidadeID, req.Comissao, req.Ativo); err != nil {
+	if err := h.prof.UpdateProfessional(
+		r.Context(), establishmentID, profID,
+		req.Nome, req.EspecialidadeID, req.Comissao, req.Ativo,
+		req.DataNascimento, req.FotoURL,
+	); err != nil {
 		if errors.Is(err, service.ErrPlanLimitExceeded) {
 			writeJSON(w, http.StatusForbidden, limitReachedResponse{
 				Error:   "limit_reached",
 				Message: "Seu plano atingiu o limite de profissionais parceiras permitidas. Faça um upgrade no painel.",
 			})
+			return
+		}
+		if errors.Is(err, service.ErrProfissionalNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "professional_not_found")
+			return
+		}
+		if errors.Is(err, service.ErrDataNascimentoFutura) {
+			writeJSONError(w, http.StatusBadRequest, "birthdate_in_future")
+			return
+		}
+		if errors.Is(err, service.ErrDataNascimentoInvalida) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_birthdate")
 			return
 		}
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")

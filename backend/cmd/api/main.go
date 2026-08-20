@@ -181,6 +181,7 @@ func main() {
 	mux.Handle("POST /api/v1/specialties", donaRoute(bootstrapAPI.CreateSpecialty))
 	mux.Handle("PUT /api/v1/specialties/{id}", donaRoute(bootstrapAPI.UpdateSpecialty))
 	mux.Handle("PUT /api/v1/professionals/{id}", donaRoute(bootstrapAPI.UpdateProfessional))
+	mux.Handle("POST /api/v1/professionals/{id}/foto", donaRoute(tenantCatalogHandler.UploadProfessionalFoto))
 	mux.Handle("POST /api/v1/appointments", tenantStaffRoute(bootstrapAPI.CreateAppointment))
 	mux.Handle("POST /api/v1/appointments/{id}/cancel", tenantStaffRoute(bootstrapAPI.CancelAppointment))
 	mux.Handle("PATCH /api/v1/appointments/{id}/early-slot-preference", tenantStaffRoute(earlySlotHandler.SetPreference))

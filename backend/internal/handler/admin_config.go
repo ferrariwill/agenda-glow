@@ -322,6 +322,8 @@ func (h *AdminConfigHandler) CreateProfissional(w http.ResponseWriter, r *http.R
 		r.FormValue("nome"),
 		strings.TrimSpace(r.FormValue("especialidade_id")),
 		comissao,
+		nil,
+		nil,
 	)
 	if err != nil {
 		if errors.Is(err, service.ErrPlanLimitExceeded) {
@@ -390,6 +392,8 @@ func (h *AdminConfigHandler) UpdateProfissional(w http.ResponseWriter, r *http.R
 		strings.TrimSpace(r.FormValue("especialidade_id")),
 		comissao,
 		ativo,
+		nil,
+		nil,
 	)
 	if err != nil {
 		switch {

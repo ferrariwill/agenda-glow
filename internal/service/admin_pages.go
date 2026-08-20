@@ -150,7 +150,10 @@ WHERE id = $1 AND estabelecimento_id = $2
 func (s *ProfissionalService) BuscarProfissionalPorID(ctx context.Context, establishmentID, professionalID string) (*Profissional, error) {
 	const query = `
 SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
-       p.comissao_porcentagem, p.ativo
+       p.comissao_porcentagem, p.ativo, COALESCE(p.pendente_aprovacao, FALSE) AS pendente_aprovacao,
+       NULLIF(TRIM(p.foto_url), '') AS foto_url,
+       CASE WHEN p.data_nascimento IS NULL THEN NULL
+            ELSE to_char(p.data_nascimento, 'YYYY-MM-DD') END AS data_nascimento
 FROM profissionais p
 INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
 WHERE p.id = $1 AND p.estabelecimento_id = $2

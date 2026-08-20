@@ -11,7 +11,11 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-var ErrPlanLimitExceeded = errors.New("plan_limit_exceeded")
+var (
+	ErrPlanLimitExceeded     = errors.New("plan_limit_exceeded")
+	ErrDataNascimentoFutura  = errors.New("birthdate_in_future")
+	ErrDataNascimentoInvalida = errors.New("invalid_birthdate")
+)
 
 type ProfissionalService struct {
 	db *sqlx.DB
@@ -29,6 +33,8 @@ type Profissional struct {
 	ComissaoPorcentagem float64 `db:"comissao_porcentagem" json:"comissao_porcentagem"`
 	Ativo               bool    `db:"ativo" json:"ativo"`
 	PendenteAprovacao   bool    `db:"pendente_aprovacao" json:"pendente_aprovacao"`
+	FotoURL             *string `db:"foto_url" json:"foto_url,omitempty"`
+	DataNascimento      *string `db:"data_nascimento" json:"data_nascimento,omitempty"`
 }
 
 type planoLimite struct {
@@ -36,10 +42,13 @@ type planoLimite struct {
 }
 
 // CreateProfessional cadastra profissional respeitando o limite do plano SaaS contratado.
+// dataNascimento e fotoURL são opcionais (nil = permanece null). Data futura → ErrDataNascimentoFutura.
 func (s *ProfissionalService) CreateProfessional(
 	ctx context.Context,
 	establishmentID, nome, especialidadeID string,
 	comissao float64,
+	dataNascimento *string,
+	fotoURL *string,
 ) (string, error) {
 	nome = strings.TrimSpace(nome)
 	especialidadeID = strings.TrimSpace(especialidadeID)
@@ -49,6 +58,12 @@ func (s *ProfissionalService) CreateProfessional(
 	if comissao < 0 || comissao > 100 {
 		return "", fmt.Errorf("comissão deve estar entre 0 e 100")
 	}
+
+	dataSQL, err := normalizeOptionalDataNascimento(dataNascimento)
+	if err != nil {
+		return "", err
+	}
+	fotoSQL := normalizeOptionalFotoURL(fotoURL)
 
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -89,12 +104,15 @@ WHERE estabelecimento_id = $1 AND ativo = TRUE AND pendente_aprovacao = FALSE
 	}
 
 	const insert = `
-INSERT INTO profissionais (estabelecimento_id, nome, especialidade_id, comissao_porcentagem, ativo)
-VALUES ($1, $2, $3, $4, TRUE)
+INSERT INTO profissionais (
+    estabelecimento_id, nome, especialidade_id, comissao_porcentagem, ativo,
+    data_nascimento, foto_url
+)
+VALUES ($1, $2, $3, $4, TRUE, $5::DATE, $6)
 RETURNING id
 `
 	var id string
-	if err := tx.GetContext(ctx, &id, insert, establishmentID, nome, especialidadeID, comissao); err != nil {
+	if err := tx.GetContext(ctx, &id, insert, establishmentID, nome, especialidadeID, comissao, dataSQL, fotoSQL); err != nil {
 		return "", fmt.Errorf("cadastrar profissional: %w", err)
 	}
 
@@ -106,12 +124,15 @@ RETURNING id
 }
 
 // UpdateProfessional altera nome, especialidade, comissão e status da profissional.
+// dataNascimento/fotoURL nil = não altera; string válida = define; data futura → ErrDataNascimentoFutura.
 func (s *ProfissionalService) UpdateProfessional(
 	ctx context.Context,
 	establishmentID, professionalID string,
 	nome, especialidadeID string,
 	comissao float64,
 	ativo bool,
+	dataNascimento *string,
+	fotoURL *string,
 ) error {
 	nome = strings.TrimSpace(nome)
 	especialidadeID = strings.TrimSpace(especialidadeID)
@@ -120,6 +141,23 @@ func (s *ProfissionalService) UpdateProfessional(
 	}
 	if comissao < 0 || comissao > 100 {
 		return fmt.Errorf("comissão deve estar entre 0 e 100")
+	}
+
+	setData := false
+	var dataSQL interface{}
+	if dataNascimento != nil {
+		normalized, err := normalizeOptionalDataNascimento(dataNascimento)
+		if err != nil {
+			return err
+		}
+		setData = true
+		dataSQL = normalized
+	}
+	setFoto := false
+	var fotoSQL interface{}
+	if fotoURL != nil {
+		setFoto = true
+		fotoSQL = normalizeOptionalFotoURL(fotoURL)
 	}
 
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -180,10 +218,16 @@ WHERE estabelecimento_id = $1 AND ativo = TRUE AND pendente_aprovacao = FALSE
 	const update = `
 UPDATE profissionais
 SET nome = $3, especialidade_id = $4, comissao_porcentagem = $5, ativo = $6,
-    pendente_aprovacao = CASE WHEN $6 = TRUE THEN FALSE ELSE pendente_aprovacao END
+    pendente_aprovacao = CASE WHEN $6 = TRUE THEN FALSE ELSE pendente_aprovacao END,
+    data_nascimento = CASE WHEN $7 THEN $8::DATE ELSE data_nascimento END,
+    foto_url = CASE WHEN $9 THEN $10 ELSE foto_url END
 WHERE id = $1 AND estabelecimento_id = $2
 `
-	if _, err := tx.ExecContext(ctx, update, professionalID, establishmentID, nome, especialidadeID, comissao, ativo); err != nil {
+	if _, err := tx.ExecContext(
+		ctx, update,
+		professionalID, establishmentID, nome, especialidadeID, comissao, ativo,
+		setData, dataSQL, setFoto, fotoSQL,
+	); err != nil {
 		return fmt.Errorf("atualizar profissional: %w", err)
 	}
 
@@ -191,6 +235,79 @@ WHERE id = $1 AND estabelecimento_id = $2
 		return fmt.Errorf("confirmar atualização: %w", err)
 	}
 
+	return nil
+}
+
+// SetFotoURL atualiza foto_url somente se id + estabelecimento_id baterem.
+func (s *ProfissionalService) SetFotoURL(ctx context.Context, establishmentID, professionalID, fotoURL string) error {
+	professionalID = strings.TrimSpace(professionalID)
+	establishmentID = strings.TrimSpace(establishmentID)
+	fotoURL = strings.TrimSpace(fotoURL)
+	if professionalID == "" || establishmentID == "" || fotoURL == "" {
+		return ErrProfissionalNaoEncontrado
+	}
+
+	const q = `
+UPDATE profissionais
+SET foto_url = $3
+WHERE id = $1 AND estabelecimento_id = $2
+`
+	res, err := s.db.ExecContext(ctx, q, professionalID, establishmentID, fotoURL)
+	if err != nil {
+		return fmt.Errorf("atualizar foto_url: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("verificar atualização de foto: %w", err)
+	}
+	if n == 0 {
+		return ErrProfissionalNaoEncontrado
+	}
+	return nil
+}
+
+// normalizeOptionalDataNascimento: nil ou string vazia → null SQL; válida YYYY-MM-DD; futura → ErrDataNascimentoFutura.
+func normalizeOptionalDataNascimento(raw *string) (interface{}, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if err := ValidarDataNascimento(trimmed); err != nil {
+		return nil, err
+	}
+	return trimmed, nil
+}
+
+func normalizeOptionalFotoURL(raw *string) interface{} {
+	if raw == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
+
+// ValidarDataNascimento exige YYYY-MM-DD e rejeita datas civis futuras em America/Sao_Paulo.
+func ValidarDataNascimento(raw string) error {
+	raw = strings.TrimSpace(raw)
+	loc, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		loc = time.FixedZone("America/Sao_Paulo", -3*60*60)
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", raw, loc)
+	if err != nil {
+		return ErrDataNascimentoInvalida
+	}
+	agora := time.Now().In(loc)
+	hoje := time.Date(agora.Year(), agora.Month(), agora.Day(), 0, 0, 0, 0, loc)
+	if parsed.After(hoje) {
+		return ErrDataNascimentoFutura
+	}
 	return nil
 }
 
@@ -216,7 +333,10 @@ FOR UPDATE OF ae
 func (s *ProfissionalService) ListProfessionals(ctx context.Context, establishmentID string) ([]Profissional, error) {
 	const query = `
 SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
-       p.comissao_porcentagem, p.ativo, p.pendente_aprovacao
+       p.comissao_porcentagem, p.ativo, p.pendente_aprovacao,
+       NULLIF(TRIM(p.foto_url), '') AS foto_url,
+       CASE WHEN p.data_nascimento IS NULL THEN NULL
+            ELSE to_char(p.data_nascimento, 'YYYY-MM-DD') END AS data_nascimento
 FROM profissionais p
 INNER JOIN especialidades e ON e.id = p.especialidade_id AND e.estabelecimento_id = p.estabelecimento_id
 WHERE p.estabelecimento_id = $1
