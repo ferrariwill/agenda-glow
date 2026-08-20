@@ -143,6 +143,7 @@ WHERE id = $1 AND estabelecimento_id = $2
 		return nil, fmt.Errorf("buscar serviço: %w", err)
 	}
 	serv.Adicionais = []ServicoAdicional{}
+	serv.ProfissionalIDs = []string{}
 	return &serv, nil
 }
 
@@ -151,6 +152,7 @@ func (s *ProfissionalService) BuscarProfissionalPorID(ctx context.Context, estab
 	const query = `
 SELECT p.id, p.nome, p.especialidade_id, e.nome AS especialidade_nome,
        p.comissao_porcentagem, p.ativo, COALESCE(p.pendente_aprovacao, FALSE) AS pendente_aprovacao,
+       COALESCE(p.eh_dona, FALSE) AS eh_dona,
        NULLIF(TRIM(p.foto_url), '') AS foto_url,
        CASE WHEN p.data_nascimento IS NULL THEN NULL
             ELSE to_char(p.data_nascimento, 'YYYY-MM-DD') END AS data_nascimento

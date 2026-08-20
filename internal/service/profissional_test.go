@@ -134,9 +134,9 @@ func TestListProfessionalsIncluiFotoEData(t *testing.T) {
 	data := "1992-03-15"
 	rows := sqlmock.NewRows([]string{
 		"id", "nome", "especialidade_id", "especialidade_nome",
-		"comissao_porcentagem", "ativo", "pendente_aprovacao",
+		"comissao_porcentagem", "ativo", "pendente_aprovacao", "eh_dona",
 		"foto_url", "data_nascimento",
-	}).AddRow("prof-1", "Ana", "esp-1", "Manicure", 40.0, true, false, foto, data)
+	}).AddRow("prof-1", "Ana", "esp-1", "Manicure", 40.0, true, false, false, foto, data)
 
 	mock.ExpectQuery(`SELECT p.id, p.nome`).
 		WithArgs("est-1").

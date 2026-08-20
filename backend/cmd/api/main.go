@@ -242,6 +242,7 @@ func main() {
 	// Dona do salão — finanças, configuração e painel gerencial
 	mux.Handle("GET /api/v1/services", donaRoute(tenantCatalogHandler.ListServices))
 	mux.Handle("POST /api/v1/services", donaRoute(tenantCatalogHandler.CreateService))
+	mux.Handle("PUT /api/v1/services/{id}", donaRoute(tenantCatalogHandler.UpdateService))
 	mux.Handle("POST /api/v1/services/{id}/additionals", donaRoute(tenantCatalogHandler.CreateServiceAdditional))
 	mux.Handle("GET /api/v1/professionals", donaRoute(tenantCatalogHandler.ListProfessionals))
 	mux.Handle("POST /api/v1/professionals", donaRoute(tenantCatalogHandler.CreateProfessional))
