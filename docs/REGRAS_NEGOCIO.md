@@ -224,8 +224,15 @@ Cadastro **por estabelecimento**; usado na equipe via seleção (não texto livr
 | Especialidade | `especialidade_id` obrigatório |
 | Comissão | 0% a 100% (padrão DB: **40%**) |
 | Status | Criada como **ativa** |
+| `foto_url` | Opcional; URL pública após upload (`POST /api/v1/professionals/{id}/foto`) ou URL stock no JSON de create/update |
+| `data_nascimento` | Opcional; formato `YYYY-MM-DD`; **não pode ser futura** (data civil de hoje em `America/Sao_Paulo`) → `ErrDataNascimentoFutura` / HTTP 400 `birthdate_in_future` |
+| Isolamento | Toda operação usa `estabelecimento_id` do JWT (`RequireDona`); profissional deve pertencer ao salão |
 
-**Onde:** `internal/service/profissional.go`.
+**Upload de foto:** multipart campo `foto`; máx. 2MB; `.png`/`.jpg`/`.jpeg`/`.webp`; bucket Supabase `avatars` com path `{estabelecimento_id}/{profissional_id}-{nanos}{ext}`.
+
+**PUT opcionais:** `data_nascimento` / `foto_url` omitidos ou `null` → não alteram; string válida → define.
+
+**Onde:** `internal/service/profissional.go`, `backend/internal/handler/tenant_catalog.go`, `backend/internal/service/storage.go`.
 
 ### 6.2 Limite do plano SaaS
 

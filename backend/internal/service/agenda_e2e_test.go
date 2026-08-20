@@ -198,7 +198,7 @@ SELECT data_vencimento FROM assinaturas_estabelecimentos WHERE estabelecimento_i
 		t.Fatalf("cadastrar especialidade: %v", err)
 	}
 
-	profID, err := profSvc.CreateProfessional(ctx, estID, "Cláudia - Manicure", espID, 40)
+	profID, err := profSvc.CreateProfessional(ctx, estID, "Cláudia - Manicure", espID, 40, nil, nil)
 	if err != nil {
 		t.Fatalf("cadastrar profissional: %v", err)
 	}
