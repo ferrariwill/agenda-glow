@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	ErrCategoriaServicoNaoEncontrada  = errors.New("categoria de serviço não encontrada")
+	ErrCategoriaServicoNaoEncontrada = errors.New("categoria de serviço não encontrada")
 	ErrCategoriaServicoNomeDuplicado = errors.New("já existe categoria com este nome")
 )
 
@@ -100,8 +100,25 @@ WHERE id = $1 AND estabelecimento_id = $2
 }
 
 func (s *CategoriaServicoService) Delete(ctx context.Context, establishmentID, categoriaID string) error {
+	// FK composta (estabelecimento_id, categoria_id) ON DELETE SET NULL tenta anular
+	// as duas colunas; estabelecimento_id é NOT NULL. Limpar só categoria_id antes.
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("iniciar exclusão de categoria: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	const clearRefs = `
+UPDATE servicos
+SET categoria_id = NULL
+WHERE estabelecimento_id = $1 AND categoria_id = $2
+`
+	if _, err := tx.ExecContext(ctx, clearRefs, establishmentID, categoriaID); err != nil {
+		return fmt.Errorf("desvincular serviços da categoria: %w", err)
+	}
+
 	const q = `DELETE FROM categorias_servicos WHERE id = $1 AND estabelecimento_id = $2`
-	result, err := s.db.ExecContext(ctx, q, categoriaID, establishmentID)
+	result, err := tx.ExecContext(ctx, q, categoriaID, establishmentID)
 	if err != nil {
 		return fmt.Errorf("excluir categoria de serviço: %w", err)
 	}
@@ -111,6 +128,9 @@ func (s *CategoriaServicoService) Delete(ctx context.Context, establishmentID, c
 	}
 	if rows == 0 {
 		return ErrCategoriaServicoNaoEncontrada
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("confirmar exclusão de categoria: %w", err)
 	}
 	return nil
 }
