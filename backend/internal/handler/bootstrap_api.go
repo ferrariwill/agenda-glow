@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/agendaglow/agendaglow/internal/security"
@@ -20,6 +21,7 @@ type BootstrapAPIHandler struct {
 	fin       *service.FinanceiroService
 	fila      *service.FilaEsperaService
 	insumo    *service.InsumoService
+	catServ   *service.CategoriaServicoService
 	earlySlot *service.EarlySlotService
 }
 
@@ -33,6 +35,7 @@ func NewBootstrapAPIHandler(
 	fin *service.FinanceiroService,
 	fila *service.FilaEsperaService,
 	insumo *service.InsumoService,
+	catServ *service.CategoriaServicoService,
 	earlySlot *service.EarlySlotService,
 ) *BootstrapAPIHandler {
 	return &BootstrapAPIHandler{
@@ -45,6 +48,7 @@ func NewBootstrapAPIHandler(
 		fin:       fin,
 		fila:      fila,
 		insumo:    insumo,
+		catServ:   catServ,
 		earlySlot: earlySlot,
 	}
 }
@@ -276,6 +280,97 @@ func (h *BootstrapAPIHandler) ListSpecialties(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, list)
 }
 
+type serviceCategoryRequest struct {
+	Nome  string `json:"nome"`
+	Icone string `json:"icone"`
+}
+
+// ListServiceCategories GET /api/v1/service-categories
+func (h *BootstrapAPIHandler) ListServiceCategories(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	list, err := h.catServ.List(r.Context(), establishmentID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// CreateServiceCategory POST /api/v1/service-categories
+func (h *BootstrapAPIHandler) CreateServiceCategory(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	var req serviceCategoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	id, err := h.catServ.Create(r.Context(), establishmentID, req.Nome, req.Icone)
+	if err != nil {
+		if errors.Is(err, service.ErrCategoriaServicoNomeDuplicado) {
+			writeJSONError(w, http.StatusConflict, "duplicate_name")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusCreated, idResponse{ID: id})
+}
+
+// UpdateServiceCategory PUT /api/v1/service-categories/{id}
+func (h *BootstrapAPIHandler) UpdateServiceCategory(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	id := r.PathValue("id")
+	var req serviceCategoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+	if err := h.catServ.Update(r.Context(), establishmentID, id, req.Nome, req.Icone); err != nil {
+		if errors.Is(err, service.ErrCategoriaServicoNaoEncontrada) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		if errors.Is(err, service.ErrCategoriaServicoNomeDuplicado) {
+			writeJSONError(w, http.StatusConflict, "duplicate_name")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// DeleteServiceCategory DELETE /api/v1/service-categories/{id}
+func (h *BootstrapAPIHandler) DeleteServiceCategory(w http.ResponseWriter, r *http.Request) {
+	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.catServ.Delete(r.Context(), establishmentID, id); err != nil {
+		if errors.Is(err, service.ErrCategoriaServicoNaoEncontrada) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 type createClientRequest struct {
 	Nome     string `json:"nome"`
 	Telefone string `json:"telefone"`
@@ -485,14 +580,21 @@ func (h *BootstrapAPIHandler) MarkFilaNotificada(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, map[string]string{"status": "notified"})
 }
 
-// ListInsumos GET /api/v1/supplies
+// ListInsumos GET /api/v1/supplies?q=&limit=20
 func (h *BootstrapAPIHandler) ListInsumos(w http.ResponseWriter, r *http.Request) {
 	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
 	if !ok {
 		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
 		return
 	}
-	list, err := h.insumo.List(r.Context(), establishmentID)
+	q := r.URL.Query().Get("q")
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			limit = n
+		}
+	}
+	list, err := h.insumo.Search(r.Context(), establishmentID, q, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error")
 		return

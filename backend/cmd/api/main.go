@@ -47,6 +47,8 @@ func main() {
 	profissionalSvc := service.NewProfissionalService(db)
 	especialidadeSvc := service.NewEspecialidadeService(db)
 	procedimentoSvc := service.NewProcedimentoService(db)
+	categoriaServicoSvc := service.NewCategoriaServicoService(db)
+	servicoInsumoSvc := service.NewServicoInsumoService(db)
 	agendaSvc := service.NewAgendaService(db, service.AgendaOptions{
 		BaseURL: envOrDefault("APP_BASE_URL", "http://localhost:8081"),
 		Mailer:  service.NewSMTPMailerFromEnv(),
@@ -71,7 +73,7 @@ func main() {
 	agendaNotificationsHandler := adminhandler.NewAgendaNotificationsHandler(agendaSvc)
 	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc, whatsAppGate)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
-	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc)
+	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc, servicoInsumoSvc)
 	tenantFinanceHandler := adminhandler.NewTenantFinanceHandler(financeiroSvc)
 	authHandler := adminhandler.NewAuthHandler(authSvc)
 	bootstrapAPI := adminhandler.NewBootstrapAPIHandler(
@@ -84,6 +86,7 @@ func main() {
 		financeiroSvc,
 		filaSvc,
 		insumoSvc,
+		categoriaServicoSvc,
 		earlySlotSvc,
 	)
 	go earlySlotSvc.RunExpirationWorker(context.Background(), 30*time.Second)
@@ -180,6 +183,10 @@ func main() {
 	mux.Handle("GET /api/v1/specialties", donaRoute(bootstrapAPI.ListSpecialties))
 	mux.Handle("POST /api/v1/specialties", donaRoute(bootstrapAPI.CreateSpecialty))
 	mux.Handle("PUT /api/v1/specialties/{id}", donaRoute(bootstrapAPI.UpdateSpecialty))
+	mux.Handle("GET /api/v1/service-categories", donaRoute(bootstrapAPI.ListServiceCategories))
+	mux.Handle("POST /api/v1/service-categories", donaRoute(bootstrapAPI.CreateServiceCategory))
+	mux.Handle("PUT /api/v1/service-categories/{id}", donaRoute(bootstrapAPI.UpdateServiceCategory))
+	mux.Handle("DELETE /api/v1/service-categories/{id}", donaRoute(bootstrapAPI.DeleteServiceCategory))
 	mux.Handle("PUT /api/v1/professionals/{id}", donaRoute(bootstrapAPI.UpdateProfessional))
 	mux.Handle("POST /api/v1/appointments", tenantStaffRoute(bootstrapAPI.CreateAppointment))
 	mux.Handle("POST /api/v1/appointments/{id}/cancel", tenantStaffRoute(bootstrapAPI.CancelAppointment))
@@ -240,7 +247,12 @@ func main() {
 	// Dona do salão — finanças, configuração e painel gerencial
 	mux.Handle("GET /api/v1/services", donaRoute(tenantCatalogHandler.ListServices))
 	mux.Handle("POST /api/v1/services", donaRoute(tenantCatalogHandler.CreateService))
+	mux.Handle("PUT /api/v1/services/{id}", donaRoute(tenantCatalogHandler.UpdateService))
 	mux.Handle("POST /api/v1/services/{id}/additionals", donaRoute(tenantCatalogHandler.CreateServiceAdditional))
+	mux.Handle("GET /api/v1/services/{id}/supplies", donaRoute(tenantCatalogHandler.ListServiceSupplies))
+	mux.Handle("POST /api/v1/services/{id}/supplies", donaRoute(tenantCatalogHandler.CreateServiceSupply))
+	mux.Handle("PUT /api/v1/services/{id}/supplies/{linkId}", donaRoute(tenantCatalogHandler.UpdateServiceSupply))
+	mux.Handle("DELETE /api/v1/services/{id}/supplies/{linkId}", donaRoute(tenantCatalogHandler.DeleteServiceSupply))
 	mux.Handle("GET /api/v1/professionals", donaRoute(tenantCatalogHandler.ListProfessionals))
 	mux.Handle("POST /api/v1/professionals", donaRoute(tenantCatalogHandler.CreateProfessional))
 	mux.Handle("GET /api/v1/finance/report", donaRoute(tenantFinanceHandler.GetReport))

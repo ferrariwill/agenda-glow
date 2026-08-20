@@ -21,34 +21,77 @@ func NewInsumoService(db *sqlx.DB) *InsumoService {
 }
 
 type Insumo struct {
-	ID               string  `db:"id" json:"id"`
-	EstabelecimentoID string `db:"estabelecimento_id" json:"tenant_id"`
-	Nome             string  `db:"nome" json:"nome"`
-	Marca            *string `db:"marca" json:"marca,omitempty"`
-	Categoria        string  `db:"categoria" json:"categoria"`
-	Quantidade       float64 `db:"quantidade" json:"quantidade"`
-	EstoqueMinimo    float64 `db:"estoque_minimo" json:"estoque_minimo"`
-	EstoqueIdeal     float64 `db:"estoque_ideal" json:"estoque_ideal"`
-	ValorUnitario    float64 `db:"valor_unitario" json:"valor_unitario"`
-	Unidade          string  `db:"unidade" json:"unidade"`
-	ImagemURL        *string `db:"imagem_url" json:"imagem_url,omitempty"`
-	InstrucoesUso    *string `db:"instrucoes_uso" json:"instrucoes_uso,omitempty"`
-	Ativo            bool    `db:"ativo" json:"ativo"`
+	ID                string  `db:"id" json:"id"`
+	EstabelecimentoID string  `db:"estabelecimento_id" json:"tenant_id"`
+	Nome              string  `db:"nome" json:"nome"`
+	Marca             *string `db:"marca" json:"marca,omitempty"`
+	Categoria         string  `db:"categoria" json:"categoria"`
+	Quantidade        float64 `db:"quantidade" json:"quantidade"`
+	EstoqueMinimo     float64 `db:"estoque_minimo" json:"estoque_minimo"`
+	EstoqueIdeal      float64 `db:"estoque_ideal" json:"estoque_ideal"`
+	ValorUnitario     float64 `db:"valor_unitario" json:"valor_unitario"`
+	Unidade           string  `db:"unidade" json:"unidade"`
+	ImagemURL         *string `db:"imagem_url" json:"imagem_url,omitempty"`
+	InstrucoesUso     *string `db:"instrucoes_uso" json:"instrucoes_uso,omitempty"`
+	Ativo             bool    `db:"ativo" json:"ativo"`
 }
 
 func (s *InsumoService) List(ctx context.Context, establishmentID string) ([]Insumo, error) {
-	const query = `
+	return s.Search(ctx, establishmentID, "", 0)
+}
+
+// Search lista insumos ativos do tenant. Com q não vazio, filtra por ILIKE em nome/marca.
+// limit 0 usa o default 20; máximo 50. Sem q, listagem completa (compatível) — limit ignorado.
+func (s *InsumoService) Search(ctx context.Context, establishmentID, q string, limit int) ([]Insumo, error) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		const query = `
 SELECT id, estabelecimento_id, nome, marca, categoria, quantidade, estoque_minimo,
        estoque_ideal, valor_unitario, unidade, imagem_url, instrucoes_uso, ativo
 FROM insumos
 WHERE estabelecimento_id = $1 AND ativo = TRUE
 ORDER BY nome
 `
+		var list []Insumo
+		if err := s.db.SelectContext(ctx, &list, query, establishmentID); err != nil {
+			return nil, fmt.Errorf("listar insumos: %w", err)
+		}
+		if list == nil {
+			list = []Insumo{}
+		}
+		return list, nil
+	}
+
+	limit = clampSupplySearchLimit(limit)
+	pattern := "%" + q + "%"
+	const query = `
+SELECT id, estabelecimento_id, nome, marca, categoria, quantidade, estoque_minimo,
+       estoque_ideal, valor_unitario, unidade, imagem_url, instrucoes_uso, ativo
+FROM insumos
+WHERE estabelecimento_id = $1
+  AND ativo = TRUE
+  AND (nome ILIKE $2 OR COALESCE(marca, '') ILIKE $2)
+ORDER BY nome
+LIMIT $3
+`
 	var list []Insumo
-	if err := s.db.SelectContext(ctx, &list, query, establishmentID); err != nil {
-		return nil, fmt.Errorf("listar insumos: %w", err)
+	if err := s.db.SelectContext(ctx, &list, query, establishmentID, pattern, limit); err != nil {
+		return nil, fmt.Errorf("buscar insumos: %w", err)
+	}
+	if list == nil {
+		list = []Insumo{}
 	}
 	return list, nil
+}
+
+func clampSupplySearchLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 50 {
+		return 50
+	}
+	return limit
 }
 
 func (s *InsumoService) Create(
