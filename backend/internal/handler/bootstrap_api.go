@@ -501,17 +501,40 @@ func (h *BootstrapAPIHandler) ListInsumos(w http.ResponseWriter, r *http.Request
 }
 
 type insumoRequest struct {
-	Nome          string  `json:"nome"`
-	Marca         string  `json:"marca"`
-	Categoria     string  `json:"categoria"`
-	Quantidade    float64 `json:"quantidade"`
-	EstoqueMinimo float64 `json:"estoque_minimo"`
-	EstoqueIdeal  float64 `json:"estoque_ideal"`
-	ValorUnitario float64 `json:"valor_unitario"`
-	Unidade       string  `json:"unidade"`
-	ImagemURL     string  `json:"imagem_url"`
-	InstrucoesUso string  `json:"instrucoes_uso"`
-	Ativo         *bool   `json:"ativo,omitempty"`
+	Nome                 string   `json:"nome"`
+	Marca                string   `json:"marca"`
+	Categoria            string   `json:"categoria"`
+	Quantidade           *float64 `json:"quantidade"`
+	QuantidadeEmbalagens *float64 `json:"quantidade_embalagens"`
+	ConteudoPorEmbalagem *float64 `json:"conteudo_por_embalagem"`
+	EstoqueMinimo        float64  `json:"estoque_minimo"`
+	EstoqueIdeal         float64  `json:"estoque_ideal"`
+	ValorUnitario        float64  `json:"valor_unitario"`
+	Unidade              string   `json:"unidade"`
+	ImagemURL            string   `json:"imagem_url"`
+	InstrucoesUso        string   `json:"instrucoes_uso"`
+	Ativo                *bool    `json:"ativo,omitempty"`
+}
+
+func (req insumoRequest) toInput(ativo bool) service.InsumoInput {
+	in := service.InsumoInput{
+		Nome:                 req.Nome,
+		Marca:                req.Marca,
+		Categoria:            req.Categoria,
+		Unidade:              req.Unidade,
+		Quantidade:           req.Quantidade,
+		QuantidadeEmbalagens: req.QuantidadeEmbalagens,
+		EstoqueMinimo:        req.EstoqueMinimo,
+		EstoqueIdeal:         req.EstoqueIdeal,
+		ValorUnitario:        req.ValorUnitario,
+		ImagemURL:            req.ImagemURL,
+		InstrucoesUso:        req.InstrucoesUso,
+		Ativo:                ativo,
+	}
+	if req.ConteudoPorEmbalagem != nil {
+		in.ConteudoPorEmbalagem = *req.ConteudoPorEmbalagem
+	}
+	return in
 }
 
 // CreateInsumo POST /api/v1/supplies
@@ -526,9 +549,7 @@ func (h *BootstrapAPIHandler) CreateInsumo(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
-	id, err := h.insumo.Create(r.Context(), establishmentID, req.Nome, req.Categoria, req.Unidade,
-		req.Quantidade, req.EstoqueMinimo, req.EstoqueIdeal, req.ValorUnitario,
-		req.Marca, req.ImagemURL, req.InstrucoesUso)
+	id, err := h.insumo.Create(r.Context(), establishmentID, req.toInput(true))
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_payload")
 		return
@@ -553,9 +574,7 @@ func (h *BootstrapAPIHandler) UpdateInsumo(w http.ResponseWriter, r *http.Reques
 	if req.Ativo != nil {
 		ativo = *req.Ativo
 	}
-	if err := h.insumo.Update(r.Context(), establishmentID, id, req.Nome, req.Categoria, req.Unidade,
-		req.Quantidade, req.EstoqueMinimo, req.EstoqueIdeal, req.ValorUnitario,
-		req.Marca, req.ImagemURL, req.InstrucoesUso, ativo); err != nil {
+	if err := h.insumo.Update(r.Context(), establishmentID, id, req.toInput(ativo)); err != nil {
 		if errors.Is(err, service.ErrInsumoNaoEncontrado) {
 			writeJSONError(w, http.StatusNotFound, "not_found")
 			return
@@ -567,7 +586,8 @@ func (h *BootstrapAPIHandler) UpdateInsumo(w http.ResponseWriter, r *http.Reques
 }
 
 type adjustEstoqueRequest struct {
-	Delta float64 `json:"delta"`
+	Delta           *float64 `json:"delta"`
+	DeltaEmbalagens *float64 `json:"delta_embalagens"`
 }
 
 // AdjustInsumoEstoque POST /api/v1/supplies/{id}/adjust
@@ -583,7 +603,10 @@ func (h *BootstrapAPIHandler) AdjustInsumoEstoque(w http.ResponseWriter, r *http
 		writeJSONError(w, http.StatusBadRequest, "invalid_json")
 		return
 	}
-	if err := h.insumo.AjustarEstoque(r.Context(), establishmentID, id, req.Delta); err != nil {
+	if err := h.insumo.AjustarEstoque(r.Context(), establishmentID, id, service.AjusteEstoqueInput{
+		Delta:           req.Delta,
+		DeltaEmbalagens: req.DeltaEmbalagens,
+	}); err != nil {
 		if errors.Is(err, service.ErrInsumoNaoEncontrado) {
 			writeJSONError(w, http.StatusNotFound, "not_found")
 			return
