@@ -4337,15 +4337,118 @@ export async function updateEspecialidade(id: string, nome: string) {
   return db.especialidades[idx]
 }
 
+export async function listCategoriasServico(tenantId: string) {
+  if (!IS_MOCK) {
+    const list = await apiFetch<
+      { id: string; tenant_id: string; nome: string; icone?: string | null }[]
+    >('/api/v1/service-categories')
+    const db = getDb()
+    const mapped = (list ?? []).map((c) => ({
+      id: c.id,
+      tenant_id: c.tenant_id || tenantId,
+      nome: c.nome,
+      icone: c.icone ?? undefined,
+    }))
+    db.categorias = [
+      ...db.categorias.filter((c) => c.tenant_id !== tenantId),
+      ...mapped,
+    ]
+    persistDb(db)
+    return mapped
+  }
+  return getDb().categorias.filter((c) => c.tenant_id === tenantId)
+}
+
+export async function createCategoriaServico(
+  tenantId: string,
+  data: { nome: string; icone?: string },
+) {
+  if (!IS_MOCK) {
+    const { id } = await apiFetch<{ id: string }>('/api/v1/service-categories', {
+      method: 'POST',
+      body: JSON.stringify({ nome: data.nome, icone: data.icone ?? '' }),
+    })
+    await refreshAfterMutation()
+    await listCategoriasServico(tenantId)
+    return (
+      getDb().categorias.find((c) => c.id === id) ?? {
+        id,
+        tenant_id: tenantId,
+        nome: data.nome,
+        icone: data.icone,
+      }
+    )
+  }
+  const db = getDb()
+  const cat = { id: uid(), tenant_id: tenantId, nome: data.nome, icone: data.icone }
+  db.categorias.push(cat)
+  persistDb(db)
+  return cat
+}
+
+export async function updateCategoriaServico(
+  id: string,
+  data: { nome: string; icone?: string },
+) {
+  if (!IS_MOCK) {
+    await apiFetch(`/api/v1/service-categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ nome: data.nome, icone: data.icone ?? '' }),
+    })
+    await refreshAfterMutation()
+    const existing = getDb().categorias.find((c) => c.id === id)
+    if (existing) {
+      await listCategoriasServico(existing.tenant_id)
+      return getDb().categorias.find((c) => c.id === id) ?? { ...existing, ...data }
+    }
+    return { id, tenant_id: '', nome: data.nome, icone: data.icone }
+  }
+  const db = getDb()
+  const idx = db.categorias.findIndex((c) => c.id === id)
+  if (idx < 0) throw new Error('Categoria não encontrada')
+  db.categorias[idx] = { ...db.categorias[idx], ...data }
+  persistDb(db)
+  return db.categorias[idx]
+}
+
+export async function deleteCategoriaServico(id: string) {
+  if (!IS_MOCK) {
+    await apiFetch(`/api/v1/service-categories/${id}`, { method: 'DELETE' })
+    const existing = getDb().categorias.find((c) => c.id === id)
+    await refreshAfterMutation()
+    if (existing) await listCategoriasServico(existing.tenant_id)
+    return
+  }
+  const db = getDb()
+  db.servicos = db.servicos.map((s) =>
+    s.categoria_id === id ? { ...s, categoria_id: null, categoria_nome: undefined } : s,
+  )
+  db.categorias = db.categorias.filter((c) => c.id !== id)
+  persistDb(db)
+}
+
+function buildServiceApiBody(
+  data: Partial<Omit<import('../types').Servico, 'id'>>,
+  opts?: { includeAtivo?: boolean },
+) {
+  const body: Record<string, unknown> = {
+    nome: data.nome,
+    preco_base: data.preco,
+    duracao_base_minutos: data.duracao_minutos,
+  }
+  if (opts?.includeAtivo && data.ativo !== undefined) body.ativo = data.ativo
+  if (data.profissional_ids !== undefined) body.profissional_ids = data.profissional_ids
+  if (data.categoria_id !== undefined) {
+    body.categoria_id = data.categoria_id || null
+  }
+  return body
+}
+
 export async function createServico(data: Omit<import('../types').Servico, 'id'>) {
   if (!IS_MOCK) {
     const { id } = await apiFetch<{ id: string }>('/api/v1/services', {
       method: 'POST',
-      body: JSON.stringify({
-        nome: data.nome,
-        preco_base: data.preco,
-        duracao_base_minutos: data.duracao_minutos,
-      }),
+      body: JSON.stringify(buildServiceApiBody(data)),
     })
     await refreshAfterMutation()
     return getDb().servicos.find((s) => s.id === id) ?? { ...data, id }
@@ -4361,7 +4464,21 @@ export function getServicoById(tenantId: string, id: string) {
   return getDb().servicos.find((s) => s.tenant_id === tenantId && s.id === id)
 }
 
-export function updateServico(id: string, patch: Partial<Omit<import('../types').Servico, 'id'>>) {
+export async function updateServico(
+  id: string,
+  patch: Partial<Omit<import('../types').Servico, 'id'>>,
+) {
+  if (!IS_MOCK) {
+    const current = getDb().servicos.find((s) => s.id === id)
+    if (!current) throw new Error('Serviço não encontrado')
+    const merged = { ...current, ...patch }
+    await apiFetch(`/api/v1/services/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(buildServiceApiBody(merged, { includeAtivo: true })),
+    })
+    await refreshAfterMutation()
+    return getDb().servicos.find((s) => s.id === id) ?? merged
+  }
   const db = getDb()
   const idx = db.servicos.findIndex((s) => s.id === id)
   if (idx < 0) throw new Error('Serviço não encontrado')
@@ -4370,13 +4487,94 @@ export function updateServico(id: string, patch: Partial<Omit<import('../types')
   return db.servicos[idx]
 }
 
-export function deleteServico(id: string) {
+/** Soft-delete via ativo=false na API (não há DELETE /services). */
+export async function deleteServico(id: string) {
+  if (!IS_MOCK) {
+    await updateServico(id, { ativo: false })
+    return
+  }
   const db = getDb()
   db.servicos = db.servicos.filter((s) => s.id !== id)
   persistDb(db)
 }
 
 export type InsumoNivelEstoque = 'ok' | 'atencao' | 'critico'
+
+export async function searchSupplies(q = '', limit = 20) {
+  if (!IS_MOCK) {
+    const params = new URLSearchParams()
+    if (q.trim()) params.set('q', q.trim())
+    if (limit > 0) params.set('limit', String(limit))
+    const qs = params.toString()
+    return apiFetch<import('../types').InsumoEstoque[]>(
+      `/api/v1/supplies${qs ? `?${qs}` : ''}`,
+    )
+  }
+  const needle = q.trim().toLowerCase()
+  const list = getDb().insumos.filter((i) => i.ativo)
+  if (!needle) return list.slice(0, limit || 20)
+  return list
+    .filter((i) => i.nome.toLowerCase().includes(needle) || i.marca?.toLowerCase().includes(needle))
+    .slice(0, limit || 20)
+}
+
+type ApiBomRow = {
+  id?: string
+  insumo_id: string
+  nome?: string
+  unidade?: string
+  insumo_nome?: string
+  insumo_unidade?: string
+  quantidade_uso: number
+}
+
+function mapBomRow(row: ApiBomRow): import('../types').ServicoBomItem {
+  return {
+    insumo_id: row.insumo_id,
+    nome: row.nome ?? row.insumo_nome ?? '',
+    unidade: row.unidade ?? row.insumo_unidade ?? '',
+    quantidade_uso: row.quantidade_uso,
+  }
+}
+
+export async function listServiceSupplies(servicoId: string) {
+  if (!IS_MOCK) {
+    const list = await apiFetch<ApiBomRow[]>(`/api/v1/services/${servicoId}/supplies`)
+    return (list ?? []).map(mapBomRow)
+  }
+  const srv = getDb().servicos.find((s) => s.id === servicoId)
+  return (srv?.insumos ?? []).map((i) => ({
+    insumo_id: i.id,
+    nome: i.nome,
+    unidade: 'un',
+    quantidade_uso: 1,
+  }))
+}
+
+export async function replaceServiceSupplies(
+  servicoId: string,
+  itens: import('../types').ServicoBomInput[],
+) {
+  if (!IS_MOCK) {
+    await apiFetch(`/api/v1/services/${servicoId}/supplies`, {
+      method: 'PUT',
+      body: JSON.stringify({ itens }),
+    })
+    return
+  }
+  const db = getDb()
+  const idx = db.servicos.findIndex((s) => s.id === servicoId)
+  if (idx < 0) throw new Error('Serviço não encontrado')
+  db.servicos[idx].insumos = itens.map((item) => {
+    const stock = db.insumos.find((i) => i.id === item.insumo_id)
+    return {
+      id: item.insumo_id,
+      nome: stock?.nome ?? item.insumo_id,
+      custo: 0,
+    }
+  })
+  persistDb(db)
+}
 
 export function getInsumoNivelEstoque(i: import('../types').InsumoEstoque): InsumoNivelEstoque {
   if (i.quantidade <= Math.max(1, Math.floor(i.estoque_minimo * 0.5))) return 'critico'

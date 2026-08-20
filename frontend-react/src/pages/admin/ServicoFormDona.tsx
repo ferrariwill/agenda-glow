@@ -1,24 +1,29 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight,
   Clock,
   Plus,
-  Trash2,
   X,
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
+import { ServicoCategoriaSelect } from '../../components/dona/ServicoCategoriaSelect'
+import {
+  ServicoInsumosBomPanel,
+  type ServicoInsumosBomPanelHandle,
+} from '../../components/dona/ServicoInsumosBomPanel'
 import { Alert } from '../../components/ui/Alert'
 import { Modal } from '../../components/ui/Modal'
 import { useAuth } from '../../contexts/AuthContext'
-import type { ServicoInsumo } from '../../types'
+import { ApiError } from '../../lib/api'
 import {
   createServico,
   getDb,
   getServicoById,
+  replaceServiceSupplies,
   updateServico,
 } from '../../utils/mockDb'
-import { formatBRL, initials, parseBRLInput } from '../../utils/format'
+import { initials, parseBRLInput } from '../../utils/format'
 
 const GLASS =
   'rounded-xl border border-[#e5d3c8]/30 bg-white shadow-[0px_4px_20px_rgba(183,132,114,0.08)]'
@@ -33,20 +38,16 @@ const STOCK_IMAGES = [
   'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800&q=80',
 ]
 
-function newInsumo(): ServicoInsumo {
-  return { id: crypto.randomUUID(), nome: '', custo: 0 }
-}
-
 export function ServicoFormDona() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { session } = useAuth()
   const tenantId = session?.user.tenant_id ?? ''
   const isEdit = Boolean(id)
+  const bomRef = useRef<ServicoInsumosBomPanelHandle>(null)
 
   const db = getDb()
   const existing = isEdit ? getServicoById(tenantId, id!) : undefined
-  const categorias = db.categorias.filter((c) => c.tenant_id === tenantId)
   const profissionais = db.profissionais.filter((p) => p.tenant_id === tenantId && p.ativo)
 
   const [nome, setNome] = useState('')
@@ -58,10 +59,10 @@ export function ServicoFormDona() {
   const [exibirCatalogo, setExibirCatalogo] = useState(true)
   const [agendamentoOnline, setAgendamentoOnline] = useState(true)
   const [profissionalIds, setProfissionalIds] = useState<string[]>([])
-  const [insumos, setInsumos] = useState<ServicoInsumo[]>([])
   const [imagemUrl, setImagemUrl] = useState(DEFAULT_IMG)
   const [profPickerOpen, setProfPickerOpen] = useState(false)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(!isEdit)
 
   useEffect(() => {
@@ -72,28 +73,16 @@ export function ServicoFormDona() {
     }
     setNome(existing.nome)
     setDescricao(existing.descricao ?? '')
-    setCategoriaId(existing.categoria_id ?? categorias[0]?.id ?? '')
+    setCategoriaId(existing.categoria_id ?? '')
     setDuracao(existing.duracao_minutos)
     setPreco(existing.preco.toFixed(2).replace('.', ','))
     setAtivo(existing.ativo)
     setExibirCatalogo(existing.exibir_catalogo_publico ?? true)
     setAgendamentoOnline(existing.permitir_agendamento_online ?? true)
     setProfissionalIds(existing.profissional_ids ?? [])
-    setInsumos(existing.insumos?.length ? existing.insumos : [])
     setImagemUrl(existing.imagem_url ?? DEFAULT_IMG)
     setLoaded(true)
-  }, [isEdit, existing, categorias])
-
-  useEffect(() => {
-    if (!isEdit && categorias.length && !categoriaId) {
-      setCategoriaId(categorias[0].id)
-    }
-  }, [isEdit, categorias, categoriaId])
-
-  const custoTotal = useMemo(
-    () => insumos.reduce((s, i) => s + (Number(i.custo) || 0), 0),
-    [insumos],
-  )
+  }, [isEdit, existing])
 
   const profsDisponiveis = profissionais.filter((p) => !profissionalIds.includes(p.id))
   const profsSelecionados = profissionais.filter((p) => profissionalIds.includes(p.id))
@@ -108,35 +97,64 @@ export function ServicoFormDona() {
       setError('Informe o nome do serviço.')
       return
     }
-    if (Number.isNaN(precoNum) || precoNum <= 0) {
-      setError('Informe um preço válido.')
+    if (Number.isNaN(precoNum) || precoNum < 0) {
+      setError('Informe um preço válido (≥ 0).')
+      return
+    }
+    if (duracao <= 0) {
+      setError('A duração deve ser maior que zero.')
       return
     }
     if (duracao < 15) {
-      setError('A duração mínima é 15 minutos.')
+      setError('A duração mínima recomendada é 15 minutos.')
       return
     }
 
     const payload = {
       nome: nome.trim(),
       descricao: descricao.trim() || undefined,
-      categoria_id: categoriaId,
+      categoria_id: categoriaId || null,
       duracao_minutos: duracao,
       preco: precoNum,
       ativo,
       exibir_catalogo_publico: exibirCatalogo,
       permitir_agendamento_online: agendamentoOnline,
       profissional_ids: profissionalIds,
-      insumos: insumos.filter((i) => i.nome.trim()),
       imagem_url: imagemUrl,
     }
 
-    if (isEdit && existing) {
-      updateServico(existing.id, payload)
-      navigate('/admin/servicos', { state: { success: 'Serviço atualizado.' } })
-    } else {
-      await createServico({ tenant_id: tenantId, ...payload })
-      navigate('/admin/servicos', { state: { success: 'Serviço criado no catálogo.' } })
+    setSaving(true)
+    setError('')
+    try {
+      let servicoId = existing?.id
+      if (isEdit && existing) {
+        await updateServico(existing.id, payload)
+      } else {
+        const created = await createServico({ tenant_id: tenantId, ...payload })
+        servicoId = created.id
+      }
+
+      const bomItens = bomRef.current?.getItens() ?? []
+      if (servicoId) {
+        await replaceServiceSupplies(servicoId, bomItens)
+      }
+
+      navigate('/admin/servicos', {
+        state: {
+          success: isEdit ? 'Serviço atualizado.' : 'Serviço criado no catálogo.',
+        },
+      })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) setError('Conflito ao salvar. Verifique os dados.')
+        else if (err.status === 400) setError(err.message || 'Dados inválidos.')
+        else if (err.status === 404) setError('Serviço ou insumo não encontrado.')
+        else setError(err.message || 'Falha ao salvar o serviço.')
+      } else {
+        setError(err instanceof Error ? err.message : 'Falha ao salvar o serviço.')
+      }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -168,9 +186,10 @@ export function ServicoFormDona() {
           <button
             type="button"
             onClick={save}
-            className="rounded-xl bg-[#7d5141] px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 active:scale-95"
+            disabled={saving}
+            className="rounded-xl bg-[#7d5141] px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 active:scale-95 disabled:opacity-60"
           >
-            {isEdit ? 'Salvar alterações' : 'Criar serviço'}
+            {saving ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Criar serviço'}
           </button>
         </div>
       </div>
@@ -182,7 +201,6 @@ export function ServicoFormDona() {
       )}
 
       <div className="grid grid-cols-12 gap-6">
-        {/* Coluna principal */}
         <div className="col-span-12 space-y-6 xl:col-span-8">
           <div className={`space-y-6 p-6 sm:p-8 ${GLASS}`}>
             <h2 className="border-b border-[#d6c2bd]/10 pb-2 font-semibold text-[#7d5141]">
@@ -218,17 +236,11 @@ export function ServicoFormDona() {
                   <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-[#695c53]">
                     Categoria
                   </label>
-                  <select
+                  <ServicoCategoriaSelect
+                    tenantId={tenantId}
                     value={categoriaId}
-                    onChange={(e) => setCategoriaId(e.target.value)}
-                    className="w-full rounded-lg border-none bg-[#f4f3f2] px-4 py-2.5 text-base focus:ring-1 focus:ring-[#7d5141]"
-                  >
-                    {categorias.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setCategoriaId}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-[#695c53]">
@@ -314,7 +326,6 @@ export function ServicoFormDona() {
           </div>
         </div>
 
-        {/* Sidebar */}
         <div className="col-span-12 space-y-6 xl:col-span-4">
           <div className={`space-y-4 p-6 ${GLASS}`}>
             <div className="flex items-center justify-between">
@@ -360,65 +371,7 @@ export function ServicoFormDona() {
           </div>
 
           <div className={`space-y-4 p-6 ${GLASS}`}>
-            <h2 className="border-b border-[#d6c2bd]/10 pb-2 font-semibold text-[#7d5141]">
-              Insumos e custos
-            </h2>
-            <div className="space-y-3">
-              {insumos.length === 0 ? (
-                <p className="text-sm text-[#83746f]">Nenhum insumo cadastrado.</p>
-              ) : (
-                insumos.map((ins, idx) => (
-                  <div key={ins.id} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={ins.nome}
-                      onChange={(e) => {
-                        const next = [...insumos]
-                        next[idx] = { ...ins, nome: e.target.value }
-                        setInsumos(next)
-                      }}
-                      placeholder="Nome do insumo"
-                      className="min-w-0 flex-1 rounded-lg bg-[#f4f3f2] px-3 py-2 text-sm focus:ring-1 focus:ring-[#7d5141]"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={ins.custo || ''}
-                      onChange={(e) => {
-                        const next = [...insumos]
-                        next[idx] = { ...ins, custo: Number(e.target.value) }
-                        setInsumos(next)
-                      }}
-                      placeholder="0"
-                      className="w-24 rounded-lg bg-[#f4f3f2] px-3 py-2 text-sm focus:ring-1 focus:ring-[#7d5141]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setInsumos((list) => list.filter((_, i) => i !== idx))}
-                      className="rounded p-1.5 text-[#83746f] hover:bg-red-50 hover:text-red-600"
-                      aria-label="Remover insumo"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setInsumos((list) => [...list, newInsumo()])}
-              className="flex items-center gap-1 text-sm font-semibold text-[#7d5141] hover:underline"
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar insumo
-            </button>
-            <div className="flex items-center justify-between border-t border-[#d6c2bd]/10 pt-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#695c53]">
-                Custo operacional total
-              </span>
-              <span className="font-semibold text-[#7d5141]">{formatBRL(custoTotal)}</span>
-            </div>
+            <ServicoInsumosBomPanel ref={bomRef} servicoId={isEdit ? id : undefined} />
           </div>
 
           <div className={`space-y-4 p-6 ${GLASS}`}>

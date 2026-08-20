@@ -19,6 +19,7 @@ import { ServicoFormDona } from './pages/admin/ServicoFormDona'
 import { InsumosDona } from './pages/admin/InsumosDona'
 import { InsumoFormDona } from './pages/admin/InsumoFormDona'
 import { EspecialidadesDona } from './pages/admin/EspecialidadesDona'
+import { CategoriasServicoDona } from './pages/admin/CategoriasServicoDona'
 import { FinanceiroDona } from './pages/admin/FinanceiroDona'
 import { TransacaoFormDona } from './pages/admin/TransacaoFormDona'
 import { ConfiguracoesSalao } from './pages/admin/ConfiguracoesSalao'
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="/admin/servicos" element={<ServicosDona />} />
             <Route path="/admin/servicos/novo" element={<ServicoFormDona />} />
             <Route path="/admin/servicos/:id/edit" element={<ServicoFormDona />} />
+            <Route path="/admin/categorias-servico" element={<CategoriasServicoDona />} />
             <Route path="/admin/especialidades" element={<EspecialidadesDona />} />
             <Route path="/admin/equipe" element={<EquipeConfig />} />
             <Route path="/admin/equipe/novo" element={<ProfissionalFormDona />} />

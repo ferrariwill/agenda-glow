@@ -1,5 +1,6 @@
 import type {
   Agendamento,
+  CategoriaServico,
   Cliente,
   Especialidade,
   Lancamento,
@@ -29,6 +30,12 @@ interface TenantBootstrapApi {
   early_slot_queue_inactive_reason?: 'whatsapp_indisponivel' | null
   plano?: PlanoSaas
   especialidades: { id: string; nome: string; ativo: boolean }[]
+  categorias?: {
+    id: string
+    tenant_id?: string
+    nome: string
+    icone?: string | null
+  }[]
   profissionais: {
     id: string
     nome: string
@@ -51,6 +58,9 @@ interface TenantBootstrapApi {
     preco_base: number
     duracao_base_minutos: number
     ativo: boolean
+    categoria_id?: string | null
+    categoria_nome?: string | null
+    profissional_ids?: string[]
     adicionais?: {
       id: string
       servico_id: string
@@ -173,6 +183,13 @@ export function mapTenantBootstrap(
     nome: e.nome,
   }))
 
+  const categorias: CategoriaServico[] = (payload.categorias ?? []).map((c) => ({
+    id: c.id,
+    tenant_id: c.tenant_id ?? tenantId,
+    nome: c.nome,
+    icone: c.icone ?? undefined,
+  }))
+
   const profissionais: Profissional[] = payload.profissionais.map((p) => ({
     id: p.id,
     tenant_id: tenantId,
@@ -197,6 +214,9 @@ export function mapTenantBootstrap(
     preco: s.preco_base,
     duracao_minutos: s.duracao_base_minutos,
     ativo: s.ativo,
+    categoria_id: s.categoria_id ?? null,
+    categoria_nome: s.categoria_nome ?? undefined,
+    profissional_ids: s.profissional_ids ?? [],
     permitir_agendamento_online: true,
   }))
 
@@ -293,6 +313,13 @@ export function mapTenantBootstrap(
       ...prev.especialidades.filter((e) => e.tenant_id !== tenantId),
       ...especialidades,
     ],
+    categorias:
+      categorias.length > 0
+        ? [
+            ...prev.categorias.filter((c) => c.tenant_id !== tenantId),
+            ...categorias,
+          ]
+        : prev.categorias,
     profissionais: [
       ...prev.profissionais.filter((p) => p.tenant_id !== tenantId),
       ...profissionais,

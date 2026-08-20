@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
@@ -10,10 +10,11 @@ import {
 } from '../../components/ui/ResponsiveEntityList'
 import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
-import type { Servico } from '../../types'
+import type { CategoriaServico, Servico } from '../../types'
 import {
   deleteServico,
   getDb,
+  listCategoriasServico,
   updateServico,
 } from '../../utils/mockDb'
 import { formatBRL } from '../../utils/format'
@@ -41,13 +42,24 @@ export function ServicosDona() {
   const [categoriaId, setCategoriaId] = useState<string | 'all'>('all')
   const [page, setPage] = useState(1)
   const [deleteTarget, setDeleteTarget] = useState<Servico | null>(null)
+  const [categorias, setCategorias] = useState<CategoriaServico[]>([])
   const [success, setSuccess] = useState(
     (location.state as { success?: string } | null)?.success ?? '',
   )
 
   const refresh = () => setDb(getDb())
 
-  const categorias = db.categorias.filter((c) => c.tenant_id === tenantId)
+  useEffect(() => {
+    void listCategoriasServico(tenantId)
+      .then((list) => {
+        setCategorias(list)
+        setDb(getDb())
+      })
+      .catch(() => {
+        setCategorias(getDb().categorias.filter((c) => c.tenant_id === tenantId))
+      })
+  }, [tenantId])
+
   const totalAtivos = db.servicos.filter((s) => s.tenant_id === tenantId && s.ativo).length
 
   const servicos = useMemo(() => {
@@ -56,7 +68,10 @@ export function ServicosDona() {
     if (categoriaId !== 'all') list = list.filter((s) => s.categoria_id === categoriaId)
     if (q) {
       list = list.filter((s) => {
-        const cat = categorias.find((c) => c.id === s.categoria_id)?.nome ?? ''
+        const cat =
+          s.categoria_nome ??
+          categorias.find((c) => c.id === s.categoria_id)?.nome ??
+          ''
         return (
           s.nome.toLowerCase().includes(q) ||
           s.descricao?.toLowerCase().includes(q) ||
@@ -72,22 +87,24 @@ export function ServicosDona() {
   const pageSafe = Math.min(page, totalPages)
   const pageItems = servicos.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE)
 
-  const toggleAtivo = (s: Servico) => {
-    updateServico(s.id, { ativo: !s.ativo })
+  const toggleAtivo = async (s: Servico) => {
+    await updateServico(s.id, { ativo: !s.ativo })
     refresh()
     setSuccess(s.ativo ? 'Serviço desativado.' : 'Serviço reativado.')
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return
-    deleteServico(deleteTarget.id)
+    await deleteServico(deleteTarget.id)
     refresh()
     setDeleteTarget(null)
-    setSuccess('Serviço removido do catálogo.')
+    setSuccess('Serviço desativado no catálogo.')
   }
 
-  const getCategoriaNome = (id?: string) =>
-    categorias.find((c) => c.id === id)?.nome ?? '—'
+  const getCategoriaNome = (s: Servico) =>
+    s.categoria_nome ??
+    categorias.find((c) => c.id === s.categoria_id)?.nome ??
+    '—'
 
   const renderActions = (s: Servico, alwaysVisible = false) => (
     <div onClick={(e) => e.stopPropagation()}>
@@ -126,7 +143,7 @@ export function ServicosDona() {
       header: 'Categoria',
       cell: (s) => (
         <span className="rounded bg-[#eeeeed] px-2 py-1 text-xs font-bold uppercase tracking-wider text-[#695c53]">
-          {getCategoriaNome(s.categoria_id)}
+          {getCategoriaNome(s)}
         </span>
       ),
       priority: 'secondary',
@@ -190,7 +207,7 @@ export function ServicosDona() {
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-[#7d5141]">{s.nome}</p>
           <p className="mt-0.5 text-xs text-[#615b58]">
-            {getCategoriaNome(s.categoria_id)}
+            {getCategoriaNome(s)}
           </p>
         </div>
         {renderActions(s, true)}
@@ -358,13 +375,13 @@ export function ServicosDona() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
-        title="Excluir serviço"
+        title="Desativar serviço"
         message={
           deleteTarget
-            ? `Deseja remover "${deleteTarget.nome}" permanentemente do catálogo?`
+            ? `Deseja desativar "${deleteTarget.nome}" no catálogo?`
             : ''
         }
-        confirmLabel="Excluir"
+        confirmLabel="Desativar"
       />
     </DonaLayout>
   )
