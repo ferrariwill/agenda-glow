@@ -300,7 +300,7 @@ export function AgendaProfissional() {
         onClose={() => setAgModalOpen(false)}
         tenantId={tenantId}
         profissionalFixo={profId}
-        apiRole="PROFISSIONAL"
+        apiRole={isProf ? 'PROFISSIONAL' : undefined}
         preset={{ data: selectedDay }}
         cadastrarClienteNovo
         onSuccess={(msg) => {
