@@ -15,7 +15,10 @@ import {
 } from 'lucide-react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { DonaLayout, DonaFooter } from '../../components/dona/DonaLayout'
+import { QuickSpecialtyModal } from '../../components/dona/QuickSpecialtyModal'
+import { StickyActionBar } from '../../components/dona/StickyActionBar'
 import { Alert } from '../../components/ui/Alert'
+import { ToastFeedback } from '../../components/ui/ToastFeedback'
 import { useAuth } from '../../contexts/AuthContext'
 import { PlanLimitExceededError, type Expediente, type Profissional } from '../../types'
 import {
@@ -150,6 +153,10 @@ export function ProfissionalFormDona() {
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false)
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(!isEdit)
+  const [isQuickModalOpen, setIsQuickModalOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [toast, setToast] = useState('')
+  const [formBaseline, setFormBaseline] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isEdit) return
@@ -188,6 +195,53 @@ export function ProfissionalFormDona() {
     }
   }, [isEdit, especialidades, espIds.length])
 
+  const formSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        nome,
+        email,
+        telefone,
+        dataNascimento,
+        biografia,
+        fotoUrl,
+        espIds,
+        portfolioUrl,
+        dataContratacao,
+        modeloPagamento,
+        comissao,
+        valorFixo,
+        weekDays,
+        almoco,
+        ativo,
+      }),
+    [
+      nome,
+      email,
+      telefone,
+      dataNascimento,
+      biografia,
+      fotoUrl,
+      espIds,
+      portfolioUrl,
+      dataContratacao,
+      modeloPagamento,
+      comissao,
+      valorFixo,
+      weekDays,
+      almoco,
+      ativo,
+    ],
+  )
+
+  useEffect(() => {
+    if (!loaded || formBaseline !== null) return
+    // Aguarda pré-seleção da primeira especialidade em cadastro novo
+    if (!isEdit && especialidades.length > 0 && espIds.length === 0) return
+    setFormBaseline(formSnapshot)
+  }, [loaded, formBaseline, formSnapshot, isEdit, especialidades.length, espIds.length])
+
+  const hasUnsavedChanges = formBaseline !== null && formSnapshot !== formBaseline
+
   const expedientes = useMemo(
     () => expedientesFromWeek(weekDays, almoco),
     [weekDays, almoco],
@@ -211,27 +265,51 @@ export function ProfissionalFormDona() {
     setWeekDays((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
   }
 
+  const handleSpecialtyCreated = (newSpecialty: { id: string; nome: string }) => {
+    setEspIds((prev) => (prev.includes(newSpecialty.id) ? prev : [...prev, newSpecialty.id]))
+    setToast(`Especialidade '${newSpecialty.nome}' criada e selecionada!`)
+  }
+
+  const cancel = () => {
+    navigate('/admin/equipe')
+  }
+
   const save = async () => {
     setError('')
     if (!nome.trim()) {
       setError('Informe o nome completo do profissional.')
+      requestAnimationFrame(() => {
+        document.getElementById('form-error-alert')?.scrollIntoView({ behavior: 'smooth' })
+      })
       return
     }
     if (espIds.length === 0) {
       setError('Selecione ao menos uma especialidade.')
+      requestAnimationFrame(() => {
+        document.getElementById('form-error-alert')?.scrollIntoView({ behavior: 'smooth' })
+      })
       return
     }
     const expErr = validateAllExpedientes(expedientes)
     if (expErr) {
       setError(expErr)
+      requestAnimationFrame(() => {
+        document.getElementById('form-error-alert')?.scrollIntoView({ behavior: 'smooth' })
+      })
       return
     }
     if (modeloPagamento === 'PERCENTUAL' && (comissao < 0 || comissao > 100)) {
       setError('A comissão deve estar entre 0% e 100%.')
+      requestAnimationFrame(() => {
+        document.getElementById('form-error-alert')?.scrollIntoView({ behavior: 'smooth' })
+      })
       return
     }
     if (modeloPagamento === 'FIXO' && valorFixo <= 0) {
       setError('Informe um valor fixo válido por atendimento.')
+      requestAnimationFrame(() => {
+        document.getElementById('form-error-alert')?.scrollIntoView({ behavior: 'smooth' })
+      })
       return
     }
 
@@ -256,6 +334,7 @@ export function ProfissionalFormDona() {
       expedientes,
     }
 
+    setIsSaving(true)
     try {
       if (isEdit && existing) {
         await updateProfissional(existing.id, payload)
@@ -266,10 +345,21 @@ export function ProfissionalFormDona() {
       }
     } catch (err) {
       if (err instanceof PlanLimitExceededError) {
-        setError('Limite de profissionais do plano atingido. Faça upgrade do plano SaaS.')
+        setError(
+          'Limite de profissionais do plano atingido. Faça upgrade do plano SaaS em Configurações.',
+        )
       } else {
-        setError(err instanceof Error ? err.message : 'Erro ao salvar')
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Não foi possível salvar os dados. Verifique sua conexão e tente novamente.',
+        )
       }
+      requestAnimationFrame(() => {
+        document.getElementById('form-error-alert')?.scrollIntoView({ behavior: 'smooth' })
+      })
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -296,26 +386,49 @@ export function ProfissionalFormDona() {
           <p className="mt-1 text-[#514440]">{subtitle}</p>
         </div>
         <div className="flex flex-wrap gap-4">
-          <Link
-            to="/admin/equipe"
-            className="rounded-lg border border-[#d6c2bd] px-6 py-2.5 text-sm font-semibold text-[#514440] transition-colors hover:bg-[#f4f3f2]"
-          >
-            Cancelar
-          </Link>
           <button
             type="button"
-            onClick={save}
-            className="rounded-lg bg-[#7d5141] px-8 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 active:scale-[0.98]"
+            onClick={cancel}
+            disabled={isSaving}
+            className="rounded-lg border border-[#d6c2bd] px-6 py-2.5 text-sm font-semibold text-[#514440] transition-colors hover:bg-[#f4f3f2] disabled:opacity-50"
           >
-            {isEdit ? 'Salvar alterações' : 'Salvar Profissional'}
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={isSaving}
+            aria-busy={isSaving}
+            className="rounded-lg bg-[#7d5141] px-8 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+          >
+            {isSaving
+              ? isEdit
+                ? 'Salvar alterações...'
+                : 'Salvar Profissional...'
+              : isEdit
+                ? 'Salvar alterações'
+                : 'Salvar Profissional'}
           </button>
         </div>
       </header>
 
       {error && (
-        <Alert variant="error" className="mb-6" onDismiss={() => setError('')}>
-          {error}
-        </Alert>
+        <div id="form-error-alert">
+          <Alert variant="error" className="mb-6" onDismiss={() => setError('')}>
+            {error}
+            {error.includes('upgrade') && (
+              <>
+                {' '}
+                <Link
+                  to="/admin/configuracoes"
+                  className="font-semibold text-red-900 underline underline-offset-2"
+                >
+                  Ir para Configurações
+                </Link>
+              </>
+            )}
+          </Alert>
+        </div>
       )}
 
       <div className="grid grid-cols-12 gap-8">
@@ -447,32 +560,49 @@ export function ProfissionalFormDona() {
                 <p className="mb-3 text-xs font-bold uppercase tracking-widest text-[#514440]">
                   Especialidades
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {especialidades.map((esp) => {
-                    const selected = espIds.includes(esp.id)
-                    return (
-                      <button
-                        key={esp.id}
-                        type="button"
-                        onClick={() => toggleEsp(esp.id)}
-                        className={[
-                          'rounded-full border px-4 py-2 text-sm transition-all',
-                          selected
-                            ? 'border-[#7d5141] bg-[#996958]/10 text-[#7d5141]'
-                            : 'border-[#d6c2bd] text-[#514440] hover:border-[#7d5141]/50',
-                        ].join(' ')}
-                      >
-                        {esp.nome}
-                      </button>
-                    )
-                  })}
-                  <Link
-                    to="/admin/especialidades"
-                    className="flex items-center gap-1 rounded-full border border-dashed border-[#d6c2bd] px-4 py-2 text-sm text-[#514440] transition-all hover:border-[#7d5141]"
-                  >
-                    + Adicionar Outra
-                  </Link>
-                </div>
+                {especialidades.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-[#d6c2bd] bg-[#f4f3f2]/50 p-6 text-center">
+                    <p className="text-sm font-medium text-[#514440]">
+                      Nenhuma especialidade cadastrada ainda. Clique abaixo para cadastrar a
+                      primeira.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickModalOpen(true)}
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#7d5141] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    >
+                      + Cadastrar Primeira Especialidade
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {especialidades.map((esp) => {
+                      const selected = espIds.includes(esp.id)
+                      return (
+                        <button
+                          key={esp.id}
+                          type="button"
+                          onClick={() => toggleEsp(esp.id)}
+                          className={[
+                            'rounded-full border px-4 py-2 text-sm transition-all',
+                            selected
+                              ? 'border-[#7d5141] bg-[#996958]/10 text-[#7d5141]'
+                              : 'border-[#d6c2bd] text-[#514440] hover:border-[#7d5141]/50',
+                          ].join(' ')}
+                        >
+                          {esp.nome}
+                        </button>
+                      )
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickModalOpen(true)}
+                      className="flex items-center gap-1 rounded-full border border-dashed border-[#d6c2bd] px-4 py-2 text-sm text-[#514440] transition-all hover:border-[#7d5141]"
+                    >
+                      + Adicionar Outra
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-6">
                 <Field label="Link do Portfólio (Instagram/Behance)">
@@ -742,6 +872,23 @@ export function ProfissionalFormDona() {
       </div>
 
       <DonaFooter />
+
+      <StickyActionBar
+        onSave={() => void save()}
+        onCancel={cancel}
+        isSaving={isSaving}
+        isEdit={isEdit}
+        hasUnsavedChanges={hasUnsavedChanges}
+      />
+
+      <QuickSpecialtyModal
+        isOpen={isQuickModalOpen}
+        onClose={() => setIsQuickModalOpen(false)}
+        onSuccess={handleSpecialtyCreated}
+        tenantId={tenantId}
+      />
+
+      <ToastFeedback message={toast || null} onDismiss={() => setToast('')} />
     </DonaLayout>
   )
 }
