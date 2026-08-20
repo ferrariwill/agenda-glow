@@ -128,7 +128,8 @@ export function maskPhoneBRInput(raw: string): string {
 export function toWhatsAppDigits(maskedOrRaw: string): string {
   const digits = maskedOrRaw.replace(/\D/g, '')
   if (!digits) return ''
-  if (digits.startsWith('55')) return digits
+  // País só se já for E.164 (55 + 10/11 locais). DDD local 55 (10–11 dígitos) precisa do prefixo.
+  if (digits.startsWith('55') && digits.length >= 12) return digits
   return `55${digits}`
 }
 
