@@ -254,7 +254,7 @@ func buildPrevisaoItem(row previsaoAggRow, janelaDias, horizonteCritico int) Pre
 	)
 	sugerir := nivel == NivelCritico
 	qtdCompra := CalcularQuantidadeSugeridaCompra(row.EstoqueIdeal, estoqueProjetado)
-	custo := roundMoney(qtdCompra * row.ValorUnitario)
+	custo := mulMoneyByQty(qtdCompra, row.ValorUnitario)
 
 	return PrevisaoItem{
 		InsumoID:                   row.InsumoID,
