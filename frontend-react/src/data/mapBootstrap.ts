@@ -48,6 +48,7 @@ interface TenantBootstrapApi {
     eh_dona?: boolean
     user_id?: string
     foto_url?: string
+    data_nascimento?: string
     expedientes: {
       dia_semana: number
       horario_entrada: string
@@ -206,6 +207,7 @@ export function mapTenantBootstrap(
     eh_dona: p.eh_dona,
     user_id: p.user_id,
     foto_url: p.foto_url,
+    data_nascimento: p.data_nascimento,
     expedientes: (p.expedientes ?? []).map((ex) => ({
       dia_semana: ex.dia_semana,
       horario_entrada: ex.horario_entrada.slice(0, 5),

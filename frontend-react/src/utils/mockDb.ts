@@ -2173,17 +2173,45 @@ export function profissionalStatusLabel(prof: Profissional): 'ATIVO' | 'INATIVO'
   return prof.ativo ? 'ATIVO' : 'INATIVO'
 }
 
+export async function uploadProfissionalFoto(
+  id: string,
+  file: File,
+): Promise<{ id: string; foto_url: string }> {
+  if (!IS_MOCK) {
+    const form = new FormData()
+    form.append('foto', file)
+    const res = await apiFetch<{ id: string; foto_url: string }>(
+      `/api/v1/professionals/${id}/foto`,
+      { method: 'POST', body: form },
+    )
+    await refreshAfterMutation()
+    return res
+  }
+
+  const foto_url = URL.createObjectURL(file)
+  const db = getDb()
+  const idx = db.profissionais.findIndex((p) => p.id === id)
+  if (idx >= 0) {
+    db.profissionais[idx] = { ...db.profissionais[idx], foto_url }
+    persistDb(db)
+  }
+  return { id, foto_url }
+}
+
 export async function createProfissional(
   data: Omit<Profissional, 'id'>,
 ): Promise<Profissional> {
   if (!IS_MOCK) {
+    const body: Record<string, unknown> = {
+      nome: data.nome,
+      especialidade_id: data.especialidade_id,
+      comissao_porcentagem: data.comissao_percent,
+    }
+    if (data.data_nascimento) body.data_nascimento = data.data_nascimento
+    if (data.foto_url) body.foto_url = data.foto_url
     const { id } = await apiFetch<{ id: string }>('/api/v1/professionals', {
       method: 'POST',
-      body: JSON.stringify({
-        nome: data.nome,
-        especialidade_id: data.especialidade_id,
-        comissao_porcentagem: data.comissao_percent,
-      }),
+      body: JSON.stringify(body),
     })
     await refreshAfterMutation()
     const prof = getDb().profissionais.find((p) => p.id === id)
@@ -2211,14 +2239,21 @@ export async function updateProfissional(id: string, patch: Partial<Profissional
     const current = getDb().profissionais.find((p) => p.id === id)
     if (!current) throw new Error('Profissional não encontrado')
     const merged = { ...current, ...patch }
+    const body: Record<string, unknown> = {
+      nome: merged.nome,
+      especialidade_id: merged.especialidade_id,
+      comissao_porcentagem: merged.comissao_percent,
+      ativo: merged.ativo,
+    }
+    if (merged.data_nascimento !== undefined) {
+      body.data_nascimento = merged.data_nascimento || null
+    }
+    if (merged.foto_url !== undefined) {
+      body.foto_url = merged.foto_url || null
+    }
     await apiFetch(`/api/v1/professionals/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({
-        nome: merged.nome,
-        especialidade_id: merged.especialidade_id,
-        comissao_porcentagem: merged.comissao_percent,
-        ativo: merged.ativo,
-      }),
+      body: JSON.stringify(body),
     })
     await refreshAfterMutation()
     return getDb().profissionais.find((p) => p.id === id) ?? merged
