@@ -431,3 +431,33 @@ RETURNING id, nome_comercial, slug, logo_url
 
 	return &atualizado, nil
 }
+
+// UpdateLogoURL persiste apenas logo_url (ativo ou inativo — uso Super Admin).
+func (s *EstabelecimentoService) UpdateLogoURL(ctx context.Context, estabelecimentoID, logoURL string) error {
+	estabelecimentoID = strings.TrimSpace(estabelecimentoID)
+	logoURL = strings.TrimSpace(logoURL)
+	if estabelecimentoID == "" {
+		return fmt.Errorf("estabelecimento_id é obrigatório")
+	}
+	if logoURL == "" {
+		return fmt.Errorf("logo_url é obrigatório")
+	}
+
+	const update = `
+UPDATE estabelecimentos
+SET logo_url = $2
+WHERE id = $1
+`
+	result, err := s.db.ExecContext(ctx, update, estabelecimentoID, logoURL)
+	if err != nil {
+		return fmt.Errorf("atualizar logo_url: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("verificar linhas afetadas: %w", err)
+	}
+	if rows == 0 {
+		return ErrEstabelecimentoNaoEncontrado
+	}
+	return nil
+}
