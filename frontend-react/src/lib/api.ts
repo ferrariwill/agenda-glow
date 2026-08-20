@@ -36,7 +36,8 @@ export async function apiFetch<T = unknown>(
 ): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
   const headers = new Headers(init.headers)
-  if (init.body && !headers.has('Content-Type')) {
+  // FormData precisa do boundary gerado pelo browser — não forçar JSON.
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
