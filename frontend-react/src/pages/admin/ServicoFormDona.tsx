@@ -113,7 +113,7 @@ export function ServicoFormDona() {
     const payload = {
       nome: nome.trim(),
       descricao: descricao.trim() || undefined,
-      categoria_id: categoriaId || null,
+      categoria_id: categoriaId,
       duracao_minutos: duracao,
       preco: precoNum,
       ativo,
