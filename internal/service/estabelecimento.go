@@ -360,6 +360,61 @@ ORDER BY sa.nome
 	}, nil
 }
 
+// UpdateLogoURL persiste apenas logo_url (ativo ou não — uso Super Admin).
+func (s *EstabelecimentoService) UpdateLogoURL(ctx context.Context, estabelecimentoID, logoURL string) error {
+	id := strings.TrimSpace(estabelecimentoID)
+	url := strings.TrimSpace(logoURL)
+	if id == "" || url == "" {
+		return fmt.Errorf("estabelecimento_id e logo_url são obrigatórios")
+	}
+
+	const update = `
+UPDATE estabelecimentos
+SET logo_url = $2
+WHERE id = $1
+`
+	result, err := s.db.ExecContext(ctx, update, id, url)
+	if err != nil {
+		return fmt.Errorf("atualizar logo_url: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("verificar linhas afetadas: %w", err)
+	}
+	if rows == 0 {
+		return ErrEstabelecimentoNaoEncontrado
+	}
+	return nil
+}
+
+// UpdateDonaContact atualiza os campos denormalizados dona_nome / dona_email.
+func (s *EstabelecimentoService) UpdateDonaContact(ctx context.Context, estabelecimentoID, nome, email string) error {
+	id := strings.TrimSpace(estabelecimentoID)
+	nome = strings.TrimSpace(nome)
+	email = strings.TrimSpace(strings.ToLower(email))
+	if id == "" || nome == "" || email == "" {
+		return fmt.Errorf("estabelecimento_id, nome e email são obrigatórios")
+	}
+
+	const update = `
+UPDATE estabelecimentos
+SET dona_nome = $2, dona_email = $3
+WHERE id = $1
+`
+	result, err := s.db.ExecContext(ctx, update, id, nome, email)
+	if err != nil {
+		return fmt.Errorf("atualizar contato da dona: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("verificar linhas afetadas: %w", err)
+	}
+	if rows == 0 {
+		return ErrEstabelecimentoNaoEncontrado
+	}
+	return nil
+}
+
 // AtualizarConfig persiste nome, slug e logo do estabelecimento em transação segura.
 func (s *EstabelecimentoService) AtualizarConfig(
 	ctx context.Context,

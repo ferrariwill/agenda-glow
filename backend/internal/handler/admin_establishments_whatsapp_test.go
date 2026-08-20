@@ -35,7 +35,7 @@ func newToggleWhatsAppMux(t *testing.T) (http.Handler, *security.WhatsAppGate, s
 
 	db := sqlx.NewDb(rawDB, "sqlmock")
 	gate := security.NewWhatsAppGate(db, time.Minute)
-	handler := NewAdminEstablishmentsHandler(service.NewEstabelecimentoService(db), gate)
+	handler := NewAdminEstablishmentsHandler(service.NewEstabelecimentoService(db), service.NewAuthService(db), gate)
 
 	mux := http.NewServeMux()
 	mux.Handle(toggleWhatsAppPattern, security.RequireSuperAdmin(http.HandlerFunc(handler.ToggleWhatsApp)))

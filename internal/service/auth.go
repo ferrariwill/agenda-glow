@@ -87,7 +87,13 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*Login
 }
 
 // CreateUser cadastra credencial com hash bcrypt (uso administrativo / seed).
-func (s *AuthService) CreateUser(ctx context.Context, email, password, role string, estabelecimentoID, profissionalID *string) (string, error) {
+// nome é opcional (string vazia → NULL); quando informado, persiste em users.nome.
+func (s *AuthService) CreateUser(
+	ctx context.Context,
+	email, password, role string,
+	estabelecimentoID, profissionalID *string,
+	nome string,
+) (string, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" || password == "" {
 		return "", fmt.Errorf("email e senha são obrigatórios")
@@ -98,13 +104,18 @@ func (s *AuthService) CreateUser(ctx context.Context, email, password, role stri
 		return "", fmt.Errorf("hash da senha: %w", err)
 	}
 
+	var nomePtr *string
+	if n := strings.TrimSpace(nome); n != "" {
+		nomePtr = &n
+	}
+
 	const insert = `
-INSERT INTO users (email, password_hash, role, estabelecimento_id, profissional_id, ativo)
-VALUES ($1, $2, $3, $4, $5, TRUE)
+INSERT INTO users (email, password_hash, role, estabelecimento_id, profissional_id, ativo, nome)
+VALUES ($1, $2, $3, $4, $5, TRUE, $6)
 RETURNING id
 `
 	var id string
-	if err := s.db.GetContext(ctx, &id, insert, email, string(hash), role, estabelecimentoID, profissionalID); err != nil {
+	if err := s.db.GetContext(ctx, &id, insert, email, string(hash), role, estabelecimentoID, profissionalID, nomePtr); err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
 			return "", ErrEmailJaCadastrado
 		}

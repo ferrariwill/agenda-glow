@@ -1,26 +1,38 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"path/filepath"
+	"strings"
+	"time"
 
+	storagesvc "github.com/agendaglow/agendaglow/backend/internal/service"
 	"github.com/agendaglow/agendaglow/internal/security"
 	"github.com/agendaglow/agendaglow/internal/service"
 )
 
+const senhaInicialDona = "AgendaGlow@2026"
+
 type AdminEstablishmentsHandler struct {
 	estabelecimentos *service.EstabelecimentoService
+	auth             *service.AuthService
 	whatsAppGate     *security.WhatsAppGate
 }
 
 func NewAdminEstablishmentsHandler(
 	estabelecimentos *service.EstabelecimentoService,
+	auth *service.AuthService,
 	whatsAppGate *security.WhatsAppGate,
 ) *AdminEstablishmentsHandler {
 	return &AdminEstablishmentsHandler{
 		estabelecimentos: estabelecimentos,
+		auth:             auth,
 		whatsAppGate:     whatsAppGate,
 	}
 }
@@ -41,6 +53,22 @@ type toggleStatusRequest struct {
 
 type toggleWhatsAppRequest struct {
 	WhatsAppEnabled *bool `json:"whatsapp_enabled"`
+}
+
+type createDonaRequest struct {
+	Nome  string `json:"nome"`
+	Email string `json:"email"`
+}
+
+type createDonaResponse struct {
+	UserID       string `json:"user_id"`
+	Email        string `json:"email"`
+	Nome         string `json:"nome"`
+	SenhaInicial string `json:"senha_inicial"`
+}
+
+type uploadLogoResponse struct {
+	LogoURL string `json:"logo_url"`
 }
 
 // List serve GET /api/v1/admin/establishments
@@ -79,6 +107,134 @@ func (h *AdminEstablishmentsHandler) Create(w http.ResponseWriter, r *http.Reque
 		ID:   id,
 		Slug: slugFinal,
 	})
+}
+
+// CreateDona serve POST /api/v1/admin/establishments/{id}/create-dona
+func (h *AdminEstablishmentsHandler) CreateDona(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+
+	var req createDonaRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	nome := strings.TrimSpace(req.Nome)
+	email := strings.TrimSpace(strings.ToLower(req.Email))
+	if nome == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_nome")
+		return
+	}
+	if email == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_email")
+		return
+	}
+
+	if _, err := h.estabelecimentos.GetEstablishmentSuperAdminByID(r.Context(), id); err != nil {
+		if errors.Is(err, service.ErrEstabelecimentoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	estID := id
+	userID, err := h.auth.CreateUser(r.Context(), email, senhaInicialDona, security.RoleDona, &estID, nil, nome)
+	if err != nil {
+		if errors.Is(err, service.ErrEmailJaCadastrado) {
+			writeJSONError(w, http.StatusConflict, "email_already_exists")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	if err := h.estabelecimentos.UpdateDonaContact(r.Context(), id, nome, email); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, createDonaResponse{
+		UserID:       userID,
+		Email:        email,
+		Nome:         nome,
+		SenhaInicial: senhaInicialDona,
+	})
+}
+
+// UploadLogo serve POST /api/v1/admin/establishments/{id}/logo
+func (h *AdminEstablishmentsHandler) UploadLogo(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing_id")
+		return
+	}
+
+	if _, err := h.estabelecimentos.GetEstablishmentSuperAdminByID(r.Context(), id); err != nil {
+		if errors.Is(err, service.ErrEstabelecimentoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	if err := r.ParseMultipartForm(maxLogoUploadBytes); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_multipart")
+		return
+	}
+
+	file, header, err := r.FormFile("logo")
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "missing_logo")
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !extensoesLogoPermitidas[ext] {
+		writeJSONError(w, http.StatusBadRequest, "invalid_image_type")
+		return
+	}
+
+	if header.Size > maxLogoUploadBytes {
+		writeJSONError(w, http.StatusBadRequest, "file_too_large")
+		return
+	}
+
+	limited := io.LimitReader(file, maxLogoUploadBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_multipart")
+		return
+	}
+	if int64(len(data)) > maxLogoUploadBytes {
+		writeJSONError(w, http.StatusBadRequest, "file_too_large")
+		return
+	}
+
+	fileName := fmt.Sprintf("%s-%d%s", id, time.Now().UnixNano(), ext)
+	publicURL, err := storagesvc.UploadLogoToSupabase(r.Context(), bytes.NewReader(data), fileName)
+	if err != nil {
+		writeJSONError(w, http.StatusBadGateway, "storage_upload_failed")
+		return
+	}
+
+	if err := h.estabelecimentos.UpdateLogoURL(r.Context(), id, publicURL); err != nil {
+		if errors.Is(err, service.ErrEstabelecimentoNaoEncontrado) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, uploadLogoResponse{LogoURL: publicURL})
 }
 
 // ToggleStatus serve PUT /api/v1/admin/establishments/{id}/status

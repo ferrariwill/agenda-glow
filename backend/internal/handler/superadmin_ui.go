@@ -209,7 +209,7 @@ func (h *SuperAdminUIHandler) CreateDonaOwner(w http.ResponseWriter, r *http.Req
 
 	const senhaInicial = "AgendaGlow@2026"
 	estID := id
-	if _, err := h.auth.CreateUser(r.Context(), email, senhaInicial, security.RoleDona, &estID, nil); err != nil {
+	if _, err := h.auth.CreateUser(r.Context(), email, senhaInicial, security.RoleDona, &estID, nil, ""); err != nil {
 		if errors.Is(err, service.ErrEmailJaCadastrado) {
 			http.Error(w, "E-mail já cadastrado", http.StatusConflict)
 			return
