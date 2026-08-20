@@ -46,7 +46,8 @@ export function NovoSalaoModal({
     setLogoPreview(undefined)
     setSubmitting(false)
     setLocalError('')
-  }, [open, planos])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when modal opens
+  }, [open])
 
   const handleSubmit = async () => {
     setLocalError('')

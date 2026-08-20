@@ -65,6 +65,11 @@ export function GerenciamentoSaloes() {
   const [logoChanged, setLogoChanged] = useState(false)
 
   const stats = useMemo(() => getSuperAdminStats(), [db])
+  const planosOptions = useMemo(
+    () => db.planos.map((p) => ({ id: p.id, nome: p.nome })),
+    [db.planos],
+  )
+  const existingSlugs = useMemo(() => db.tenants.map((t) => t.slug), [db.tenants])
   const refresh = () => setDb(getDb())
 
   const filtered = useMemo(() => {
@@ -378,8 +383,8 @@ export function GerenciamentoSaloes() {
           setCreateOpen(false)
           setError('')
         }}
-        planos={db.planos.map((p) => ({ id: p.id, nome: p.nome }))}
-        existingSlugs={db.tenants.map((t) => t.slug)}
+        planos={planosOptions}
+        existingSlugs={existingSlugs}
         onSuccess={() => {
           refresh()
           setSuccess('Salão cadastrado com sucesso! Senha da dona: AgendaGlow@2026')
