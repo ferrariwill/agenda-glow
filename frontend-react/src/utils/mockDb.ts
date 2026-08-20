@@ -4439,7 +4439,9 @@ function buildServiceApiBody(
   if (opts?.includeAtivo && data.ativo !== undefined) body.ativo = data.ativo
   if (data.profissional_ids !== undefined) body.profissional_ids = data.profissional_ids
   if (data.categoria_id !== undefined) {
-    body.categoria_id = data.categoria_id || null
+    // PUT: backend trata nil como "manter"; string vazia anula (NULL).
+    // Nunca enviar JSON null para limpar — use "".
+    body.categoria_id = data.categoria_id ?? ''
   }
   return body
 }
