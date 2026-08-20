@@ -20,7 +20,7 @@ import {
   getInsumoById,
   updateInsumo,
 } from '../../utils/mockDb'
-import { parseBRLInput } from '../../utils/format'
+import { maskBRLInput, parseBRLInput } from '../../utils/format'
 
 const GLASS =
   'rounded-xl border border-[#e5d3c8]/30 bg-white shadow-[0px_4px_20px_rgba(183,132,114,0.08)]'
@@ -61,7 +61,7 @@ export function InsumoFormDona() {
   const [categoria, setCategoria] = useState<InsumoCategoria>('ESTETICA')
   const [unidade, setUnidade] = useState('un')
   const [valorUnit, setValorUnit] = useState('')
-  const [quantidade, setQuantidade] = useState(0)
+  const [quantidade, setQuantidade] = useState<number | ''>('')
   const [estoqueMin, setEstoqueMin] = useState(10)
   const [instrucoes, setInstrucoes] = useState('')
   const [imagemUrl, setImagemUrl] = useState<string | null>(null)
@@ -81,7 +81,12 @@ export function InsumoFormDona() {
     setMarca(existing.marca ?? '')
     setCategoria(existing.categoria)
     setUnidade(existing.unidade)
-    setValorUnit(existing.valor_unitario.toFixed(2).replace('.', ','))
+    setValorUnit(
+      existing.valor_unitario.toLocaleString('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    )
     setQuantidade(existing.quantidade)
     setEstoqueMin(existing.estoque_minimo)
     setInstrucoes(existing.instrucoes_uso ?? '')
@@ -120,12 +125,13 @@ export function InsumoFormDona() {
     setSaving(true)
     setError('')
 
-    const estoqueIdeal = Math.max(estoqueMin * 2, quantidade, 10)
+    const quantidadeNum = typeof quantidade === 'number' ? quantidade : 0
+    const estoqueIdeal = Math.max(estoqueMin * 2, quantidadeNum, 10)
     const payload = {
       nome: nome.trim(),
       marca: marca.trim() || undefined,
       categoria,
-      quantidade: Math.max(0, quantidade),
+      quantidade: Math.max(0, quantidadeNum),
       estoque_minimo: estoqueMin,
       estoque_ideal: estoqueIdeal,
       valor_unitario: valor,
@@ -276,7 +282,7 @@ export function InsumoFormDona() {
                     type="text"
                     inputMode="decimal"
                     value={valorUnit}
-                    onChange={(e) => setValorUnit(e.target.value)}
+                    onChange={(e) => setValorUnit(maskBRLInput(e.target.value))}
                     placeholder="0,00"
                     className={`${fieldClass} pl-8`}
                   />
@@ -290,7 +296,13 @@ export function InsumoFormDona() {
                   type="number"
                   min={0}
                   value={quantidade}
-                  onChange={(e) => setQuantidade(Number(e.target.value))}
+                  onFocus={() => {
+                    if (quantidade === 0 || quantidade === '') setQuantidade('')
+                  }}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    setQuantidade(raw === '' ? '' : Math.max(0, Number(raw)))
+                  }}
                   placeholder="0"
                   className={fieldClass}
                 />
