@@ -40,6 +40,9 @@ import {
   formatDateTimeBR,
   formatRelativeDate,
   initials,
+  maskPhoneBRInput,
+  phoneDigitsToMaskInput,
+  toWhatsAppDigits,
 } from '../../utils/format'
 
 const PAGE_SIZE = 10
@@ -190,7 +193,7 @@ export function ClientesDona() {
   const openEdit = (c: PlatformClient) => {
     setEditing(c)
     setNome(c.nome)
-    setTelefone(c.telefone)
+    setTelefone(phoneDigitsToMaskInput(c.telefone))
     setEmail(c.email ?? '')
     setError('')
     setModalOpen(true)
@@ -202,12 +205,17 @@ export function ClientesDona() {
       setError('Nome e telefone são obrigatórios')
       return
     }
+    const telefoneDigits = toWhatsAppDigits(telefone)
+    if (telefoneDigits.length < 12) {
+      setError('Informe um WhatsApp completo com DDD (ex.: (11) 99999-9999)')
+      return
+    }
     try {
       if (editing) {
-        updateCliente(editing.cliente_id, { nome, telefone, email })
+        updateCliente(editing.cliente_id, { nome, telefone: telefoneDigits, email })
         setSuccess('Cliente atualizado!')
       } else {
-        await createCliente(tenantId, { nome, telefone, email })
+        await createCliente(tenantId, { nome, telefone: telefoneDigits, email })
         setSuccess('Cliente cadastrado!')
       }
       refresh()
@@ -721,9 +729,13 @@ export function ClientesDona() {
           <Input label="Nome completo" value={nome} onChange={(e) => setNome(e.target.value)} required />
           <Input
             label="WhatsApp (com DDD)"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel"
+            maxLength={15}
             value={telefone}
-            onChange={(e) => setTelefone(e.target.value)}
-            placeholder="5511999999999"
+            onChange={(e) => setTelefone(maskPhoneBRInput(e.target.value))}
+            placeholder="(11) 99999-9999"
             required
           />
           <Input

@@ -24,7 +24,12 @@ import {
   getProfissionalById,
   updateProfissional,
 } from '../../utils/mockDb'
-import { initials } from '../../utils/format'
+import {
+  initials,
+  maskPhoneBRInput,
+  phoneDigitsToMaskInput,
+  toWhatsAppDigits,
+} from '../../utils/format'
 import { validateAllExpedientes } from './ExpedienteForm'
 
 const GLASS =
@@ -154,7 +159,7 @@ export function ProfissionalFormDona() {
     }
     setNome(existing.nome)
     setEmail(existing.email ?? '')
-    setTelefone(existing.telefone ?? '')
+    setTelefone(existing.telefone ? phoneDigitsToMaskInput(existing.telefone) : '')
     setDataNascimento(existing.data_nascimento ?? '')
     setBiografia(existing.biografia ?? '')
     setFotoUrl(existing.foto_url ?? '')
@@ -233,7 +238,9 @@ export function ProfissionalFormDona() {
     const payload: Omit<Profissional, 'id' | 'tenant_id'> = {
       nome: nome.trim(),
       email: email.trim() || undefined,
-      telefone: telefone.trim() || undefined,
+      telefone: telefone.replace(/\D/g, '')
+        ? toWhatsAppDigits(telefone)
+        : undefined,
       data_nascimento: dataNascimento || undefined,
       biografia: biografia.trim() || undefined,
       foto_url: fotoUrl || undefined,
@@ -403,8 +410,11 @@ export function ProfissionalFormDona() {
               <Field label="Telefone / WhatsApp" className="col-span-2 sm:col-span-1">
                 <input
                   type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={15}
                   value={telefone}
-                  onChange={(e) => setTelefone(e.target.value)}
+                  onChange={(e) => setTelefone(maskPhoneBRInput(e.target.value))}
                   placeholder="(11) 99999-9999"
                   className={fieldInputClass}
                 />
