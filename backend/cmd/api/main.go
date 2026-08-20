@@ -47,6 +47,7 @@ func main() {
 	profissionalSvc := service.NewProfissionalService(db)
 	especialidadeSvc := service.NewEspecialidadeService(db)
 	procedimentoSvc := service.NewProcedimentoService(db)
+	categoriaServicoSvc := service.NewCategoriaServicoService(db)
 	agendaSvc := service.NewAgendaService(db, service.AgendaOptions{
 		BaseURL: envOrDefault("APP_BASE_URL", "http://localhost:8081"),
 		Mailer:  service.NewSMTPMailerFromEnv(),
@@ -73,7 +74,7 @@ func main() {
 	agendaNotificationsHandler := adminhandler.NewAgendaNotificationsHandler(agendaSvc)
 	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc, authSvc, whatsAppGate)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
-	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc)
+	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc, categoriaServicoSvc)
 	estoqueHandler := adminhandler.NewEstoqueHandler(servicoInsumoSvc, estoquePrevisaoSvc)
 	tenantFinanceHandler := adminhandler.NewTenantFinanceHandler(financeiroSvc)
 	authHandler := adminhandler.NewAuthHandler(authSvc)
@@ -251,6 +252,10 @@ func main() {
 	mux.Handle("POST /superadmin/planos/{id}", superAdminRoute(superAdminUIHandler.UpdatePlan))
 
 	// Dona do salão — finanças, configuração e painel gerencial
+	mux.Handle("GET /api/v1/service-categories", donaRoute(tenantCatalogHandler.ListServiceCategories))
+	mux.Handle("POST /api/v1/service-categories", donaRoute(tenantCatalogHandler.CreateServiceCategory))
+	mux.Handle("PUT /api/v1/service-categories/{id}", donaRoute(tenantCatalogHandler.UpdateServiceCategory))
+	mux.Handle("DELETE /api/v1/service-categories/{id}", donaRoute(tenantCatalogHandler.DeleteServiceCategory))
 	mux.Handle("GET /api/v1/services", donaRoute(tenantCatalogHandler.ListServices))
 	mux.Handle("POST /api/v1/services", donaRoute(tenantCatalogHandler.CreateService))
 	mux.Handle("PUT /api/v1/services/{id}", donaRoute(tenantCatalogHandler.UpdateService))

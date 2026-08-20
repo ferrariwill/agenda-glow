@@ -48,11 +48,11 @@ WHERE estabelecimento_id = $1 AND ativo = TRUE
 }
 
 type LancamentoCaixa struct {
-	ID              string    `db:"id" json:"id"`
-	Tipo            string    `db:"tipo" json:"tipo"`
-	Descricao       string    `db:"descricao" json:"descricao"`
-	Valor           float64   `db:"valor" json:"valor"`
-	DataTransacao   time.Time `db:"data_transacao" json:"data_transacao"`
+	ID            string    `db:"id" json:"id"`
+	Tipo          string    `db:"tipo" json:"tipo"`
+	Descricao     string    `db:"descricao" json:"descricao"`
+	Valor         float64   `db:"valor" json:"valor"`
+	DataTransacao time.Time `db:"data_transacao" json:"data_transacao"`
 }
 
 // ListLancamentosMes retorna movimentações recentes do mês corrente.
@@ -103,10 +103,10 @@ func (s *FinanceiroService) GetCaixaFluxoPage(ctx context.Context, establishment
 }
 
 type CaixaFluxoPage struct {
-	PeriodoLabel string              `json:"periodo_label"`
-	StartDate    string              `json:"start_date"`
-	EndDate      string              `json:"end_date"`
-	Lancamentos  []LancamentoCaixa   `json:"lancamentos"`
+	PeriodoLabel string               `json:"periodo_label"`
+	StartDate    string               `json:"start_date"`
+	EndDate      string               `json:"end_date"`
+	Lancamentos  []LancamentoCaixa    `json:"lancamentos"`
 	Relatorio    *RelatorioFinanceiro `json:"relatorio"`
 }
 
@@ -131,9 +131,12 @@ WHERE sa.id = $1 AND s.estabelecimento_id = $2
 // BuscarServicoPorID retorna serviço com adicionais e profissional_ids (tenant-scoped).
 func (s *ProcedimentoService) BuscarServicoPorID(ctx context.Context, establishmentID, serviceID string) (*Servico, error) {
 	const query = `
-SELECT id, nome, preco_base, duracao_base_minutos, ativo
-FROM servicos
-WHERE id = $1 AND estabelecimento_id = $2
+SELECT s.id, s.nome, s.preco_base, s.duracao_base_minutos, s.ativo,
+       s.categoria_id, c.nome AS categoria_nome
+FROM servicos s
+LEFT JOIN categorias_servicos c
+  ON c.id = s.categoria_id AND c.estabelecimento_id = s.estabelecimento_id
+WHERE s.id = $1 AND s.estabelecimento_id = $2
 `
 	var serv Servico
 	if err := s.db.GetContext(ctx, &serv, query, serviceID, establishmentID); err != nil {

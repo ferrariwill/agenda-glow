@@ -82,15 +82,47 @@ estoque_minimo, estoque_ideal, valor_unitario, unidade, imagem_url, instrucoes_u
 `
 
 func (s *InsumoService) List(ctx context.Context, establishmentID string) ([]Insumo, error) {
-	query := `
+	return s.Search(ctx, establishmentID, "", 0)
+}
+
+// Search lista insumos ativos do tenant. Com q não vazio, filtra por ILIKE em nome/marca.
+// limit <= 0 mantém listagem completa (compatível com List); com q, default 20 e máx 50.
+func (s *InsumoService) Search(ctx context.Context, establishmentID, q string, limit int) ([]Insumo, error) {
+	q = strings.TrimSpace(q)
+
+	base := `
 SELECT ` + insumoSelectCols + `
 FROM insumos
 WHERE estabelecimento_id = $1 AND ativo = TRUE
-ORDER BY nome
 `
+	args := []any{establishmentID}
+	argN := 2
+	if q != "" {
+		base += fmt.Sprintf(` AND (nome ILIKE $%d OR COALESCE(marca, '') ILIKE $%d)`, argN, argN)
+		args = append(args, "%"+q+"%")
+		argN++
+		if limit <= 0 {
+			limit = 20
+		}
+	}
+	base += ` ORDER BY nome`
+	if q != "" || limit > 0 {
+		if limit <= 0 {
+			limit = 20
+		}
+		if limit > 50 {
+			limit = 50
+		}
+		base += fmt.Sprintf(` LIMIT $%d`, argN)
+		args = append(args, limit)
+	}
+
 	var list []Insumo
-	if err := s.db.SelectContext(ctx, &list, query, establishmentID); err != nil {
+	if err := s.db.SelectContext(ctx, &list, base, args...); err != nil {
 		return nil, fmt.Errorf("listar insumos: %w", err)
+	}
+	if list == nil {
+		list = []Insumo{}
 	}
 	for i := range list {
 		list[i].applyDerived()

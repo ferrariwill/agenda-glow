@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/agendaglow/agendaglow/internal/security"
@@ -600,14 +601,21 @@ func (h *BootstrapAPIHandler) MarkFilaNotificada(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, map[string]string{"status": "notified"})
 }
 
-// ListInsumos GET /api/v1/supplies
+// ListInsumos GET /api/v1/supplies?q=&limit=20
 func (h *BootstrapAPIHandler) ListInsumos(w http.ResponseWriter, r *http.Request) {
 	establishmentID, ok := security.EstablishmentIDFromContext(r.Context())
 	if !ok {
 		writeJSONError(w, http.StatusUnauthorized, "missing_establishment_context")
 		return
 	}
-	list, err := h.insumo.List(r.Context(), establishmentID)
+	q := r.URL.Query().Get("q")
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	list, err := h.insumo.Search(r.Context(), establishmentID, q, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error")
 		return
