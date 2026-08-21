@@ -92,9 +92,14 @@ func TestInboxVisibilitySQL_ContainsAudienceRules(t *testing.T) {
 		"ALL_TENANTS",
 		"ESTABELECIMENTOS",
 		"aviso_estabelecimentos",
+		"$3::uuid IS NOT NULL",
+		"ae.estabelecimento_id = $3::uuid",
 	} {
 		if !strings.Contains(sql, snippet) {
 			t.Fatalf("SQL sem %q:\n%s", snippet, sql)
 		}
+	}
+	if strings.Contains(sql, "$3 IS NOT NULL") {
+		t.Fatalf("placeholder sem cast ::uuid (Postgres não inferre o tipo):\n%s", sql)
 	}
 }
