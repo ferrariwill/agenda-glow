@@ -406,6 +406,11 @@ RETURNING read_at
 }
 
 func inboxVisibilitySQL(alias, roleParam, estParam string) string {
+	// Cast estabelecimento to uuid on every use (including IS NOT NULL).
+	// Postgres cannot infer the type of an untyped NULL/$n in "$n IS NOT NULL"
+	// when the only other typed use is inside EXISTS — that yields
+	// "could not determine data type of parameter $n" at runtime.
+	estUUID := estParam + "::uuid"
 	return fmt.Sprintf(`
 %s.ativo = TRUE
 AND (%s.expires_at IS NULL OR %s.expires_at > NOW())
@@ -418,15 +423,15 @@ AND (
     AND %s IS NOT NULL
     AND EXISTS (
       SELECT 1 FROM aviso_estabelecimentos ae
-      WHERE ae.aviso_id = %s.id AND ae.estabelecimento_id = %s::uuid
+      WHERE ae.aviso_id = %s.id AND ae.estabelecimento_id = %s
     )
   )
 )`,
 		alias, alias, alias,
 		roleParam, alias,
 		roleParam, alias,
-		roleParam, alias, estParam,
-		alias, estParam,
+		roleParam, alias, estUUID,
+		alias, estUUID,
 	)
 }
 
