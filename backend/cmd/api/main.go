@@ -72,8 +72,11 @@ func main() {
 	earlySlotHandler := adminhandler.NewEarlySlotHandler(earlySlotSvc)
 	configHandler := adminhandler.NewEstabelecimentoConfigHandler(estabelecimentoSvc)
 	agendaNotificationsHandler := adminhandler.NewAgendaNotificationsHandler(agendaSvc)
+	avisoSvc := service.NewAvisoService(db)
 	adminEstHandler := adminhandler.NewAdminEstablishmentsHandler(estabelecimentoSvc, authSvc, whatsAppGate)
 	adminPlansHandler := adminhandler.NewAdminPlansHandler(planoSaasSvc, saasGuard)
+	adminAvisosHandler := adminhandler.NewAdminAvisosHandler(avisoSvc)
+	meNotificacoesHandler := adminhandler.NewMeNotificacoesHandler(avisoSvc)
 	tenantCatalogHandler := adminhandler.NewTenantCatalogHandler(profissionalSvc, procedimentoSvc, categoriaServicoSvc)
 	estoqueHandler := adminhandler.NewEstoqueHandler(servicoInsumoSvc, estoquePrevisaoSvc)
 	tenantFinanceHandler := adminhandler.NewTenantFinanceHandler(financeiroSvc)
@@ -182,7 +185,14 @@ func main() {
 	mux.Handle("GET /api/v1/admin/plans", superAdminRoute(adminPlansHandler.List))
 	mux.Handle("POST /api/v1/admin/plans", superAdminRoute(adminPlansHandler.Create))
 	mux.Handle("PUT /api/v1/admin/plans/{id}", superAdminRoute(adminPlansHandler.Update))
+	mux.Handle("POST /api/v1/admin/avisos", superAdminRoute(adminAvisosHandler.Create))
+	mux.Handle("GET /api/v1/admin/avisos", superAdminRoute(adminAvisosHandler.List))
+	mux.Handle("PATCH /api/v1/admin/avisos/{id}", superAdminRoute(adminAvisosHandler.Patch))
 	mux.Handle("GET /api/v1/admin/bootstrap", superAdminRoute(bootstrapAPI.AdminBootstrap))
+
+	// Inbox de avisos globais (qualquer role autenticada; sem guarda SaaS)
+	mux.Handle("GET /api/v1/me/notificacoes", security.AuthenticateMiddleware(http.HandlerFunc(meNotificacoesHandler.List)))
+	mux.Handle("POST /api/v1/me/notificacoes/{id}/read", security.AuthenticateMiddleware(http.HandlerFunc(meNotificacoesHandler.MarkRead)))
 
 	// Bootstrap e REST JSON para o front-end React
 	mux.Handle("GET /api/v1/bootstrap", tenantStaffRoute(bootstrapAPI.TenantBootstrap))
